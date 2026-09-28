@@ -56,7 +56,7 @@ let developCards: [CardSpec] = [
     CardSpec(id: "hlrec", title: "하이라이트 복구", rawOnly: true, enableKey: \.highlightRecoveryOn, help: "날아간 채널을 남은 채널로 되살립니다"),
     CardSpec(id: "hdr", title: "하이 다이내믹 레인지", rows: [
         SliderSpec(label: "하이라이트", key: \.highlightTone, min: -100, max: 100),
-        SliderSpec(label: "섀도", key: \.shadow, min: 0, max: 100, format: "%.0f"),
+        SliderSpec(label: "섀도", key: \.shadow, min: -100, max: 100),
         SliderSpec(label: "화이트", key: \.white, min: -100, max: 100),
         SliderSpec(label: "블랙", key: \.black, min: -100, max: 100),
     ]),

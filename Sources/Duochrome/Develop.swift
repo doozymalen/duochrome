@@ -39,11 +39,13 @@ enum Develop {
             (out, g) = localContrast(out, guide: g, guideScale: gs, scale: scale,
                                      amount: s.structure / 100, radius: 12, eps: 0.002, method: s.clarityMethod)
         }
-        // 하이라이트는 국소로 (밝은 구역 전체를 옮기되 그 안의 질감은 남긴다). 톤 단계에서는 뺀다.
+        // 하이라이트·섀도는 국소로 (밝은·어두운 구역 전체를 옮기되 그 안의 질감은 남긴다). 톤 단계에서는 뺀다.
         var st = s
-        if s.highlightTone != 0 {
-            (out, g) = localHighlights(out, guide: g, guideScale: gs, scale: scale, amount: s.highlightTone / 100)
+        if s.highlightTone != 0 || s.shadow != 0 {
+            (out, g) = localTone(out, guide: g, guideScale: gs, scale: scale,
+                                 highlight: s.highlightTone / 100, shadow: s.shadow / 100)
             st.highlightTone = 0
+            st.shadow = 0
         }
         out = tone(st, out, scale: scale)
         var lutKey = s.color
@@ -63,11 +65,11 @@ enum Develop {
         let extent = image.extent
         var out = image
         // 하이라이트·섀도: 휘도만 스톱 단위로 누르고 밝힌다 (정의는 docs/SLIDERS.md).
-        // 현상 단계의 하이라이트는 base()에서 국소로 걸고, 여기는 조정 레이어·LUT 내보내기처럼 한 픽셀씩 볼 때.
+        // 현상 단계에서는 base()에서 국소로 걸고, 여기는 조정 레이어·LUT 내보내기처럼 한 픽셀씩 볼 때.
         if s.highlightTone != 0 {
             out = GPU.run("highlight_curve", [out], params: [s.highlightTone / 100], extent: extent)
         }
-        if s.shadow > 0 {
+        if s.shadow != 0 {
             out = GPU.run("shadow_curve", [out], params: [s.shadow / 100], extent: extent)
         }
         if let curve = toneCurve(s) {
@@ -133,17 +135,18 @@ enum Develop {
         return (out, g)
     }
 
-    /// 국소 하이라이트: 가장자리를 지키는 기저 밝기(반경 80픽셀, 원본 기준)에 하이라이트 곡선을 걸고
-    /// 그 배율을 픽셀에 곱한다. 한 픽셀씩 거는 곡선과 달리 밝은 구역 안의 질감(세부 대비)이 줄지 않는다.
-    static func localHighlights(_ img: CIImage, guide: CIImage, guideScale gs: CGFloat, scale: CGFloat,
-                                amount: Float) -> (CIImage, CIImage) {
+    /// 국소 하이라이트·섀도: 가장자리를 지키는 기저 밝기(반경 80픽셀, 원본 기준)에 두 곡선을 걸고
+    /// 그 배율을 픽셀에 곱한다. 한 픽셀씩 거는 곡선과 달리 구역 안의 질감(세부 대비)이 줄지 않는다.
+    static func localTone(_ img: CIImage, guide: CIImage, guideScale gs: CGFloat, scale: CGFloat,
+                          highlight: Float, shadow: Float) -> (CIImage, CIImage) {
+        let amount = [highlight, shadow]
         // eps가 크면 잔 질감은 기저에 덜 들어가 질감이 더 남는다 (큰 경계만 가른다)
         let radius: CGFloat = 80, eps: Float = 0.03
         func direct(_ i: CIImage, _ r: CGFloat) -> CIImage {
             let e = i.extent
             let lum = GPU.run("luma_sq", [i], extent: e)
             let ab = GPU.run("guided_ab", [lum.blurred(r)], params: [eps], extent: e).blurred(r)
-            return GPU.run("highlight_local", [i, lum, ab], params: [amount], extent: e)
+            return GPU.run("tone_local", [i, lum, ab], params: amount, extent: e)
         }
         let rFull = radius * scale
         if rFull <= 24 || gs == scale {
@@ -156,8 +159,8 @@ enum Develop {
         let lumG = GPU.run("luma_sq", [guide], extent: guide.extent)
         let ab = GPU.run("guided_ab", [lumG.blurred(rg)], params: [eps], extent: guide.extent).blurred(rg)
         let lum = GPU.run("luma_sq", [img], extent: img.extent)
-        let out = GPU.run("highlight_local", [img, lum, grow(ab, by: scale / gs, to: img.extent)], params: [amount], extent: img.extent)
-        let g = GPU.run("highlight_local", [guide, lumG, ab], params: [amount], extent: guide.extent)
+        let out = GPU.run("tone_local", [img, lum, grow(ab, by: scale / gs, to: img.extent)], params: amount, extent: img.extent)
+        let g = GPU.run("tone_local", [guide, lumG, ab], params: amount, extent: guide.extent)
         return (out, g)
     }
 

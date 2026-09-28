@@ -235,9 +235,34 @@ enum GPU {
         dst.write(half4(half3(c.rgb * (highlight_y(y, p.a) / y)), c.a), gid);
     }
 
-    // 하이라이트 (국소): 곡선을 가장자리를 지키는 기저 밝기(가이디드 필터)에 걸고, 그 배율을 픽셀에 곱한다.
-    // 밝은 구역 전체는 곡선대로 옮기되 그 안의 질감(세부 대비)은 그대로 남는다. p.a = -1~1
-    kernel void highlight_local(texture2d<half, access::read> src [[texture(0)]],
+    // 섀도 곡선 (docs/SLIDERS.md). y = 선형 휘도, v = -1~1.
+    // v > 0 (밝게): 화면 밝기 L 0.5 위는 그대로, 0.2 아래는 최대 1스톱 밝힌다 (곱하기라 순수한 검정은 검정).
+    // v < 0 (깊게): 0.5와 검정은 그대로 두고 그 사이를 내린다 (u + |v|·u²(1-u), L 0.17이 약 0.09로).
+    inline float shadow_y(float y, float v) {
+        if (y <= 1e-6 || v == 0.0) return y;
+        float L = pow(min(y, 1.0), 1.0 / 2.2);
+        float t = clamp((0.5 - L) / 0.5, 0.0, 1.0);
+        if (v > 0.0) return y * exp2(min(v, 1.0) * smoothstep(0.0, 0.6, t));
+        if (L >= 0.5) return y;
+        float u = t + min(-v, 1.0) * t * t * (1.0 - t);
+        return pow(max(0.5 - 0.5 * u, 0.0), 2.2);
+    }
+
+    // 섀도 (한 픽셀씩): 조정 레이어·LUT 내보내기용. p.a = -1~1. 휘도만 바꾸고 색 비율은 지킨다.
+    kernel void shadow_curve(texture2d<half, access::read> src [[texture(0)]],
+                             texture2d<half, access::write> dst [[texture(1)]],
+                             constant Params &p [[buffer(0)]],
+                             uint2 gid [[thread_position_in_grid]]) {
+        if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+        float4 c = float4(src.read(gid));
+        float y = dot(max(c.rgb, 0.0), float3(0.2627, 0.6780, 0.0593));
+        if (y <= 1e-6) { dst.write(half4(c), gid); return; }
+        dst.write(half4(half3(c.rgb * (shadow_y(y, p.a) / y)), c.a), gid);
+    }
+
+    // 하이라이트·섀도 (국소): 곡선을 가장자리를 지키는 기저 밝기(가이디드 필터)에 걸고, 그 배율을 픽셀에 곱한다.
+    // 밝은·어두운 구역 전체는 곡선대로 옮기되 그 안의 질감(세부 대비)은 그대로 남는다. p.a = 하이라이트, p.b = 섀도 (-1~1)
+    kernel void tone_local(texture2d<half, access::read> src [[texture(0)]],
                                 texture2d<half, access::read> lum [[texture(1)]],
                                 texture2d<half, access::read> ab [[texture(2)]],
                                 texture2d<half, access::write> dst [[texture(3)]],
@@ -248,25 +273,8 @@ enum GPU {
         float l = float(lum.read(gid).r);
         float2 k = float2(ab.read(gid).rg);
         float yb = pow(max(k.x * l + k.y, 1e-4), 2.2);
-        float gain = highlight_y(yb, p.a) / yb;
+        float gain = shadow_y(highlight_y(yb, p.a), p.b) / yb;
         dst.write(half4(half3(c.rgb * gain), c.a), gid);
-    }
-
-    // 섀도 (docs/SLIDERS.md): p.a = 양 0~1. 화면 밝기 0.5 위는 그대로, 0.2 아래는 최대 1스톱(×a) 밝힌다.
-    // 곱하기라 순수한 검정은 검정으로 남고, 색 비율은 지킨다.
-    kernel void shadow_curve(texture2d<half, access::read> src [[texture(0)]],
-                             texture2d<half, access::write> dst [[texture(1)]],
-                             constant Params &p [[buffer(0)]],
-                             uint2 gid [[thread_position_in_grid]]) {
-        if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
-        float4 c = float4(src.read(gid));
-        float y = dot(max(c.rgb, 0.0), float3(0.2627, 0.6780, 0.0593));
-        if (y <= 1e-6) { dst.write(half4(c), gid); return; }
-        float a = clamp(p.a, 0.0, 1.0);
-        float L = pow(min(y, 1.0), 1.0 / 2.2);
-        float t = clamp((0.5 - L) / 0.5, 0.0, 1.0);
-        float y1 = y * exp2(a * smoothstep(0.0, 0.6, t));
-        dst.write(half4(half3(c.rgb * (y1 / y)), c.a), gid);
     }
 
     // 범위 밖 지우기: 텍스처 좌표 (x0, y0) ~ (x1, y1) 밖을 투명하게. p = (x0, y0, x1, y1)

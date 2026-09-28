@@ -760,7 +760,7 @@ enum Effects {
                    params: [EffectParam(key: "exposure", title: "노출", range: -4...4, def: 0),
                             EffectParam(key: "contrast", title: "대비", range: -100...100, def: 0),
                             EffectParam(key: "highlight", title: "하이라이트 복구", range: 0...100, def: 0),
-                            EffectParam(key: "shadow", title: "섀도", range: 0...100, def: 0),
+                            EffectParam(key: "shadow", title: "섀도", range: -100...100, def: 0),
                             EffectParam(key: "clarity", title: "클래리티", range: -100...100, def: 0),
                             EffectParam(key: "dehaze", title: "디헤이즈", range: 0...100, def: 0),
                             EffectParam(key: "saturation", title: "채도", range: -100...100, def: 0),

@@ -369,18 +369,30 @@ enum SelfTest {
             var hs = DevelopSettings(); hs.highlightTone = -100
             let r0 = ratio(stripes), rLocal = ratio(Develop.base(hs, to: stripes, guide: nil, scale: 1, haze: 0.9).0),
                 rGlobal = ratio(Develop.tone(hs, stripes, scale: 1))
+            // 섀도 -100도 어두운 구역의 줄무늬(선형 0.01·0.04) 명암 비율을 지켜야 한다 (한 픽셀씩이면 뭉개지며 대비가 커진다)
+            let darkStripes = CIFilter(name: "CIStripesGenerator", parameters: [
+                "inputColor0": CIColor(red: 0.01, green: 0.01, blue: 0.01, alpha: 1, colorSpace: Render.workingSpace)!,
+                "inputColor1": CIColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1, colorSpace: Render.workingSpace)!,
+                "inputWidth": 8, "inputSharpness": 1])!.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: 400, height: 100))
+            var ds = DevelopSettings(); ds.shadow = -100
+            let d0 = ratio(darkStripes), dLocal = ratio(Develop.base(ds, to: darkStripes, guide: nil, scale: 1, haze: 0.9).0),
+                dGlobal = ratio(Develop.tone(ds, darkStripes, scale: 1))
             let shMid = gray(0.18) { $0.shadow = 100 }, shLow = gray(0.00631) { $0.shadow = 100 }
+            let shDeep = gray(0.01941) { $0.shadow = -100 }, shDeepMid = gray(0.18) { $0.shadow = -100 }
             let ok = abs(bright / 0.36 - 1) < 0.04 && abs(brightWhite - 1) < 0.01
                 && abs(conMid / 0.18 - 1) < 0.03 && conLo < 0.05 && conHi > 0.6 && abs(brightCon - 0.36) < 0.004
                 && abs(hlMid / 0.18 - 1) < 0.01 && abs(hlTop / 0.3495 - 1) < 0.03 && abs(hlOld - hlTop) < 0.002
                 && abs(hlUp / 0.807 - 1) < 0.03 && abs(hlUpMid / 0.18 - 1) < 0.01
                 && rLocal / r0 > 0.8 && rGlobal < rLocal * 0.85
+                && abs(shDeep / 0.005327 - 1) < 0.05 && abs(shDeepMid / 0.18 - 1) < 0.03
+                && dLocal / d0 < 1.3 && dGlobal > dLocal * 1.5
                 && abs(shMid / 0.18 - 1) < 0.06 && abs(shLow / 0.01262 - 1) < 0.04
             check("슬라이더 정의", ok, String(format:
                 "밝기 +100: 회색 0.18 → %.3f (목표 0.36), 흰색 %.3f · 대비 +60: 회색 %.3f, 0.05 → %.3f, 0.6 → %.3f · " +
                 "하이라이트 −100: 회색 %.3f, 0.699 → %.3f (목표 0.350) · +100: 0.669 → %.3f (목표 0.807) · " +
-                "줄무늬 명암비 %.2f → 국소 %.2f (한 픽셀씩이면 %.2f) · 섀도 100: 회색 %.3f, 0.0063 → %.4f (목표 0.0126)",
-                bright, brightWhite, conMid, conLo, conHi, hlMid, hlTop, hlUp, r0, rLocal, rGlobal, shMid, shLow))
+                "줄무늬 명암비 %.2f → 국소 %.2f (한 픽셀씩이면 %.2f) · 섀도 100: 회색 %.3f, 0.0063 → %.4f (목표 0.0126) · " +
+                "섀도 −100: 0.0194 → %.4f (목표 0.0053), 회색 %.3f, 어두운 줄무늬 명암비 %.2f → 국소 %.2f (한 픽셀씩이면 %.2f)",
+                bright, brightWhite, conMid, conLo, conHi, hlMid, hlTop, hlUp, r0, rLocal, rGlobal, shMid, shLow, shDeep, shDeepMid, d0, dLocal, dGlobal))
         }
 
         // 15. 색 조정·필터·선택 마스크

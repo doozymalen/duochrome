@@ -66,7 +66,7 @@ enum SliderResponse {
         }
         e.saturation = max(e.saturation, -100)
         e.highlightTone = min(max(e.highlightTone, -100), 100)
-        e.shadow = min(max(e.shadow, 0), 200)
+        e.shadow = min(max(e.shadow, -100), 100)
         e.dehaze = min(max(e.dehaze, 0), 100)
         return e
     }

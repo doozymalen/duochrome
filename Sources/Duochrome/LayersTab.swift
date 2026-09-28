@@ -394,7 +394,7 @@ final class LayersTabController: NSViewController {
         let specs: [(String, WritableKeyPath<LocalAdjust, Float>, Double, Double, String)] = [
             ("노출", \.exposure, -4, 4, "%+.2f"), ("대비", \.contrast, -100, 100, "%+.0f"),
             ("밝기", \.brightness, -100, 100, "%+.0f"), ("채도", \.saturation, -100, 100, "%+.0f"),
-            ("하이라이트", \.highlightTone, -100, 100, "%+.0f"), ("섀도", \.shadow, 0, 100, "%.0f"),
+            ("하이라이트", \.highlightTone, -100, 100, "%+.0f"), ("섀도", \.shadow, -100, 100, "%+.0f"),
             ("클래리티", \.clarity, -100, 100, "%+.0f"), ("디헤이즈", \.dehaze, 0, 100, "%.0f"),
             ("색온도 (차갑게 ↔ 따뜻하게)", \.temperature, -100, 100, "%+.0f"), ("틴트 (초록 ↔ 자홍)", \.tint, -100, 100, "%+.0f"),
         ]
