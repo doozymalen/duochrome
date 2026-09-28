@@ -56,18 +56,12 @@ enum Develop {
     static func tone(_ s: DevelopSettings, _ image: CIImage, scale: CGFloat) -> CIImage {
         let extent = image.extent
         var out = image
+        // 하이라이트·섀도: 휘도만 스톱 단위로 누르고 밝힌다 (정의는 docs/SLIDERS.md)
         if s.highlight > 0 {
-            // 하이라이트 곡선 커널 (사진 42장으로 잰 모양):
-            // 화면 밝기 0.5 위만 누르고 0.8 부근을 가장 많이, 1.0 넘는 날아간 부분은 흰색 안으로 접는다. 색 비율은 지킨다.
             out = GPU.run("highlight_curve", [out], params: [s.highlight / 100], extent: extent)
         }
-        if s.shadow != 0 {
-            // 섀도는 따로 (하이라이트 양 1 = 그대로). 반경은 원본 픽셀 기준으로 고정하고 미리보기 단계만큼 줄인다.
-            out = out.applyingFilter("CIHighlightShadowAdjust", parameters: [
-                "inputHighlightAmount": 1,
-                "inputShadowAmount": s.shadow / 100,
-                "inputRadius": max(1, 60 * scale),
-            ]).cropped(to: extent)
+        if s.shadow > 0 {
+            out = GPU.run("shadow_curve", [out], params: [s.shadow / 100], extent: extent)
         }
         if let curve = toneCurve(s) {
             // 톤 곡선은 화면 감마 공간에서 건다. 선형 공간에서 걸면 가운데가 너무 어둡게 쏠린다.
@@ -217,6 +211,11 @@ enum Develop {
         return 0.9
     }
 
+    /// 선형 값 → 톤 곡선을 거는 화면 값 (Display P3의 sRGB 전달 함수)
+    static func encode(_ v: Float) -> Float {
+        v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1 / 2.4) - 0.055
+    }
+
     /// 대비·밝기·화이트·블랙과 커브 도구를 채널별 곡선 하나로 합친다. 아무것도 안 바뀌었으면 nil.
     static func toneCurve(_ s: DevelopSettings) -> Data? {
         let levelsChanged = s.levelInBlack != 0 || s.levelInWhite != 1 || s.levelGamma != 1
@@ -225,10 +224,12 @@ enum Develop {
         let baseChanged = channelLevels || s.contrast != 0 || s.filmContrast != 0 || s.brightness != 0 || s.white != 0 || s.black != 0 || levelsChanged
         guard baseChanged || !s.curves.isIdentity else { return nil }
         let n = 256, fine = 1024
-        // 대비: 0.5를 축으로 한 S자 곡선의 지수. 1보다 크면 대비가 세진다.
+        // 밝기: 양끝은 두고 중간 회색(선형 18%)을 정확히 밝기/100 스톱 옮기는 감마.
+        let mid0 = encode(0.18), mid1 = encode(min(0.18 * pow(2, s.brightness / 100), 1))
+        let gamma = s.brightness == 0 ? 1 : log(mid1) / log(mid0)
+        // 대비: 옮긴 중간 회색을 축으로 한 S자 곡선. 축의 기울기가 2^(대비/100)배, 양끝과 중간 회색은 그대로.
         let g = pow(2, (s.contrast + s.filmContrast) / 100)
-        // 밝기: 양끝은 두고 가운데만 움직이는 감마.
-        let gamma = pow(2, -s.brightness / 100 * 0.8)
+        let pivot = mid1
         let rgb = s.curves.rgb.sample(fine)
         let chan = [s.curves.red.sample(fine), s.curves.green.sample(fine), s.curves.blue.sample(fine)]
 
@@ -248,7 +249,7 @@ enum Develop {
             x += s.white / 100 * 0.25 * pow(x, 3)
             x = min(max(x, 0), 1)
             x = pow(x, gamma)
-            x = x < 0.5 ? 0.5 * pow(2 * x, g) : 1 - 0.5 * pow(2 * (1 - x), g)
+            x = x < pivot ? pivot * pow(x / pivot, g) : 1 - (1 - pivot) * pow((1 - x) / (1 - pivot), g)
             // 레벨: 입력 범위를 0~1로 펴고, 감마로 중간을 옮긴 뒤, 출력 범위로 줄인다.
             if levelsChanged {
                 x = min(max((x - s.levelInBlack) / max(s.levelInWhite - s.levelInBlack, 0.001), 0), 1)

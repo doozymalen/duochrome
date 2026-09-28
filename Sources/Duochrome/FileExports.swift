@@ -2,13 +2,13 @@ import AppKit
 import CoreImage
 import UniformTypeIdentifiers
 
-/// 색 조정을 LUT(.cube)로 굽기. 픽셀 하나만 보는 조정(노출·화이트 밸런스 차이·기본 모습·하이라이트·톤 곡선·레벨·
+/// 색 조정을 LUT(.cube)로 굽기. 픽셀 하나만 보는 조정(노출·화이트 밸런스 차이·기본 모습·하이라이트·섀도·톤 곡선·레벨·
 /// 채도·컬러 밸런스·흑백·컬러 에디터)만 들어간다. 클래리티·디헤이즈·샤프닝·그레인·비네팅·레이어처럼 둘레를 보는 조정은 빠진다.
 enum LUTExport {
     static func cube(_ doc: RawDocument, size n: Int = 33) -> String? {
         var s = SliderResponse.effective(doc.settings)
         // 둘레를 보는 조정은 끈다
-        s.clarity = 0; s.structure = 0; s.dehaze = 0; s.shadow = 0; s.hotPixels = 0
+        s.clarity = 0; s.structure = 0; s.dehaze = 0; s.hotPixels = 0
         s.sharpenAmount = 0; s.grainAmount = 0; s.vignette = 0; s.layers = []
         let w = n * n, h = n
         var px = [Float](repeating: 1, count: w * h * 4)

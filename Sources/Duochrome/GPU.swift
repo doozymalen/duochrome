@@ -199,7 +199,9 @@ enum GPU {
         dst.write(out ? half4(0.22, 0.22, 0.22, 1) : proof.read(gid), gid);
     }
 
-    // 하이라이트 곡선: p.a = 양 0~1.3
+    // 하이라이트 (docs/SLIDERS.md): p.a = 양 0~1. 화면 밝기 L(감마 2.2) 0.5 아래는 그대로,
+    // 0.85에서 최대 1스톱(×a), 흰색 1.0에서는 0.75스톱 누른다. 1.0을 넘는 날아간 부분은 흰색 아래로 접는다.
+    // 휘도만 바꾸고 색 비율은 지킨다.
     kernel void highlight_curve(texture2d<half, access::read> src [[texture(0)]],
                              texture2d<half, access::write> dst [[texture(1)]],
                              constant Params &p [[buffer(0)]],
@@ -208,20 +210,33 @@ enum GPU {
         float4 c = float4(src.read(gid));
         float y = dot(max(c.rgb, 0.0), float3(0.2627, 0.6780, 0.0593));
         if (y <= 1e-5) { dst.write(half4(c), gid); return; }
-        float a = p.a;
-        float L = pow(y, 1.0 / 2.2);
+        float a = clamp(p.a, 0.0, 1.0);
+        float L = pow(min(y, 1.0), 1.0 / 2.2);
         float t = clamp((L - 0.5) / 0.5, 0.0, 1.0);
-        // 사진 42장에서 잰 모양: 0.8 부근을 가장 많이, 흰색은 조금 덜.
-        // 세기 0.39는 구간별 (기준 사진이 누른 양 / 이 곡선 0.29가 누른 양)의 최소제곱 비 1.34를 곱한 값.
-        float dL = 0.39 * a * pow(t, 1.5) * (1.0 - 0.8 * t);
-        float L1 = min(L, 1.0) - dL;
-        // 1 넘는 부분: 흰색까지 남은 여유 안으로 부드럽게 접는다 (양만큼 섞음)
-        if (L > 1.0) {
-            float room = 1.0 - L1;
-            float folded = L1 + room * (1.0 - exp(-(L - 1.0) * 3.0));
-            L1 = mix(L - dL, folded, clamp(a, 0.0, 1.0));
+        float w = smoothstep(0.0, 0.7, t) * (1.0 - 0.25 * smoothstep(0.7, 1.0, t));
+        float y1 = min(y, 1.0) * exp2(-a * w);
+        if (y > 1.0) {
+            float base = exp2(-a * 0.75);
+            float folded = base + (1.0 - base) * (1.0 - exp(-(y - 1.0) * 3.0));
+            y1 = mix(y * base, folded, a);
         }
-        float y1 = pow(max(L1, 0.0), 2.2);
+        dst.write(half4(half3(c.rgb * (y1 / y)), c.a), gid);
+    }
+
+    // 섀도 (docs/SLIDERS.md): p.a = 양 0~1. 화면 밝기 0.5 위는 그대로, 0.2 아래는 최대 1스톱(×a) 밝힌다.
+    // 곱하기라 순수한 검정은 검정으로 남고, 색 비율은 지킨다.
+    kernel void shadow_curve(texture2d<half, access::read> src [[texture(0)]],
+                             texture2d<half, access::write> dst [[texture(1)]],
+                             constant Params &p [[buffer(0)]],
+                             uint2 gid [[thread_position_in_grid]]) {
+        if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+        float4 c = float4(src.read(gid));
+        float y = dot(max(c.rgb, 0.0), float3(0.2627, 0.6780, 0.0593));
+        if (y <= 1e-6) { dst.write(half4(c), gid); return; }
+        float a = clamp(p.a, 0.0, 1.0);
+        float L = pow(min(y, 1.0), 1.0 / 2.2);
+        float t = clamp((0.5 - L) / 0.5, 0.0, 1.0);
+        float y1 = y * exp2(a * smoothstep(0.0, 0.6, t));
         dst.write(half4(half3(c.rgb * (y1 / y)), c.a), gid);
     }
 

@@ -328,6 +328,34 @@ enum SelfTest {
                          mid.y, mid0.y, hi.y, one.y))
         }
 
+        // 14-2. 슬라이더 정의 (docs/SLIDERS.md): 밝기는 중간 회색을 스톱 단위로, 대비는 중간 회색 고정,
+        //       하이라이트·섀도는 정해진 밝기 구간만 스톱 단위로
+        do {
+            func gray(_ v: CGFloat, _ edit: (inout DevelopSettings) -> Void) -> Float {
+                var st = DevelopSettings()
+                edit(&st)
+                let r = CGRect(x: 0, y: 0, width: 1, height: 1)
+                let img = CIImage(color: CIColor(red: v, green: v, blue: v, alpha: 1, colorSpace: Render.workingSpace)!).cropped(to: r)
+                var p = [Float](repeating: 0, count: 4)
+                Render.context.render(Develop.tone(st, img, scale: 1), toBitmap: &p, rowBytes: 16, bounds: r, format: .RGBAf,
+                                      colorSpace: Render.workingSpace)
+                return p[1]
+            }
+            let bright = gray(0.18) { $0.brightness = 100 }, brightWhite = gray(1.0) { $0.brightness = 100 }
+            let conMid = gray(0.18) { $0.contrast = 60 }, conLo = gray(0.05) { $0.contrast = 60 }, conHi = gray(0.6) { $0.contrast = 60 }
+            let brightCon = gray(0.36) { $0.brightness = 0; $0.contrast = 0 }
+            let hlMid = gray(0.18) { $0.highlight = 100 }, hlTop = gray(0.699) { $0.highlight = 100 }
+            let shMid = gray(0.18) { $0.shadow = 100 }, shLow = gray(0.00631) { $0.shadow = 100 }
+            let ok = abs(bright / 0.36 - 1) < 0.04 && abs(brightWhite - 1) < 0.01
+                && abs(conMid / 0.18 - 1) < 0.03 && conLo < 0.05 && conHi > 0.6 && abs(brightCon - 0.36) < 0.004
+                && abs(hlMid / 0.18 - 1) < 0.01 && abs(hlTop / 0.3495 - 1) < 0.03
+                && abs(shMid / 0.18 - 1) < 0.06 && abs(shLow / 0.01262 - 1) < 0.04
+            check("슬라이더 정의", ok, String(format:
+                "밝기 +100: 회색 0.18 → %.3f (목표 0.36), 흰색 %.3f · 대비 +60: 회색 %.3f, 0.05 → %.3f, 0.6 → %.3f · " +
+                "하이라이트 100: 회색 %.3f, 0.699 → %.3f (목표 0.350) · 섀도 100: 회색 %.3f, 0.0063 → %.4f (목표 0.0126)",
+                bright, brightWhite, conMid, conLo, conHi, hlMid, hlTop, shMid, shLow))
+        }
+
         // 15. 색 조정·필터·선택 마스크
         do {
             let rect = CGRect(x: 0, y: 0, width: 200, height: 100)
