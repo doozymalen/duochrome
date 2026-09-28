@@ -13,8 +13,16 @@ struct DevelopSettings: Equatable, Codable {
     var contrast: Float = 0
     var brightness: Float = 0
     var saturation: Float = 0
-    // 하이 다이내믹 레인지 (하이라이트·섀도 0~100, 화이트·블랙 -100~100)
+    // 하이 다이내믹 레인지 (하이라이트 -100~100, 섀도 0~100, 화이트·블랙 -100~100)
+    /// 예전 파일의 하이라이트 (0~100, 클수록 눌러 되살림). 새 값은 highlights, 화면과 계산은 highlightTone.
     var highlight: Float = 0
+    /// 하이라이트 -100~100: +는 밝은 곳을 더 밝게, -는 눌러 되살린다 (docs/SLIDERS.md)
+    var highlights: Float = 0
+    /// 화면·계산에 쓰는 하이라이트 값. 예전 값(highlight)은 음수로 읽고, 새로 바꾸면 highlights로 옮긴다.
+    var highlightTone: Float {
+        get { highlights - highlight }
+        set { highlights = newValue; highlight = 0 }
+    }
     var shadow: Float = 0
     var white: Float = 0
     var black: Float = 0

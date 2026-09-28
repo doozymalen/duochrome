@@ -199,9 +199,31 @@ enum GPU {
         dst.write(out ? half4(0.22, 0.22, 0.22, 1) : proof.read(gid), gid);
     }
 
-    // 하이라이트 (docs/SLIDERS.md): p.a = 양 0~1. 화면 밝기 L(감마 2.2) 0.5 아래는 그대로,
-    // 0.85에서 최대 1스톱(×a), 흰색 1.0에서는 0.75스톱 누른다. 1.0을 넘는 날아간 부분은 흰색 아래로 접는다.
-    // 휘도만 바꾸고 색 비율은 지킨다.
+    // 하이라이트 곡선 (docs/SLIDERS.md). y = 선형 휘도, v = -1~1.
+    // v < 0 (되살림): 화면 밝기 L(감마 2.2) 0.5 아래는 그대로, 0.85에서 최대 1스톱, 흰색 1.0에서 0.5스톱 누르고,
+    //                1.0을 넘는 날아간 부분은 흰색 아래로 접는다.
+    // v > 0 (밝게): 0.5~1.0 구간을 u + v·u²(1-u)로 올린다 (0.5·흰색 고정, L 0.83이 약 0.91로).
+    inline float highlight_y(float y, float v) {
+        if (y <= 1e-5 || v == 0.0) return y;
+        float L = pow(min(y, 1.0), 1.0 / 2.2);
+        float t = clamp((L - 0.5) / 0.5, 0.0, 1.0);
+        if (v > 0.0) {
+            if (y >= 1.0 || L <= 0.5) return y;
+            float u = t + min(v, 1.0) * t * t * (1.0 - t);
+            return pow(0.5 + 0.5 * u, 2.2);
+        }
+        float a = min(-v, 1.0);
+        float w = smoothstep(0.0, 0.7, t) * (1.0 - 0.5 * smoothstep(0.7, 1.0, t));
+        float y1 = min(y, 1.0) * exp2(-a * w);
+        if (y > 1.0) {
+            float base = exp2(-a * 0.5);
+            float folded = base + (1.0 - base) * (1.0 - exp(-(y - 1.0) * 3.0));
+            y1 = mix(y * base, folded, a);
+        }
+        return y1;
+    }
+
+    // 하이라이트 (한 픽셀씩): 조정 레이어·LUT 내보내기용. p.a = -1~1. 휘도만 바꾸고 색 비율은 지킨다.
     kernel void highlight_curve(texture2d<half, access::read> src [[texture(0)]],
                              texture2d<half, access::write> dst [[texture(1)]],
                              constant Params &p [[buffer(0)]],
@@ -210,17 +232,24 @@ enum GPU {
         float4 c = float4(src.read(gid));
         float y = dot(max(c.rgb, 0.0), float3(0.2627, 0.6780, 0.0593));
         if (y <= 1e-5) { dst.write(half4(c), gid); return; }
-        float a = clamp(p.a, 0.0, 1.0);
-        float L = pow(min(y, 1.0), 1.0 / 2.2);
-        float t = clamp((L - 0.5) / 0.5, 0.0, 1.0);
-        float w = smoothstep(0.0, 0.7, t) * (1.0 - 0.25 * smoothstep(0.7, 1.0, t));
-        float y1 = min(y, 1.0) * exp2(-a * w);
-        if (y > 1.0) {
-            float base = exp2(-a * 0.75);
-            float folded = base + (1.0 - base) * (1.0 - exp(-(y - 1.0) * 3.0));
-            y1 = mix(y * base, folded, a);
-        }
-        dst.write(half4(half3(c.rgb * (y1 / y)), c.a), gid);
+        dst.write(half4(half3(c.rgb * (highlight_y(y, p.a) / y)), c.a), gid);
+    }
+
+    // 하이라이트 (국소): 곡선을 가장자리를 지키는 기저 밝기(가이디드 필터)에 걸고, 그 배율을 픽셀에 곱한다.
+    // 밝은 구역 전체는 곡선대로 옮기되 그 안의 질감(세부 대비)은 그대로 남는다. p.a = -1~1
+    kernel void highlight_local(texture2d<half, access::read> src [[texture(0)]],
+                                texture2d<half, access::read> lum [[texture(1)]],
+                                texture2d<half, access::read> ab [[texture(2)]],
+                                texture2d<half, access::write> dst [[texture(3)]],
+                                constant Params &p [[buffer(0)]],
+                                uint2 gid [[thread_position_in_grid]]) {
+        if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+        float4 c = float4(src.read(gid));
+        float l = float(lum.read(gid).r);
+        float2 k = float2(ab.read(gid).rg);
+        float yb = pow(max(k.x * l + k.y, 1e-4), 2.2);
+        float gain = highlight_y(yb, p.a) / yb;
+        dst.write(half4(half3(c.rgb * gain), c.a), gid);
     }
 
     // 섀도 (docs/SLIDERS.md): p.a = 양 0~1. 화면 밝기 0.5 위는 그대로, 0.2 아래는 최대 1스톱(×a) 밝힌다.

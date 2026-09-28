@@ -209,8 +209,8 @@ enum CatalogImport {
                        ("ZCLARITY", "clarity"), ("ZCLARITYSTRUCTURE", "structure"), ("ZDEHAZEAMOUNT", "dehaze")] {
             if let v = num(c), v != 0 { out[s] = max(-100, min(100, v)) }
         }
-        // 가져온 HDR: 하이라이트는 음수가 복구(어둡게), 섀도는 양수가 밝게. Duochrome은 둘 다 0~100.
-        if let v = num("ZHIGHLIGHTRECOVERY"), v < 0 { out["highlight"] = min(-v, 100) }
+        // 가져온 HDR: 하이라이트는 음수가 복구(어둡게), 섀도는 양수가 밝게. Duochrome 하이라이트도 -100~100(음수가 복구), 섀도는 0~100.
+        if let v = num("ZHIGHLIGHTRECOVERY"), v != 0 { out["highlights"] = min(max(v, -100), 100) }
         if let v = num("ZSHADOWRECOVERY"), v > 0 { out["shadow"] = min(v, 100) }
         if let v = num("ZWHITERECOVERY"), v != 0 { out["white"] = v }
         if let v = num("ZBLACKRECOVERY"), v != 0 { out["black"] = v }

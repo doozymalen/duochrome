@@ -254,6 +254,7 @@ extension MainWindowController {
         if let v = f("clarity") { a.clarity = v }
         if let v = f("dehaze") { a.dehaze = v }
         if let v = f("highlight") { a.highlight = v }
+        if let v = f("highlights") { a.highlights = v }
         if let v = f("shadow") { a.shadow = v }
         if let v = f("temperature") { a.temperature = max(-100, min(100, (v - current.temperature) / 25)) }
         if let v = f("tint") { a.tint = max(-100, min(100, v - current.tint)) }

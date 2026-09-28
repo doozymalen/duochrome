@@ -348,16 +348,39 @@ enum SelfTest {
             let bright = gray(0.18) { $0.brightness = 100 }, brightWhite = gray(1.0) { $0.brightness = 100 }
             let conMid = gray(0.18) { $0.contrast = 60 }, conLo = gray(0.05) { $0.contrast = 60 }, conHi = gray(0.6) { $0.contrast = 60 }
             let brightCon = gray(0.36) { $0.brightness = 0; $0.contrast = 0 }
-            let hlMid = gray(0.18) { $0.highlight = 100 }, hlTop = gray(0.699) { $0.highlight = 100 }
+            let hlMid = gray(0.18) { $0.highlightTone = -100 }, hlTop = gray(0.699) { $0.highlightTone = -100 }
+            let hlUp = gray(0.669) { $0.highlightTone = 100 }, hlUpMid = gray(0.18) { $0.highlightTone = 100 }
+            let hlOld = gray(0.699) { $0.highlight = 100 }   // 예전 파일 값(0~100 되살림)은 -100과 같다
+            // 국소 하이라이트: 밝은 구역의 줄무늬(선형 0.3·0.6)는 눌러도 명암 비율이 그대로여야 한다
+            let stripes = CIFilter(name: "CIStripesGenerator", parameters: [
+                "inputColor0": CIColor(red: 0.3, green: 0.3, blue: 0.3, alpha: 1, colorSpace: Render.workingSpace)!,
+                "inputColor1": CIColor(red: 0.6, green: 0.6, blue: 0.6, alpha: 1, colorSpace: Render.workingSpace)!,
+                "inputWidth": 8, "inputSharpness": 1])!.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: 400, height: 100))
+            func ratio(_ i: CIImage) -> Float {
+                var vals: [Float] = []
+                for x in stride(from: 180, to: 220, by: 2) {
+                    var p = [Float](repeating: 0, count: 4)
+                    Render.context.render(i, toBitmap: &p, rowBytes: 16, bounds: CGRect(x: CGFloat(x), y: 50, width: 1, height: 1),
+                                          format: .RGBAf, colorSpace: Render.workingSpace)
+                    vals.append(p[1])
+                }
+                return (vals.max() ?? 1) / max(vals.min() ?? 1, 1e-4)
+            }
+            var hs = DevelopSettings(); hs.highlightTone = -100
+            let r0 = ratio(stripes), rLocal = ratio(Develop.base(hs, to: stripes, guide: nil, scale: 1, haze: 0.9).0),
+                rGlobal = ratio(Develop.tone(hs, stripes, scale: 1))
             let shMid = gray(0.18) { $0.shadow = 100 }, shLow = gray(0.00631) { $0.shadow = 100 }
             let ok = abs(bright / 0.36 - 1) < 0.04 && abs(brightWhite - 1) < 0.01
                 && abs(conMid / 0.18 - 1) < 0.03 && conLo < 0.05 && conHi > 0.6 && abs(brightCon - 0.36) < 0.004
-                && abs(hlMid / 0.18 - 1) < 0.01 && abs(hlTop / 0.3495 - 1) < 0.03
+                && abs(hlMid / 0.18 - 1) < 0.01 && abs(hlTop / 0.3495 - 1) < 0.03 && abs(hlOld - hlTop) < 0.002
+                && abs(hlUp / 0.807 - 1) < 0.03 && abs(hlUpMid / 0.18 - 1) < 0.01
+                && rLocal / r0 > 0.8 && rGlobal < rLocal * 0.85
                 && abs(shMid / 0.18 - 1) < 0.06 && abs(shLow / 0.01262 - 1) < 0.04
             check("슬라이더 정의", ok, String(format:
                 "밝기 +100: 회색 0.18 → %.3f (목표 0.36), 흰색 %.3f · 대비 +60: 회색 %.3f, 0.05 → %.3f, 0.6 → %.3f · " +
-                "하이라이트 100: 회색 %.3f, 0.699 → %.3f (목표 0.350) · 섀도 100: 회색 %.3f, 0.0063 → %.4f (목표 0.0126)",
-                bright, brightWhite, conMid, conLo, conHi, hlMid, hlTop, shMid, shLow))
+                "하이라이트 −100: 회색 %.3f, 0.699 → %.3f (목표 0.350) · +100: 0.669 → %.3f (목표 0.807) · " +
+                "줄무늬 명암비 %.2f → 국소 %.2f (한 픽셀씩이면 %.2f) · 섀도 100: 회색 %.3f, 0.0063 → %.4f (목표 0.0126)",
+                bright, brightWhite, conMid, conLo, conHi, hlMid, hlTop, hlUp, r0, rLocal, rGlobal, shMid, shLow))
         }
 
         // 15. 색 조정·필터·선택 마스크
@@ -946,7 +969,7 @@ enum SelfTest {
                 let dict = CatalogImport.convert(SidecarImport.columns(p.values), orientation: 1)
                 let clarity = dict["clarity"] as? Double ?? 0, contrast = dict["contrast"] as? Double ?? 0
                 check("세션 사이드카 .cos", p.rating == 5 && p.color == 1 && abs(clarity - 26.11) < 0.1 && abs(contrast - 20.19) < 0.1
-                      && dict["highlight"] != nil && (dict["color"] as? [String: Any])?["high"] != nil,
+                      && dict["highlights"] != nil && (dict["color"] as? [String: Any])?["high"] != nil,
                       "별점 \(p.rating ?? -1)·색 \(p.color ?? -1)·클래리티 \(clarity)·대비 \(contrast)·키 \(dict.keys.sorted())")
             }
             if let d = try? Data(contentsOf: fixtures.appendingPathComponent("sidecar/Cool Tones.costyle")) {

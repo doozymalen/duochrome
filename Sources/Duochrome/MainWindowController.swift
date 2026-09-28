@@ -1068,7 +1068,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 let keys: [String: WritableKeyPath<DevelopSettings, Float>] = [
                     "exposure": \.exposure, "temperature": \.temperature, "tint": \.tint,
                     "contrast": \.contrast, "brightness": \.brightness, "saturation": \.saturation,
-                    "highlight": \.highlight, "shadow": \.shadow, "white": \.white, "black": \.black,
+                    "highlight": \.highlightTone, "shadow": \.shadow, "white": \.white, "black": \.black,
                     "sharpness": \.sharpness, "detail": \.detail, "lumaNoise": \.lumaNoise,
                     "colorNoise": \.colorNoise, "moire": \.moire, "lens": \.lensCorrection,
                     "vignette": \.vignette, "inBlack": \.levelInBlack, "inWhite": \.levelInWhite,
@@ -1283,7 +1283,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 if spec.count > 1 {
                     let keys: [String: WritableKeyPath<LocalAdjust, Float>] = [
                         "exposure": \.exposure, "contrast": \.contrast, "brightness": \.brightness, "saturation": \.saturation,
-                        "highlight": \.highlight, "shadow": \.shadow, "clarity": \.clarity, "dehaze": \.dehaze,
+                        "highlight": \.highlightTone, "shadow": \.shadow, "clarity": \.clarity, "dehaze": \.dehaze,
                         "temperature": \.temperature, "tint": \.tint]
                     for kv in spec[1].split(separator: ",") {
                         let p = kv.split(separator: "=")

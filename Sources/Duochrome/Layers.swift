@@ -9,7 +9,13 @@ struct LocalAdjust: Equatable, Codable {
     var contrast: Float = 0        // -100~100
     var brightness: Float = 0
     var saturation: Float = 0
-    var highlight: Float = 0       // 0~100
+    var highlight: Float = 0       // 예전 값: 0~100 (클수록 눌러 되살림)
+    var highlights: Float? = nil   // -100~100: +는 밝게, -는 눌러 되살림
+    /// 화면·계산에 쓰는 하이라이트 값 (DevelopSettings.highlightTone과 같다)
+    var highlightTone: Float {
+        get { (highlights ?? 0) - highlight }
+        set { highlights = newValue; highlight = 0 }
+    }
     var shadow: Float = 0
     var clarity: Float = 0         // -100~100
     var dehaze: Float = 0          // 0~100
@@ -593,7 +599,7 @@ enum Layers {
             }
             var s = DevelopSettings()
             s.contrast = a.contrast; s.brightness = a.brightness; s.saturation = a.saturation
-            s.highlight = a.highlight; s.shadow = a.shadow
+            s.highlightTone = a.highlightTone; s.shadow = a.shadow
             return colorAdjust(a, Develop.tone(s, o, scale: sc).cropped(to: img.extent))
         }
         if a.dehaze > 0 {

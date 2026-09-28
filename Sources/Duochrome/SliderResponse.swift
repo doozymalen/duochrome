@@ -18,7 +18,7 @@ enum SliderResponse {
 
     static let keys: [(String, WritableKeyPath<DevelopSettings, Float>)] = [
         ("exposure", \.exposure), ("contrast", \.contrast), ("brightness", \.brightness), ("saturation", \.saturation),
-        ("highlight", \.highlight), ("shadow", \.shadow), ("white", \.white), ("black", \.black),
+        ("highlight", \.highlightTone), ("shadow", \.shadow), ("white", \.white), ("black", \.black),
         ("clarity", \.clarity), ("structure", \.structure), ("dehaze", \.dehaze),
     ]
 
@@ -65,7 +65,7 @@ enum SliderResponse {
             e[keyPath: key] *= f
         }
         e.saturation = max(e.saturation, -100)
-        e.highlight = min(max(e.highlight, 0), 130)
+        e.highlightTone = min(max(e.highlightTone, -100), 100)
         e.shadow = min(max(e.shadow, 0), 200)
         e.dehaze = min(max(e.dehaze, 0), 100)
         return e
