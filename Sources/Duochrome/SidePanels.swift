@@ -154,6 +154,8 @@ final class InspectorViewController: NSViewController {
     /// 레벨 스포이트 (2 검정 점, 3 흰 점, 4 회색 점)
     var onLevelPick: ((Int) -> Void)?
     fileprivate var popups: [(PopupSpec, NSPopUpButton)] = []
+    /// "기본 모습" 줄: 그 카메라의 보정표가 있을 때만 보인다 (없으면 Apple 기본)
+    private var lookRows: [NSView] = []
     fileprivate var popupTargets: [PopupTarget] = []
     fileprivate var buttonTargets: [ClosureTarget] = []
     /// -1 RGB(전체 레벨), 0~2 빨강·초록·파랑
@@ -347,6 +349,8 @@ final class InspectorViewController: NSViewController {
             card.isHidden = spec.rawOnly && !doc.isRaw
             card.isOn = spec.enableKey.map { settings[keyPath: $0] } ?? true
         }
+        let hasLook = doc.isRaw && Look.available(for: doc.info.camera)
+        lookRows.forEach { $0.isHidden = !hasLook }
         sync()
         setEnabled(true)
         refreshLayers()
@@ -440,6 +444,7 @@ final class InspectorViewController: NSViewController {
             popups.append((p, popup))
             let row = NSStackView(views: [small(p.label), popup])
             card.body.addArrangedSubview(row)
+            if p.key == \DevelopSettings.look { lookRows.append(row) }
         }
         if spec.id == "levels" { buildChannelLevels(in: card) }
         if spec.id == "curve" { buildCurve(in: card) }

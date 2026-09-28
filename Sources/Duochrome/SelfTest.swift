@@ -322,8 +322,12 @@ enum SelfTest {
             let mid = pix(on, 0), hi = pix(on, 1), mid0 = pix(off, 0)
             let one = pix(Look.apply(CIImage(cgImage: Render.context.createCGImage(patch(1.0, 0), from: CGRect(x: 0, y: 0, width: 1, height: 1),
                                                                                     format: .RGBAh, colorSpace: Render.workingSpace)!), look: 1, camera: cam), 0)
-            check("기본 모습 보정표 (카메라 맞춤)", loaded && abs(mid0.y - 0.18) < 0.002 && mid.y > 0.05 && mid.y < 0.5
-                  && abs((hi.y - one.y) - 1.0) < 0.02 && Look.available(for: cam) && !Look.available(for: "Sony ILCE-7M5"),
+            // 보정표가 없는 맥(공개 빌드)에서는 카메라 맞춤을 골라도 Apple 기본 그대로여야 한다
+            let pass = loaded
+                ? abs(mid0.y - 0.18) < 0.002 && mid.y > 0.05 && mid.y < 0.5 && abs((hi.y - one.y) - 1.0) < 0.02
+                    && Look.available(for: cam) && !Look.available(for: "Sony ILCE-7M5")
+                : abs(mid.y - mid0.y) < 0.002 && !Look.available(for: cam)
+            check("기본 모습 보정표 (카메라 맞춤)", pass,
                   String(format: "읽기 %@, 회색 0.18 → %.3f (끄면 %.3f), 2.0 → %.3f (1.0 → %.3f, 넘친 만큼 보존)", loaded ? "됨" : "안 됨",
                          mid.y, mid0.y, hi.y, one.y))
         }

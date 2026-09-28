@@ -8,7 +8,7 @@ enum AppSettings {
     /// 시작 모드: -1 마지막 모드, 그 밖은 AppMode 번호
     static var startMode: Int { get { d.object(forKey: "set.startMode") as? Int ?? -1 } set { d.set(newValue, forKey: "set.startMode") } }
     /// 새 사진 기본 모습: 1 카메라 맞춤, 0 Apple 기본
-    static var defaultLook: Int { get { d.object(forKey: "set.defaultLook") as? Int ?? 1 } set { d.set(newValue, forKey: "set.defaultLook") } }
+    static var defaultLook: Int { get { d.object(forKey: "set.defaultLook") as? Int ?? 0 } set { d.set(newValue, forKey: "set.defaultLook") } }
     static var snapEnabled: Bool { get { d.object(forKey: "set.snap") as? Bool ?? true } set { d.set(newValue, forKey: "set.snap") } }
     /// 달라붙는 거리 (범위의 %)
     static var snapPercent: Double { get { d.object(forKey: "set.snapPercent") as? Double ?? 1.5 } set { d.set(newValue, forKey: "set.snapPercent") } }
@@ -175,8 +175,11 @@ enum SettingsPane {
         let modes = ["마지막으로 쓴 모드", "대량 보정", "심화 보정", "테더링"]
         let modeValues = [-1, AppMode.edit.rawValue, AppMode.studio.rawValue, AppMode.tether.rawValue]
         p.row("시작할 때", p.popup(modes, selected: modeValues.firstIndex(of: AppSettings.startMode) ?? 0) { AppSettings.startMode = modeValues[$0] })
-        p.row("새 사진 기본 모습", p.popup(["Apple 기본", "카메라 맞춤"], selected: AppSettings.defaultLook) { AppSettings.defaultLook = $0 },
-              note: "카메라 맞춤은 보정표가 있는 카메라에만 걸립니다. 이미 조정한 사진은 그대로입니다.")
+        // 보정표가 하나도 없으면 고를 것이 없다 (Apple 기본만)
+        if Look.anyAvailable {
+            p.row("새 사진 기본 모습", p.popup(["Apple 기본", "카메라 맞춤"], selected: AppSettings.defaultLook) { AppSettings.defaultLook = $0 },
+                  note: "카메라 맞춤은 Looks 폴더에 보정표가 있는 카메라에만 걸리고, 없는 카메라는 Apple 기본으로 현상합니다. 이미 조정한 사진은 그대로입니다.")
+        }
         p.separator()
         p.row("슬라이더", p.check("기본값 근처에서 달라붙기", AppSettings.snapEnabled) { AppSettings.snapEnabled = $0 })
         p.row("달라붙는 거리", p.popup(["좁게 (범위의 0.8%)", "보통 (1.5%)", "넓게 (3%)"],

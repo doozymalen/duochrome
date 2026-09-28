@@ -58,6 +58,9 @@ enum Look {
 
     static func available(for camera: String) -> Bool { file(for: camera).flatMap(cube) != nil }
 
+    /// 보정표가 하나라도 있는가 (없으면 "카메라 맞춤" 선택지를 보이지 않는다)
+    static var anyAvailable: Bool { !lutNames().isEmpty }
+
     private static var cache: [String: (n: Int, data: Data)?] = [:]
     private static let lock = NSLock()
 
