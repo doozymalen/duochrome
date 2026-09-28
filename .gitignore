@@ -1,0 +1,12 @@
+.build/
+build/
+.DS_Store
+.swiftpm/
+*.xcuserstate
+# 카메라 맞춤 보정표는 공개하지 않는다 (이 맥에서만)
+Resources/Looks/
+# 개발 기록·개발 도구·시험 파일은 공개하지 않는다 (이 맥에서만)
+ROADMAP.md
+docs/DEVELOPMENT.md
+Tests/Fixtures/
+scripts/snap.sh

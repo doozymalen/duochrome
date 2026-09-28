@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>     <string>ko</string>
+    <key>CFBundleExecutable</key>            <string>Duochrome</string>
+    <key>CFBundleIdentifier</key>            <string>com.doozymalen.duochrome</string>
+    <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+    <key>CFBundleName</key>                  <string>Duochrome</string>
+    <key>CFBundleDisplayName</key>           <string>Duochrome</string>
+    <key>CFBundleIconFile</key>              <string>AppIcon</string>
+    <key>LSApplicationCategoryType</key>     <string>public.app-category.photography</string>
+    <key>CFBundlePackageType</key>           <string>APPL</string>
+    <key>CFBundleShortVersionString</key>    <string>0.1</string>
+    <key>CFBundleVersion</key>               <string>1</string>
+    <key>LSMinimumSystemVersion</key>        <string>14.0</string>
+    <key>NSHighResolutionCapable</key>       <true/>
+    <key>NSAppleScriptEnabled</key>          <true/>
+    <key>OSAScriptingDefinition</key>        <string>Duochrome.sdef</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>       <string>com.doozymalen.duochrome</string>
+            <key>CFBundleURLSchemes</key>    <array><string>duochrome</string></array>
+        </dict>
+    </array>
+    <key>NSCameraUsageDescription</key>      <string>카메라를 USB로 연결해 테더링 촬영을 합니다.</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>          <string>com.doozymalen.duochrome.document</string>
+            <key>UTTypeDescription</key>         <string>Duochrome 문서</string>
+            <key>UTTypeConformsTo</key>          <array><string>com.apple.package</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict><key>public.filename-extension</key><array><string>duochrome</string></array></dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>          <string>com.doozymalen.duochrome.catalog</string>
+            <key>UTTypeDescription</key>         <string>Duochrome 카탈로그</string>
+            <key>UTTypeConformsTo</key>          <array><string>com.apple.package</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict><key>public.filename-extension</key><array><string>duochromecatalog</string></array></dict>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>      <string>Duochrome 문서</string>
+            <key>CFBundleTypeRole</key>      <string>Editor</string>
+            <key>LSHandlerRank</key>         <string>Owner</string>
+            <key>LSTypeIsPackage</key>       <true/>
+            <key>LSItemContentTypes</key>    <array><string>com.doozymalen.duochrome.document</string></array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>      <string>Duochrome 카탈로그</string>
+            <key>CFBundleTypeRole</key>      <string>Editor</string>
+            <key>LSHandlerRank</key>         <string>Owner</string>
+            <key>LSTypeIsPackage</key>       <true/>
+            <key>LSItemContentTypes</key>    <array><string>com.doozymalen.duochrome.catalog</string></array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>      <string>RAW 사진</string>
+            <key>CFBundleTypeRole</key>      <string>Editor</string>
+            <key>LSHandlerRank</key>         <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.camera-raw-image</string>
+                <string>public.image</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

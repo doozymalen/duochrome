@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="Duochrome 용어" xmlns:xi="http://www.w3.org/2003/XInclude">
+    <xi:include href="file:///System/Library/ScriptingDefinitions/CocoaStandard.sdef" xpointer="xpointer(/dictionary/suite)"/>
+    <suite name="Duochrome" code="Strm" description="Duochrome 사진 작업 (자동화)">
+        <command name="open photo" code="StrmOpnP" description="사진 파일이나 폴더를 연다">
+            <cocoa class="OpenPhotoCommand"/>
+            <direct-parameter type="text" description="파일 또는 폴더 경로"/>
+            <result type="boolean"/>
+        </command>
+        <command name="run action" code="StrmRunA" description="저장한 동작을 연 사진에 재생한다">
+            <cocoa class="RunActionCommand"/>
+            <direct-parameter type="text" description="동작 이름"/>
+            <result type="boolean"/>
+        </command>
+        <command name="apply style" code="StrmStyl" description="저장한 스타일을 연 사진에 건다">
+            <cocoa class="ApplyStyleCommand"/>
+            <direct-parameter type="text" description="스타일 이름"/>
+            <result type="boolean"/>
+        </command>
+        <command name="export photo" code="StrmExpt" description="연 사진을 내보내고 파일 경로를 돌려준다">
+            <cocoa class="ExportPhotoCommand"/>
+            <direct-parameter type="text" optional="yes" description="내보낼 폴더 (없으면 레시피 폴더)"/>
+            <parameter name="recipe" code="Rcpe" type="text" optional="yes" description="저장한 내보내기 레시피 이름">
+                <cocoa key="recipe"/>
+            </parameter>
+            <result type="text"/>
+        </command>
+        <command name="current photo" code="StrmCurP" description="연 사진의 경로">
+            <cocoa class="CurrentPhotoCommand"/>
+            <result type="text"/>
+        </command>
+    </suite>
+</dictionary>
