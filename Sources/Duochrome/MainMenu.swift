@@ -320,6 +320,7 @@ enum MainMenu {
 
         let help = submenu(in: main, title: "도움말")
         help.addItem(withTitle: "단축키 보기", action: #selector(MainWindowController.showShortcuts(_:)), keyEquivalent: "/")
+        help.addItem(withTitle: "지원 카메라…", action: #selector(MainWindowController.showSupportedCameras(_:)), keyEquivalent: "")
         NSApp.helpMenu = help
 
         return main

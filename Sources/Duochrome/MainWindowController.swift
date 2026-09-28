@@ -1404,6 +1404,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
 
+    @objc func showSupportedCameras(_ sender: Any?) { SupportedCameras.show() }
     @objc func showShortcuts(_ sender: Any?) { SettingsWindowController.shared.host = self; SettingsWindowController.shared.show(tab: 5) }
 
     @objc func toggleOriginal(_ sender: Any?) {
@@ -1420,6 +1421,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         if item.action == #selector(toggleSplitCompare(_:)) { item.state = canvas.splitCompare ? .on : .off }
         if item.action == #selector(toggleMaskGray(_:)) { item.state = canvas.maskGray ? .on : .off }
         if item.action == #selector(showShortcuts(_:)) { return true }
+        if item.action == #selector(showSupportedCameras(_:)) { return true }
         if item.action == #selector(toggleJobsPanel(_:)) { item.state = jobsPanel?.isShown == true ? .on : .off; return true }
         let always: [Selector] = [#selector(switchToLibrary(_:)), #selector(switchToEdit(_:)), #selector(switchToTether(_:)),
                                   #selector(importExternalCatalog(_:)), #selector(showSettings(_:)), #selector(stopColab(_:)), #selector(reinstallAIEngine(_:)), #selector(toggleAIEngine(_:))]

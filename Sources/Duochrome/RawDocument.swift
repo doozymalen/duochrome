@@ -155,9 +155,7 @@ struct ShotInfo {
         let tiff = p[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
         let exif = p[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
         let aux = p[kCGImagePropertyExifAuxDictionary] as? [CFString: Any] ?? [:]
-        camera = [tiff[kCGImagePropertyTIFFMake], tiff[kCGImagePropertyTIFFModel]]
-            .compactMap { $0 as? String }.joined(separator: " ")
-            .replacingOccurrences(of: "Canon Canon", with: "Canon")
+        camera = Self.cameraName(make: tiff[kCGImagePropertyTIFFMake] as? String ?? "", model: tiff[kCGImagePropertyTIFFModel] as? String ?? "")
         lens = (exif[kCGImagePropertyExifLensModel] ?? aux[kCGImagePropertyExifAuxLensModel]) as? String ?? ""
         // 캐논 CR3는 ISOSpeedRatings 대신 ISOSpeed·RecommendedExposureIndex에 적는다.
         let isoValue = (exif[kCGImagePropertyExifISOSpeedRatings] as? [Int])?.first
@@ -170,6 +168,16 @@ struct ShotInfo {
         if let f = exif[kCGImagePropertyExifFNumber] as? Double { aperture = String(format: "f/%.1f", f) }
         if let f = exif[kCGImagePropertyExifFocalLength] as? Double { focal = String(format: "%.0fmm", f) }
         date = exif[kCGImagePropertyExifDateTimeOriginal] as? String ?? ""
+    }
+
+    /// 회사 + 모델. 모델에 회사 이름이 이미 있으면(캐논 "Canon EOS R5", 니콘 "NIKON Z 8") 모델만,
+    /// 회사 이름의 군더더기(CORPORATION, IMAGING CORP. 등)는 뺀다.
+    static func cameraName(make: String, model: String) -> String {
+        let noise: Set<String> = ["corporation", "corp", "corp.", "co.,ltd.", "co.,ltd", "co.", "ltd", "ltd.", "imaging", "inc", "inc."]
+        let maker = make.split(separator: " ").filter { !noise.contains($0.lowercased()) }.joined(separator: " ")
+        let m = model.trimmingCharacters(in: .whitespaces)
+        if let first = maker.split(separator: " ").first, m.lowercased().hasPrefix(first.lowercased()) { return m }
+        return [maker, m].filter { !$0.isEmpty }.joined(separator: " ")
     }
 }
 
