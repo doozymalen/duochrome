@@ -541,6 +541,7 @@ extension MainWindowController {
                 self?.tetherMode.setCanShoot(on)
             }
             g.onConfig = { [weak self] s in self?.tetherMode.showCameraSettings(s) }
+            g.onCaps = { [weak self] c in self?.tetherMode.setCaps(c) }
             g.onLive = { [weak self] on in self?.tetherMode.setLive(on) }
             g.onFrame = { [weak self] img in self?.tetherMode.showFrame(img) }
             g.onDownloaded = { [weak self] url in self?.captured(url) }

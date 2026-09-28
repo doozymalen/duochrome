@@ -2,7 +2,7 @@ import AppKit
 import ImageIO
 
 // MARK: - 테더링 (유선 USB 전용): 공개 라이브러리 libgphoto2로 카메라 설정 원격 변경·라이브 뷰·초점·촬영
-// 캐논 EDSDK는 개인이 받기 어려워 쓰지 않는다. 도우미(tether-helper.py)가 카메라를 잡고,
+// 회사별 SDK 대신 여러 회사 카메라를 다루는 libgphoto2를 쓴다. 도우미(tether-helper.py)가 카메라를 잡고,
 // Duochrome과는 JSON 한 줄씩 주고받는다. 도우미를 못 쓰면 macOS 기본 ImageCaptureCore(TetherCamera)로 물러선다.
 
 final class GPhotoCamera {
@@ -13,9 +13,18 @@ final class GPhotoCamera {
         let readonly: Bool
     }
 
+    struct Caps {
+        var af = false
+        var focus = false
+        /// 라이브 뷰 확대 값 (카메라가 알려 준 그대로, 비었으면 확대 없음)
+        var zoom: [String] = []
+    }
+
     var onStatus: ((String) -> Void)?
     var onDownloaded: ((URL) -> Void)?
     var onConfig: (([String: Setting]) -> Void)?
+    /// 이 카메라에서 되는 것 (설정 이름이 회사마다 달라 도우미가 찾아 알려 준다)
+    var onCaps: ((Caps) -> Void)?
     var onFrame: ((CGImage) -> Void)?
     var onLive: ((Bool) -> Void)?
     var onConnected: ((Bool) -> Void)?
@@ -127,8 +136,8 @@ final class GPhotoCamera {
     func set(_ name: String, _ value: String) { send(["cmd": "set", "name": name, "value": value]) }
     func live(_ on: Bool) { send(["cmd": "live", "on": on]) }
     func autofocus() { send(["cmd": "af"]) }
-    /// step: "Near 3" … "Far 3" (캐논 수동 초점 구동)
-    func focus(_ step: String) { send(["cmd": "focus", "step": step]) }
+    /// step: 음수는 가까이, 양수는 멀리 (1 = 조금, 3 = 크게)
+    func focus(_ step: Int) { send(["cmd": "focus", "step": step]) }
     func zoom(_ value: String) { send(["cmd": "zoom", "value": value]) }
 
     private func send(_ obj: [String: Any]) {
@@ -181,6 +190,9 @@ final class GPhotoCamera {
             }
             settings = out
             onConfig?(out)
+            if let c = obj["caps"] as? [String: Any] {
+                onCaps?(Caps(af: c["af"] as? Bool ?? false, focus: c["focus"] as? Bool ?? false, zoom: c["zoom"] as? [String] ?? []))
+            }
         case "file":
             guard let p = obj["path"] as? String else { return }
             let url = TetherNaming.rename(URL(fileURLWithPath: p))

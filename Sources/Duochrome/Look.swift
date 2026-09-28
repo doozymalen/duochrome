@@ -11,11 +11,49 @@ import Foundation
 enum Look {
     static let titles = ["Apple 기본", "카메라 맞춤"]
 
-    /// 카메라 이름 → 보정표 파일 이름
+    /// 카메라 이름 → 보정표 파일 이름. Looks 폴더에 `이름.lut`로 넣으면 그 카메라에 걸린다 (대소문자 무시).
+    /// 예: "Canon EOS R5m2" → CanonEOSR5m2, "NIKON CORPORATION NIKON Z 8" → NIKONZ8, "SONY ILCE-7M4" → SONYILCE7M4
     static func file(for camera: String) -> String? {
-        let c = camera.lowercased()
-        if c.contains("r5m2") || c.contains("r5 mark ii") || c.contains("r5 mk2") { return "CanonEOSR5m2" }
-        return nil
+        let key = fileKey(camera)
+        guard !key.isEmpty else { return nil }
+        return lutNames().first { $0.lowercased() == key.lowercased() }
+    }
+
+    /// 회사 이름의 군더더기(CORPORATION 등)와 겹친 회사 이름을 빼고, 글자와 숫자만 남긴다
+    static func fileKey(_ camera: String) -> String {
+        let noise: Set<String> = ["corporation", "corp", "corp.", "co.,ltd.", "co.,ltd", "co.", "ltd", "ltd.", "imaging", "inc", "inc."]
+        var words: [String] = []
+        for w in camera.split(separator: " ").map(String.init) where !noise.contains(w.lowercased()) {
+            if words.contains(where: { $0.lowercased() == w.lowercased() }) { continue }
+            words.append(w)
+        }
+        return String(words.joined().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) && $0.isASCII })
+    }
+
+    private static var names: [String]?
+
+    /// 앱 번들과 저장소의 Looks 폴더에 있는 보정표 이름 (확장자 뺀 것)
+    private static func lutNames() -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        if let names { return names }
+        var out: [String] = []
+        for dir in lookDirs() {
+            let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            for u in files where u.pathExtension.lowercased() == "lut" {
+                let n = u.deletingPathExtension().lastPathComponent
+                if !out.contains(n) { out.append(n) }
+            }
+        }
+        names = out
+        return out
+    }
+
+    private static func lookDirs() -> [URL] {
+        var dirs: [URL] = []
+        if let r = Bundle.main.resourceURL { dirs.append(r.appendingPathComponent("Looks")) }
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        dirs.append(repo.appendingPathComponent("Resources/Looks"))
+        return dirs
     }
 
     static func available(for camera: String) -> Bool { file(for: camera).flatMap(cube) != nil }
@@ -27,10 +65,7 @@ enum Look {
     static func cube(_ name: String) -> (n: Int, data: Data)? {
         lock.lock(); defer { lock.unlock() }
         if let hit = cache[name] { return hit }
-        var urls: [URL] = []
-        if let r = Bundle.main.resourceURL { urls.append(r.appendingPathComponent("Looks/\(name).lut")) }
-        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        urls.append(repo.appendingPathComponent("Resources/Looks/\(name).lut"))
+        let urls = lookDirs().map { $0.appendingPathComponent("\(name).lut") }
         var result: (Int, Data)?
         for u in urls {
             guard let d = try? Data(contentsOf: u), d.count > 8, d.prefix(4) == Data("S1LT".utf8) else { continue }

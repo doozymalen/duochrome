@@ -1,9 +1,9 @@
 import AppKit
 import ImageCaptureCore
 
-/// 카메라 연결. macOS 기본 ImageCaptureCore를 쓴다 (캐논 SDK 없이 USB로 촬영·내려받기).
+/// 카메라 연결. macOS 기본 ImageCaptureCore를 쓴다 (회사별 SDK 없이 USB로 촬영·내려받기).
 /// 카메라가 원격 촬영을 지원하면 "촬영" 버튼이 켜지고, 찍힌 파일은 세션 폴더로 바로 받는다.
-/// 조리개·셔터 같은 카메라 설정 원격 변경은 ImageCaptureCore에 없어서 캐논 EDSDK가 있어야 한다.
+/// 조리개·셔터 같은 카메라 설정 원격 변경은 ImageCaptureCore에 없어서 libgphoto2 도우미(GPhotoTether.swift)가 맡는다.
 final class TetherCamera: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate, ICCameraDeviceDownloadDelegate {
     var onStatus: ((String) -> Void)?
     var onDownloaded: ((URL) -> Void)?
@@ -114,7 +114,7 @@ final class TetherCamera: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDeleg
     func cameraDeviceDidEnableAccessRestriction(_ device: ICDevice) {}
 }
 
-/// 감시 폴더: EOS Utility처럼 다른 프로그램이 세션 폴더에 떨군 새 사진을 가져온다.
+/// 감시 폴더: 카메라 회사 프로그램처럼 다른 프로그램이 세션 폴더에 떨군 새 사진을 가져온다.
 /// 쓰는 중인 파일을 읽지 않도록 크기가 두 번 연속 같을 때만 넘긴다.
 final class HotFolder {
     var onNew: ((URL) -> Void)?
@@ -167,14 +167,18 @@ final class TetherModeController: NSViewController {
     var onSetting: ((String, String) -> Void)?
     var onLive: ((Bool) -> Void)?
     var onAF: (() -> Void)?
-    var onFocus: ((String) -> Void)?
+    var onFocus: ((Int) -> Void)?
     var onZoom: ((String) -> Void)?
     /// 캔버스 위 라이브 뷰·구도 참고 그림·3분할 격자
     let overlay = LiveOverlayView()
     private let settingsStack = NSStackView()
     private let liveButton = NSButton(checkboxWithTitle: "라이브 뷰", target: nil, action: nil)
     private let focusRow = NSStackView()
+    private let afButton = NSButton(title: "AF", target: nil, action: nil)
+    private var focusButtons: [NSButton] = []
     private let zoomPop = NSPopUpButton()
+    private var zoomValues: [String] = []
+    private var caps = GPhotoCamera.Caps()
     private let overlayShow = NSButton(checkboxWithTitle: "구도 참고 그림 겹치기", target: nil, action: nil)
     private let gridShow = NSButton(checkboxWithTitle: "3분할 격자", target: nil, action: nil)
     private let overlayAlpha = NSSlider(value: 0.4, minValue: 0.05, maxValue: 1, target: nil, action: nil)
@@ -222,7 +226,7 @@ final class TetherModeController: NSViewController {
         let edit = NSButton(title: "대량 보정에서 열기", target: self, action: #selector(editTapped))
         edit.bezelStyle = .appPush
         let note = NSTextField(wrappingLabelWithString:
-            "카메라를 USB로 연결하면 바로 찾습니다(유선 전용, 공개 라이브러리 libgphoto2). 카메라 셔터로 찍어도 들어옵니다. EOS Utility로 찍어 이 폴더에 저장해도 감시 폴더로 바로 들어옵니다.")
+            "카메라를 USB로 연결하면 바로 찾습니다(유선 전용, 공개 라이브러리 libgphoto2). 카메라 셔터로 찍어도 들어옵니다. 카메라 회사 프로그램으로 찍어 이 폴더에 저장해도 감시 폴더로 바로 들어옵니다. 초점·확대 단추는 카메라가 지원할 때만 보입니다.")
         note.font = .systemFont(ofSize: 11)
         note.textColor = .tertiaryLabelColor
         histogram.translatesAutoresizingMaskIntoConstraints = false
@@ -233,18 +237,18 @@ final class TetherModeController: NSViewController {
         liveButton.isEnabled = false
         focusRow.orientation = .horizontal
         focusRow.spacing = 4
-        let af = NSButton(title: "AF", target: self, action: #selector(afTapped))
-        af.bezelStyle = .appPush; af.controlSize = .small
-        af.toolTip = "자동 초점 한 번"
-        focusRow.addArrangedSubview(af)
-        for (t, step, tip) in [("◀◀", "Near 3", "가까이 크게"), ("◀", "Near 1", "가까이 조금"), ("▶", "Far 1", "멀리 조금"), ("▶▶", "Far 3", "멀리 크게")] {
+        afButton.target = self; afButton.action = #selector(afTapped)
+        afButton.bezelStyle = .appPush; afButton.controlSize = .small
+        afButton.toolTip = "자동 초점 한 번"
+        focusRow.addArrangedSubview(afButton)
+        for (t, step, tip) in [("◀◀", -3, "가까이 크게"), ("◀", -1, "가까이 조금"), ("▶", 1, "멀리 조금"), ("▶▶", 3, "멀리 크게")] {
             let b = NSButton(title: t, target: self, action: #selector(focusTapped(_:)))
             b.bezelStyle = .appPush; b.controlSize = .small
-            b.identifier = NSUserInterfaceItemIdentifier(step)
+            b.tag = step
             b.toolTip = "수동 초점: \(tip)"
             focusRow.addArrangedSubview(b)
+            focusButtons.append(b)
         }
-        zoomPop.addItems(withTitles: ["확대 1×", "확대 5×", "확대 10×"])
         zoomPop.controlSize = .small
         zoomPop.target = self; zoomPop.action = #selector(zoomChanged)
         focusRow.addArrangedSubview(zoomPop)
@@ -298,7 +302,7 @@ final class TetherModeController: NSViewController {
         view = split.view
         setCanShoot(false)
         setStatus("카메라가 연결되지 않았습니다.")
-        hot.toolTip = "EOS Utility 같은 다른 프로그램이 세션 폴더에 저장한 새 사진을 바로 가져옵니다."
+        hot.toolTip = "카메라 회사 프로그램 같은 다른 프로그램이 세션 폴더에 저장한 새 사진을 바로 가져옵니다."
     }
 
     func setStatus(_ s: String) { status.stringValue = s }
@@ -341,13 +345,30 @@ final class TetherModeController: NSViewController {
         liveButton.isEnabled = on
         if !on {
             settingsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            setCaps(GPhotoCamera.Caps())
             setLive(false)
         }
     }
 
+    /// 연결한 카메라에서 되는 초점·확대만 보인다
+    func setCaps(_ c: GPhotoCamera.Caps) {
+        caps = c
+        afButton.isHidden = !c.af
+        focusButtons.forEach { $0.isHidden = !c.focus }
+        zoomValues = c.zoom
+        zoomPop.removeAllItems()
+        zoomPop.addItems(withTitles: c.zoom.map { Double($0) != nil ? "확대 \($0)×" : "확대 \($0)" })
+        zoomPop.isHidden = c.zoom.count < 2
+        updateFocusRow()
+    }
+
+    private func updateFocusRow() {
+        focusRow.isHidden = liveButton.state != .on || !(caps.af || caps.focus || caps.zoom.count >= 2)
+    }
+
     func setLive(_ on: Bool) {
         liveButton.state = on ? .on : .off
-        focusRow.isHidden = !on
+        updateFocusRow()
         overlay.live.isHidden = !on
         if !on { overlay.live.image = nil }
         overlay.needsLayout = true
@@ -365,8 +386,11 @@ final class TetherModeController: NSViewController {
     }
     @objc private func liveTapped() { onLive?(liveButton.state == .on) }
     @objc private func afTapped() { onAF?() }
-    @objc private func focusTapped(_ b: NSButton) { if let s = b.identifier?.rawValue { onFocus?(s) } }
-    @objc private func zoomChanged() { onZoom?(["1", "5", "10"][max(0, zoomPop.indexOfSelectedItem)]) }
+    @objc private func focusTapped(_ b: NSButton) { onFocus?(b.tag) }
+    @objc private func zoomChanged() {
+        let i = zoomPop.indexOfSelectedItem
+        if zoomValues.indices.contains(i) { onZoom?(zoomValues[i]) }
+    }
 
     // MARK: 구도 오버레이
 

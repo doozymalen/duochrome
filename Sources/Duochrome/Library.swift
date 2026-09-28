@@ -61,8 +61,22 @@ final class Library {
 
     init(catalog: Catalog) { self.catalog = catalog }
 
-    static let supported: Set<String> = ["cr3", "cr2", "nef", "arw", "raf", "dng", "orf", "rw2",
-                                         "jpg", "jpeg", "tif", "tiff", "png", "heic", "psd", "psb"]
+    /// 여는 파일. RAW는 macOS RAW 해독기가 푸는 형식이고, 실제로 풀 수 있는지는 카메라 기종마다 macOS가 정한다.
+    static let supported: Set<String> = [
+        "cr3", "cr2", "crw",                // 캐논
+        "nef", "nrw",                       // 니콘
+        "arw", "srf", "sr2",                // 소니
+        "raf",                              // 후지필름
+        "orf",                              // OM 시스템·올림푸스
+        "rw2", "raw", "rwl",                // 파나소닉·라이카
+        "pef",                              // 펜탁스
+        "srw",                              // 삼성
+        "3fr", "fff",                       // 하셀블라드
+        "iiq",                              // 페이즈 원
+        "mos",                              // 리프
+        "erf", "mef", "mrw", "dcr", "kdc",  // 엡손·마미야·미놀타·코닥
+        "dng",
+        "jpg", "jpeg", "tif", "tiff", "png", "heic", "psd", "psb"]
 
     /// 예전 조정값 폴더 (JSON 파일). 이제는 카탈로그 DB에 저장하고, 이 폴더는 옮겨 올 때만 읽는다.
     static var legacyStore: URL {

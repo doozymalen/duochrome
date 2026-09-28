@@ -1,9 +1,11 @@
 # Duochrome 테더링 도우미: 공개 라이브러리 libgphoto2(python-gphoto2)로 USB에 연결한 카메라를 다룬다.
 # Duochrome과는 표준 입출력으로 JSON 한 줄씩 주고받는다. 유선(USB) 전용.
 #  받는 명령: {"cmd":"connect"} {"cmd":"set","name":"iso","value":"400"} {"cmd":"capture"}
-#            {"cmd":"live","on":true} {"cmd":"af"} {"cmd":"focus","step":"Near 1"} {"cmd":"zoom","value":"5"}
+#            {"cmd":"live","on":true} {"cmd":"af"} {"cmd":"focus","step":-1} {"cmd":"zoom","value":"5"}
 #            {"cmd":"folder","path":"..."} {"cmd":"quit"}
-#  보내는 소식: connected / config / frame(JPEG base64) / file / status / error / disconnected
+#  보내는 소식: connected / config(+caps) / frame(JPEG base64) / file / status / error / disconnected
+#  초점·확대 설정 이름은 회사마다 달라서, 연결할 때 있는 것을 찾아 쓰고 caps로 알린다.
+#  focus step은 음수가 가까이, 양수가 멀리 (1 = 조금, 3 = 크게).
 import sys, os, json, time, base64, threading, queue, subprocess
 
 try:
@@ -13,7 +15,13 @@ except Exception as e:  # 설치 전
     sys.exit(2)
 
 WANTED = ["aperture", "shutterspeed", "iso", "whitebalance", "colortemperature", "exposurecompensation",
-          "imageformat", "drivemode", "focusmode", "capturetarget", "manualfocusdrive", "eoszoom", "batterylevel"]
+          "imageformat", "drivemode", "focusmode", "capturetarget", "batterylevel"]
+
+# 회사마다 다른 설정 이름 (앞에 있는 것부터 찾는다)
+AF_NAMES = ["autofocusdrive", "autofocus"]                        # 캐논·니콘 / 소니
+FOCUS_NAMES = ["manualfocusdrive", "manualfocus"]                 # 캐논(Near/Far 단계)·니콘(범위) / 소니(범위)
+ZOOM_NAMES = ["eoszoom", "liveviewzoomratio", "liveviewzoom"]     # 캐논 / 니콘 등 (고를 수 있는 값일 때만)
+CHOICE_TYPES = (gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU)
 
 out_lock = threading.Lock()
 
@@ -90,6 +98,35 @@ class Tether:
         self.camera = None
         self.live = False
 
+    @staticmethod
+    def _find(cfg, names):
+        for n in names:
+            try:
+                w = cfg.get_child_by_name(n)
+            except gp.GPhoto2Error:
+                continue
+            if not w.get_readonly():
+                return w
+        return None
+
+    @staticmethod
+    def _choices(w):
+        return [str(w.get_choice(i)) for i in range(w.count_choices())]
+
+    def caps(self, cfg):
+        """이 카메라에서 되는 것: 자동 초점, 수동 초점, 라이브 뷰 확대 값"""
+        focus = False
+        fw = self._find(cfg, FOCUS_NAMES)
+        if fw is not None:
+            if fw.get_type() in CHOICE_TYPES:
+                ch = self._choices(fw)
+                focus = any(c.startswith("Near") for c in ch) and any(c.startswith("Far") for c in ch)
+            elif fw.get_type() == gp.GP_WIDGET_RANGE:
+                focus = True
+        zw = self._find(cfg, ZOOM_NAMES)
+        zoom = self._choices(zw) if zw is not None and zw.get_type() in CHOICE_TYPES else []
+        return {"af": self._find(cfg, AF_NAMES) is not None, "focus": focus, "zoom": zoom}
+
     def send_config(self):
         cfg = self.camera.get_config()
         items = {}
@@ -103,7 +140,54 @@ class Tether:
             if t in (gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU):
                 item["choices"] = [str(w.get_choice(i)) for i in range(w.count_choices())]
             items[name] = item
-        emit("config", items=items)
+        emit("config", items=items, caps=self.caps(cfg))
+
+    def _press(self, w, cfg, on, off):
+        w.set_value(on)
+        self.camera.set_config(cfg)
+        try:
+            w.set_value(off)
+            self.camera.set_config(cfg)
+        except gp.GPhoto2Error:
+            pass
+
+    def autofocus(self):
+        cfg = self.camera.get_config()
+        w = self._find(cfg, AF_NAMES)
+        if w is None:
+            raise ValueError("이 카메라는 원격 자동 초점을 지원하지 않습니다")
+        self._press(w, cfg, 1, 0)
+
+    def focus(self, step):
+        cfg = self.camera.get_config()
+        w = self._find(cfg, FOCUS_NAMES)
+        if w is None or step == 0:
+            raise ValueError("이 카메라는 원격 수동 초점을 지원하지 않습니다")
+        n = min(abs(step), 3)
+        if w.get_type() in CHOICE_TYPES:
+            # 캐논: "Near 1"~"Near 3", "Far 1"~"Far 3", 멈춤 "None"
+            ch = self._choices(w)
+            word = "Near" if step < 0 else "Far"
+            opts = sorted(c for c in ch if c.startswith(word))
+            want = "%s %d" % (word, n)
+            pick = want if want in opts else (opts[-1] if n > 1 else opts[0])
+            self._press(w, cfg, pick, "None" if "None" in ch else pick)
+        else:
+            lo, hi, _ = w.get_range()
+            if hi <= 10:
+                v = n                           # 소니: 1~7이 한 번 움직이는 크기
+            else:
+                v = 30 if n == 1 else 300       # 니콘: 모터 걸음 수
+            v = max(lo, min(hi, -v if step < 0 else v))
+            self._press(w, cfg, float(v), 0.0 if lo <= 0 <= hi else float(v))
+
+    def zoom(self, value):
+        cfg = self.camera.get_config()
+        w = self._find(cfg, ZOOM_NAMES)
+        if w is None:
+            raise ValueError("이 카메라는 라이브 뷰 확대를 지원하지 않습니다")
+        w.set_value(str(value))
+        self.camera.set_config(cfg)
 
     def _set(self, name, value):
         cfg = self.camera.get_config()
@@ -208,19 +292,11 @@ class Tether:
                         pass
                 emit("live", on=self.live)
             elif cmd == "af":
-                self._set("autofocusdrive", 1)
-                try:
-                    self._set("autofocusdrive", 0)
-                except gp.GPhoto2Error:
-                    pass
+                self.autofocus()
             elif cmd == "focus":
-                self._set("manualfocusdrive", c["step"])
-                try:
-                    self._set("manualfocusdrive", "None")
-                except gp.GPhoto2Error:
-                    pass
+                self.focus(int(c["step"]))
             elif cmd == "zoom":
-                self._set("eoszoom", c["value"])
+                self.zoom(c["value"])
             elif cmd == "refresh":
                 self.send_config()
         except (gp.GPhoto2Error, KeyError, ValueError) as e:
@@ -278,7 +354,7 @@ class FakeTether(Tether):
     def send_config(self):
         items = {k: {"label": k, "value": v, "readonly": False, "choices": self.choices[k]} for k, v in self.values.items()}
         items["batterylevel"] = {"label": "battery", "value": "80%", "readonly": True}
-        emit("config", items=items)
+        emit("config", items=items, caps={"af": True, "focus": True, "zoom": ["1", "5", "10"]})
 
     def _set(self, name, value):
         if name in self.values:

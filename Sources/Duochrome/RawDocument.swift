@@ -175,8 +175,8 @@ struct ShotInfo {
 
 /// 문서 맨 아래의 원본 레이어. 현상값은 언제든 다시 바꿀 수 있다.
 ///
-/// RAW 디코딩은 Core Image RAW(CIRAWFilter)에 맡긴다. R5 Mark II CR3를 macOS가 직접
-/// 지원하고, scaleFactor를 낮추면 원본 해상도를 다 풀지 않고 미리보기를 만든다.
+/// RAW 디코딩은 Core Image RAW(CIRAWFilter)에 맡긴다. macOS가 지원하는 카메라의 RAW를 직접
+/// 풀고, scaleFactor를 낮추면 원본 해상도를 다 풀지 않고 미리보기를 만든다.
 /// JPEG·TIFF처럼 이미 현상된 파일은 같은 값을 Core Image 필터로 흉내 낸다.
 final class RawDocument {
     enum OpenError: LocalizedError {

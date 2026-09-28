@@ -176,7 +176,7 @@ enum SettingsPane {
         let modeValues = [-1, AppMode.edit.rawValue, AppMode.studio.rawValue, AppMode.tether.rawValue]
         p.row("시작할 때", p.popup(modes, selected: modeValues.firstIndex(of: AppSettings.startMode) ?? 0) { AppSettings.startMode = modeValues[$0] })
         p.row("새 사진 기본 모습", p.popup(["Apple 기본", "카메라 맞춤"], selected: AppSettings.defaultLook) { AppSettings.defaultLook = $0 },
-              note: "카메라 맞춤은 보정표가 있는 카메라(R5 Mark II)에만 걸립니다. 이미 조정한 사진은 그대로입니다.")
+              note: "카메라 맞춤은 보정표가 있는 카메라에만 걸립니다. 이미 조정한 사진은 그대로입니다.")
         p.separator()
         p.row("슬라이더", p.check("기본값 근처에서 달라붙기", AppSettings.snapEnabled) { AppSettings.snapEnabled = $0 })
         p.row("달라붙는 거리", p.popup(["좁게 (범위의 0.8%)", "보통 (1.5%)", "넓게 (3%)"],
