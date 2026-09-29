@@ -169,6 +169,9 @@ final class RetouchInspector: NSView {
     private let brushSize = SliderRow(label: "붓 크기", min: 5, max: 1500, format: "%.0f px", defaultValue: 120)
     private let brushHardness = SliderRow(label: "경도", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.3)
     private let brushFlow = SliderRow(label: "흐름", min: 0.05, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
+    private let retouchSize = SliderRow(label: "크기", min: 2, max: 500, format: "%.0f px", defaultValue: 40)
+    private let retouchFeather = SliderRow(label: "부드러움", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.5)
+    private let retouchOpacity = SliderRow(label: "불투명도", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
 
     /// Adjustment values of an adjustment layer (LocalAdjust), in the order shown
     private static let adjustSpecs: [(String, WritableKeyPath<LocalAdjust, Float>, Double, Double, String)] = [
@@ -196,6 +199,9 @@ final class RetouchInspector: NSView {
         brushSize.onChange = { [weak self] v, _ in self?.host?.layersTab.brushRadius = v; self?.host?.retouchBrushChanged() }
         brushHardness.onChange = { [weak self] v, _ in self?.host?.layersTab.brushHardness = v }
         brushFlow.onChange = { [weak self] v, _ in self?.host?.layersTab.brushFlow = v }
+        retouchSize.onChange = { [weak self] v, _ in self?.host?.retouch.brush.radius = v }
+        retouchFeather.onChange = { [weak self] v, _ in self?.host?.retouch.brush.feather = v }
+        retouchOpacity.onChange = { [weak self] v, _ in self?.host?.retouch.brush.opacity = v }
 
         let stack = NSStackView(views: [toolTitle, toolBox, separator(), layerTitle, layerBox])
         stack.orientation = .vertical
@@ -268,8 +274,28 @@ final class RetouchInspector: NSView {
                 ? "고른 조정 레이어의 마스크를 칠합니다. 칠한 곳에만 조정이 걸리고, ⌥를 누르고 칠하면 지웁니다."
                 : "칠한 곳에 '\(RetouchTool.presets[tool.id]?.name ?? tool.title)' 레이어가 걸립니다. 세기는 아래 레이어 값으로 바꾸고, ⌥를 누르고 칠하면 지웁니다."
             views = [brushSize, brushHardness, brushFlow, note(what)]
+        case .arrange:
+            views = [note("왼쪽에서 고른 사진 레이어를 끌어 옮깁니다.\n\n자유 변형(⌘T): 모서리를 끌면 크기(⇧ 비율 무시), 변 가운데는 한쪽만, 바깥을 끌면 회전(⇧ 15°씩).\n원근 변형: 네 모서리를 끌어 맞춥니다.\n둘 다 ↩ 확정, esc 취소.")]
         case .retouch:
-            views = []
+            if tool.id == "aiRemove" || tool.id == "smartErase" {
+                brushSize.value = host.layersTab.brushRadius
+                views = [brushSize, note(tool.id == "aiRemove"
+                    ? "지울 것을 칠하면 AI가 둘레에 맞게 새로 채웁니다 (처음에는 AI 엔진 설치가 필요합니다). 결과는 새 레이어로 들어옵니다."
+                    : "지울 것을 칠하면 둘레 색으로 메웁니다. 작은 얼룩·먼지에 빠릅니다. 결과는 새 레이어로 들어옵니다.")]
+            } else {
+                let b = host.retouch.brush
+                retouchSize.value = b.radius
+                retouchFeather.value = b.feather
+                retouchOpacity.value = b.opacity
+                let what: String
+                switch tool.id {
+                case "clone": what = "누르거나 끌면 비슷한 결이 있는 곳을 골라 그대로 옮겨 붙입니다. 흰 원을 끌면 옮기고, ⌫로 고른 점을 지웁니다."
+                case "patch": what = "고칠 곳을 올가미로 두르면 비슷한 곳을 찾아 메웁니다. 초록 올가미를 끌면 가져올 곳을 바꿉니다."
+                default: what = "누르면 그 자리 얼룩을(스팟), 끌면 지나간 자리를(붓) 둘레에 맞춰 고칩니다. 흰 원을 끌면 옮기고, ⌫로 고른 점을 지웁니다."
+                }
+                let target = host.retouchLayerID == nil ? "배경(현상 결과)에 겁니다." : "고른 배경 복사 레이어에 겁니다."
+                views = [retouchSize, retouchFeather, retouchOpacity, note(what + "\n" + target), retouchButtons()]
+            }
         }
         put(views, in: toolBox)
         reloadLayer(host: host)
@@ -302,6 +328,18 @@ final class RetouchInspector: NSView {
         views.append(maskButtons())
         put(views, in: layerBox)
     }
+
+    private func retouchButtons() -> NSView {
+        func b(_ t: String, _ a: Selector) -> NSButton {
+            let x = NSButton(title: t, target: self, action: a)
+            x.bezelStyle = .appPush
+            x.controlSize = .small
+            return x
+        }
+        return NSStackView(views: [b("마지막 점 지우기", #selector(removeLastSpot)), b("모두 지우기", #selector(removeAllSpots))])
+    }
+    @objc private func removeLastSpot() { host?.retouch.onRemoveLast?() }
+    @objc private func removeAllSpots() { host?.retouch.onRemoveAll?() }
 
     private func maskButtons() -> NSView {
         func b(_ t: String, _ a: Selector) -> NSButton {

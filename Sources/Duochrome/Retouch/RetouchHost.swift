@@ -85,6 +85,10 @@ extension MainWindowController {
             return d.toNative(self.viewer.canvas.imagePoint(at: p))
         }
         b.onStroke = { [weak self] pts, erase in self?.retouchStroke(pts, erase: erase) }
+        let m = viewer.canvas.moveSurface
+        m.fromView = b.fromView
+        // Moving goes through the same code as batch edit's layer move (snapping, text anchors, shapes)
+        m.onDrag = { [weak self] a, p, dragging in self?.viewer.canvas.maskOverlay.onMoveImage?(a, p, dragging) }
     }
 
     /// Picks a tool in the layer editor: exactly one canvas input goes with it
@@ -108,14 +112,30 @@ extension MainWindowController {
             } else {
                 enterTool(photo == nil ? .pan : .brush)
             }
+        case .arrange:
+            // "transform" never gets here (it is a command, RetouchEditor.selectTool)
+            enterTool(photo == nil ? .pan : .move)
         case .retouch:
-            enterTool(.pan)
+            switch tool.id {
+            case "heal", "clone", "patch":
+                var b = retouch.brush
+                b.patch = tool.id == "patch"
+                if !b.patch { b.kind = tool.id == "clone" ? .clone : .heal }
+                retouch.brush = b
+                c.retouchOverlay.brushRadius = b.radius
+                c.retouchOverlay.patchMode = b.patch
+                enterTool(photo == nil ? .pan : .retouch)
+            default:   // aiRemove, smartErase: strokes go to the eraser
+                if tool.id == "aiRemove", ProcessInfo.processInfo.environment["DUOCHROME_UITEST"] == nil { AIEngine.shared.warmUp() }
+                c.brushSurface.radius = CGFloat(layersTab.brushRadius)
+                enterTool(photo == nil ? .pan : .brush)
+            }
         }
     }
 
     /// Key shortcuts and older callers pick layer-editor tools by id (older ids are mapped, unknown ones ignored)
     func retouchSelect(_ id: String) {
-        let map = ["lighten": "dodge", "darken": "burn", "maskPaint": "maskBrush"]
+        let map = ["lighten": "dodge", "darken": "burn", "maskPaint": "maskBrush", "repair": "heal", "arrange": "move"]
         let t = map[id] ?? id
         guard RetouchTool.named(t) != nil else { return }
         retouchEditor.selectTool(t)
@@ -145,6 +165,10 @@ extension MainWindowController {
                                 hardness: t.brushHardness, flow: t.brushFlow, erase: erase)
         stroke.tip = nil
         let tool = retouchEditor.currentTool
+        if tool == "aiRemove" || tool == "smartErase" {
+            aiRemove(strokes: [stroke], smart: tool == "smartErase")
+            return
+        }
         if let preset = RetouchTool.presets[tool] {
             guard var s = photo?.settings else { return }
             // Continue on the selected layer if it is this brush's layer, otherwise on the top one of its kind, otherwise a new one
@@ -204,5 +228,30 @@ extension MainWindowController {
     /// The selection as one combinable shape
     func simpleSelectionMask(_ sel: LayerMask) -> LayerMask {
         (sel.combos ?? []).isEmpty && !sel.invert && !Self.isRefined(sel) ? sel : rasterizeMask(sel)
+    }
+}
+
+/// Canvas layer for the move tool: hands drags over in source coordinates (start, current, still dragging)
+final class MoveSurfaceView: NSView {
+    var fromView: ((CGPoint) -> CGPoint)?
+    var onDrag: ((CGPoint, CGPoint, Bool) -> Void)?
+    private var start: CGPoint?
+
+    override func hitTest(_ point: NSPoint) -> NSView? { isHidden ? nil : super.hitTest(point) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+
+    override func mouseDown(with event: NSEvent) {
+        start = fromView?(convert(event.locationInWindow, from: nil))
+        NSCursor.closedHand.set()
+    }
+    override func mouseDragged(with event: NSEvent) {
+        guard let s = start, let p = fromView?(convert(event.locationInWindow, from: nil)) else { return }
+        onDrag?(s, p, true)
+    }
+    override func mouseUp(with event: NSEvent) {
+        defer { start = nil; NSCursor.openHand.set() }
+        guard let s = start, let p = fromView?(convert(event.locationInWindow, from: nil)) else { return }
+        onDrag?(s, p, false)
     }
 }

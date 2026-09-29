@@ -187,6 +187,8 @@ enum KeyMap {
             act("layer.delete", "레이어 지우기", "레이어", bulk: ["\u{7f}", "\u{f728}"], studio: ["\u{7f}", "\u{f728}"]) { w in
                 // With a selection in layer edit, ⌫ clears the selected area instead of deleting the layer
                 if w.mode == .studio, w.studioSelection != nil { w.clearSelectedArea(); return }
+                // Retouch tool with a picked spot: ⌫ removes that spot, not the layer
+                if w.canvas.tool == .retouch, let i = w.canvas.retouchOverlay.selected { w.removeSpot(i); return }
                 w.keyLayerEdit { if !$0.layersTab.deleteSelectedLayer() { NSSound.beep() } }
             },
             sel("view.rulers", "눈금자", "보기", #selector(W.toggleRulers(_:)), bulk: [], studio: ["@r"]),

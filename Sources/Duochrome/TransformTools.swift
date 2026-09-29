@@ -148,7 +148,8 @@ extension MainWindowController {
     func endPoints() {
         canvas.pointsOverlay.onCommit = nil
         canvas.pointsOverlay.onCancel = nil
-        enterTool(.pan)
+        // Layer editor: back to the picked tool (so the canvas input matches the tool bar)
+        if mode == .studio { retouchEditor.restoreTool() } else { enterTool(.pan) }
     }
 
     private func selectedImageLayer() -> (Int, AdjustLayer, Double)? {

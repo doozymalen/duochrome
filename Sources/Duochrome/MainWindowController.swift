@@ -777,7 +777,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         canvas.retouchOverlay.selected = n - 1
     }
 
-    private func removeSpot(_ i: Int) {
+    func removeSpot(_ i: Int) {
         guard let s = photo?.settings, targetSpots(s).indices.contains(i) else { return }
         canvas.retouchOverlay.selected = nil
         editSpots { $0.remove(at: i) }

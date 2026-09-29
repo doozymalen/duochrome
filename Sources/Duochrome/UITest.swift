@@ -341,7 +341,7 @@ extension MainWindowController {
                 window?.layoutIfNeeded()
                 let f0 = window?.frame ?? .zero
                 let o0 = ed.inspector.frame, l0 = ed.layersPanel.frame
-                for t in RetouchTool.all {
+                for t in RetouchTool.all where !["transform", "perspective"].contains(t.id) {
                     ed.selectTool(t.id)
                     window?.layoutIfNeeded()
                     let f = window?.frame ?? .zero
@@ -722,7 +722,7 @@ extension MainWindowController {
             window?.layoutIfNeeded()
             var blocked: [String] = []
             let center = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
-            for tool in RetouchTool.all {
+            for tool in RetouchTool.all where !["transform", "perspective"].contains(tool.id) {
                 retouchEditor.selectTool(tool.id)
                 window?.layoutIfNeeded()
                 guard let frame = window?.contentView?.superview, let h = frame.hitTest(canvas.convert(center, to: nil)) else {
@@ -852,6 +852,38 @@ extension MainWindowController {
             let rows = ed.layersPanel.allSubviews.compactMap { $0 as? LayerListRow }.count
             check("심화 보정: 캔버스·조정 레이어·속성·레이어 목록", attached && added?.kind == "adjust" && shows && rows == doc.settings.layers.count + 1,
                   "캔버스 \(attached), 레이어 \(added?.name ?? "-"), 속성에 노출 표시 \(shows), 목록 \(rows)줄")
+            // Retouch: heal places a spot with a click on the photo
+            layersTab.select(nil)
+            let spots0 = doc.settings.spots.count
+            ed.selectTool("heal")
+            click(canvas.retouchOverlay, at: canvas.viewPoint(forImage: CGPoint(x: doc.pixelSize.width * 0.5, y: doc.pixelSize.height * 0.5)))
+            let healOK = canvas.tool == .retouch && doc.settings.spots.count == spots0 + 1 && retouch.brush.kind == .heal && !retouch.brush.patch
+            ed.selectTool("clone")
+            let cloneOK = retouch.brush.kind == .clone && canvas.tool == .retouch
+            // Move: a photo layer dragged with the move tool; free transform opens its frame and cancel returns to move
+            var moveOK = false, transformOK = false
+            let px = [UInt8](repeating: 200, count: 64 * 64)
+            if let file = MainWindowController.saveMaskPNG(px, w: 64, h: 64) {
+                var st = doc.settings
+                var l = AdjustLayer(name: "넣은 사진")
+                l.kind = "image"
+                l.image = LayerImage(file: file, cx: Double(doc.nativeSize.width / 2), cy: Double(doc.nativeSize.height / 2), width: 800)
+                st.layers.append(l)
+                replaceSettings(st, recordUndo: false, label: "시험")
+                layersTab.select(l.id)
+                ed.selectTool("move")
+                let m = canvas.moveSurface
+                let c0 = canvas.viewPoint(forImage: doc.toDisplay(CGPoint(x: doc.nativeSize.width / 2, y: doc.nativeSize.height / 2)))
+                drag(m, from: c0, to: CGPoint(x: c0.x + 80, y: c0.y))
+                let cx = doc.settings.layers.last?.image?.cx ?? 0
+                moveOK = canvas.tool == .move && cx > Double(doc.nativeSize.width / 2) + 10
+                ed.selectTool("transform")
+                let opened = canvas.tool == .transform
+                canvas.transformOverlay.onCancel?()
+                transformOK = opened && canvas.tool == .move && ed.currentTool == "move"
+            }
+            check("심화 보정: 복구·복제 도장·이동·자유 변형", healOK && cloneOK && moveOK && transformOK,
+                  "복구 \(healOK), 복제 \(cloneOK), 이동 \(moveOK), 자유 변형 \(transformOK)")
             replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
             setMode(.edit)
             let back = canvas.isDescendant(of: viewer.view) && tools.view.window != nil

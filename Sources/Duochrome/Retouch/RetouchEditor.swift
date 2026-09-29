@@ -89,6 +89,10 @@ final class RetouchEditor: NSViewController {
     func selectTool(_ id: String) {
         guard let host, let tool = RetouchTool.named(id) else { return }
         _ = view
+        // Free transform and perspective are commands on the selected photo layer:
+        // the picked tool stays and comes back when their frame closes
+        if id == "transform" { host.freeTransform(nil); return }
+        if id == "perspective" { host.perspectiveLayer(nil); return }
         currentTool = id
         UserDefaults.standard.set(id, forKey: "retouchTool")
         toolBar.reload(selected: id)
@@ -108,7 +112,7 @@ final class RetouchEditor: NSViewController {
 
 /// One tool of the layer editor
 struct RetouchTool: Equatable {
-    enum Group { case view, select, brush, retouch }
+    enum Group { case view, arrange, select, brush, retouch }
     let id: String
     let title: String
     let symbol: String
@@ -119,6 +123,9 @@ struct RetouchTool: Equatable {
     static let all: [RetouchTool] = [
         .init(id: "hand", title: "손 (옮겨 보기)", symbol: "hand.raised", group: .view, key: "H"),
         .init(id: "zoom", title: "확대/축소", symbol: "magnifyingglass", group: .view, key: "Z"),
+        .init(id: "move", title: "이동 (고른 사진 레이어)", symbol: "arrow.up.and.down.and.arrow.left.and.right", group: .arrange, key: "V"),
+        .init(id: "transform", title: "자유 변형 (크기·회전)", symbol: "arrow.up.left.and.arrow.down.right", group: .arrange, key: "⌘T"),
+        .init(id: "perspective", title: "원근 변형", symbol: "perspective", group: .arrange),
         .init(id: "selRect", title: "사각형 선택", symbol: "rectangle.dashed", group: .select, key: "M"),
         .init(id: "selOval", title: "타원 선택", symbol: "circle.dashed", group: .select),
         .init(id: "selFree", title: "올가미", symbol: "lasso", group: .select, key: "L"),
@@ -132,6 +139,11 @@ struct RetouchTool: Equatable {
         .init(id: "sharpen", title: "선명하게", symbol: "triangle", group: .brush),
         .init(id: "soften", title: "부드럽게", symbol: "aqi.medium", group: .brush),
         .init(id: "maskBrush", title: "마스크 붓 (고른 레이어)", symbol: "paintbrush", group: .brush, key: "B"),
+        .init(id: "heal", title: "복구 (누르면 스팟, 끌면 붓)", symbol: "bandage", group: .retouch, key: "J"),
+        .init(id: "clone", title: "복제 도장", symbol: "doc.on.doc", group: .retouch, key: "S"),
+        .init(id: "patch", title: "패치 (고칠 곳을 두르기)", symbol: "square.dashed.inset.filled", group: .retouch),
+        .init(id: "smartErase", title: "스마트 지우기 (둘레 색으로)", symbol: "eraser", group: .retouch),
+        .init(id: "aiRemove", title: "AI 지우기", symbol: "sparkles", group: .retouch),
     ]
 
     static func named(_ id: String) -> RetouchTool? { all.first { $0.id == id } }
