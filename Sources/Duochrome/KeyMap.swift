@@ -115,22 +115,22 @@ enum KeyMap {
             act("tool.radial", "원형 그라디언트", "도구", bulk: ["t"], studio: []) { $0.keyGradient(.radial) },
             act("tool.picker", "색상 피커", "도구", bulk: ["d"], studio: ["i"]) { $0.keyTool(.colorPick, studio: "picker") },
             // Layer-edit-only tools
-            act("tool.arrange", "배치 (이동)", "도구", bulk: [], studio: ["v"]) { $0.studioMode.selectTool("arrange") },
-            act("tool.marquee", "선택 윤곽", "도구", bulk: [], studio: ["m"]) { $0.studioMode.selectTool("selRect") },
-            act("tool.lasso", "올가미", "도구", bulk: [], studio: ["l"]) { $0.studioMode.selectTool("selFree") },
-            act("tool.quickSel", "빠른 선택", "도구", bulk: [], studio: ["w"]) { $0.studioMode.selectTool("selQuick") },
-            act("tool.wand", "자동 선택 (마술봉)", "도구", bulk: [], studio: ["$w"]) { $0.studioMode.selectTool("selWand") },
+            act("tool.arrange", "배치 (이동)", "도구", bulk: [], studio: ["v"]) { $0.retouchSelect("arrange") },
+            act("tool.marquee", "선택 윤곽", "도구", bulk: [], studio: ["m"]) { $0.retouchSelect("selRect") },
+            act("tool.lasso", "올가미", "도구", bulk: [], studio: ["l"]) { $0.retouchSelect("selFree") },
+            act("tool.quickSel", "빠른 선택", "도구", bulk: [], studio: ["w"]) { $0.retouchSelect("selQuick") },
+            act("tool.wand", "자동 선택 (마술봉)", "도구", bulk: [], studio: ["$w"]) { $0.retouchSelect("selWand") },
             act("sel.quickMask", "퀵 마스크", "선택", bulk: [], studio: ["q"]) { $0.toggleQuickMask(nil) },
             sel("sel.all", "전체 선택", "선택", #selector(W.selectAllStudio(_:)), bulk: [], studio: ["@a"]),
             sel("sel.deselect", "선택 해제", "선택", #selector(W.deselectAll(_:)), bulk: [], studio: ["@d"]),
             sel("sel.invert", "선택 반전", "선택", #selector(W.invertSelection(_:)), bulk: [], studio: ["$@i"]),
             sel("sel.selectMask", "선택 및 마스크", "선택", #selector(W.showSelectAndMask(_:)), bulk: [], studio: ["~@r"]),
-            act("tool.dodge", "닷지 (밝게)", "도구", bulk: [], studio: ["o"]) { $0.studioMode.selectTool("lighten") },
-            act("tool.gradient", "그라디언트", "도구", bulk: [], studio: ["g"]) { $0.studioMode.selectTool("gradient") },
-            act("tool.eraser", "지우개", "도구", bulk: [], studio: ["e"]) { $0.studioMode.selectTool("erase") },
-            act("tool.type", "문자", "도구", bulk: [], studio: ["t"]) { $0.studioMode.selectTool("text") },
-            act("tool.pen", "펜", "도구", bulk: [], studio: ["p"]) { $0.studioMode.selectTool("pen") },
-            act("tool.shape", "도형", "도구", bulk: [], studio: ["u"]) { $0.studioMode.selectTool("shape") },
+            act("tool.dodge", "닷지 (밝게)", "도구", bulk: [], studio: ["o"]) { $0.retouchSelect("lighten") },
+            act("tool.gradient", "그라디언트", "도구", bulk: [], studio: ["g"]) { $0.retouchSelect("gradient") },
+            act("tool.eraser", "지우개", "도구", bulk: [], studio: ["e"]) { $0.retouchSelect("erase") },
+            act("tool.type", "문자", "도구", bulk: [], studio: ["t"]) { $0.retouchSelect("text") },
+            act("tool.pen", "펜", "도구", bulk: [], studio: ["p"]) { $0.retouchSelect("pen") },
+            act("tool.shape", "도형", "도구", bulk: [], studio: ["u"]) { $0.retouchSelect("shape") },
             act("tool.brushSmaller", "브러시 작게", "도구", bulk: ["["], studio: ["["]) { $0.brushSmaller(nil) },
             act("tool.brushLarger", "브러시 크게", "도구", bulk: ["]"], studio: ["]"]) { $0.brushLarger(nil) },
             // View
@@ -302,11 +302,11 @@ extension MainWindowController {
     }
 
     func keyTool(_ t: CanvasView.Tool, studio id: String) {
-        if mode == .studio { studioMode.selectTool(id) } else { enterTool(t) }
+        if mode == .studio { retouchSelect(id) } else { enterTool(t) }
     }
 
     func keyRetouch(_ id: String) {
-        if mode == .studio { studioMode.selectTool(id); return }
+        if mode == .studio { retouchSelect(id); return }
         var b = retouch.brush
         b.patch = false
         b.kind = id == "clone" ? .clone : .heal
@@ -333,7 +333,7 @@ extension MainWindowController {
     }
 
     func keyRevealCard(_ id: String) {
-        if mode == .studio { studioMode.selectTool("adjust") } else { tools.select(tools.index(of: "조정")) }
+        if mode == .studio { retouchSelect("adjust") } else { tools.select(tools.index(of: "조정")) }
         inspector.reveal(id)
     }
 
@@ -364,7 +364,7 @@ extension MainWindowController {
     /// Shortcuts that change layers: redraw both layer lists afterwards
     func keyLayerEdit(_ f: (MainWindowController) -> Void) {
         f(self)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     func keyOpacity(_ v: Float) {

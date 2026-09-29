@@ -220,7 +220,8 @@ extension MainWindowController {
         t.onClickEmpty = { [weak self] in self?.studioSelection = nil }
         t.onPoint = { [weak self] p, f in
             guard let self else { return }
-            switch self.studioMode.currentTool {
+            switch self.retouchEditor.currentTool {
+            case "selSubject": self.addAISelection(.subject)
             case "selWand": self.wandSelect(at: p, flags: f)
             case "selColor": self.colorRangeSelect(at: p, flags: f)
             case "selRow": self.rowColumnSelect(at: p, column: false, flags: f)

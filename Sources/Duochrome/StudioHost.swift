@@ -39,13 +39,13 @@ extension MainWindowController {
         installKeyMap()
         installTrace()
         setupStudioSelection()
+        setupRetouchEditor()
     }
 
     func enterStudio() {
-        studioMode.attachCanvas(viewer.canvas)
-        layersTab.listHidden = true
-        studioMode.layersPanel.reload()
-        studioMode.restoreTool()
+        retouchEditor.attachCanvas(viewer.canvas)
+        retouchEditor.reload()
+        retouchEditor.restoreTool()
         viewer.canvas.selectionMask = studioSelection
         viewer.canvas.zoomToFit()
         window?.makeFirstResponder(viewer.canvas)
@@ -79,7 +79,7 @@ extension MainWindowController {
                 // Redraw the list only if it still matches the current settings (otherwise the next redraw requests again)
                 if self.photo?.settings == settings {
                     self.layersTab.sync(self.photo?.settings)
-                    if self.mode == .studio { self.studioMode.layersPanel.reload() }
+                    if self.mode == .studio { self.retouchEditor.reload() }
                 }
             }
         }

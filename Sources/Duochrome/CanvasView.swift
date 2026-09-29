@@ -22,7 +22,7 @@ final class CanvasView: MTKView {
     /// Soft proof (look when exported to sRGB), gamut warning (pixels outside sRGB shown gray)
     var softProof = false { didSet { needsDisplay = true } }
     var gamutWarning = false { didSet { needsDisplay = true } }
-    enum Tool: CaseIterable { case pan, zoom, crop, straighten, keystone, whiteBalance, retouch, mask, colorPick, transform, points, path, select }
+    enum Tool: CaseIterable { case pan, zoom, crop, straighten, keystone, whiteBalance, retouch, mask, colorPick, transform, points, path, select, brush }
     /// Cursor tool. Hand drags to pan, zoom clicks 2× (Option zooms out).
     var tool: Tool = .pan {
         didSet {
@@ -35,6 +35,7 @@ final class CanvasView: MTKView {
             pointsOverlay.isHidden = tool != .points
             pathOverlay.isHidden = tool != .path
             selectionTool.isHidden = tool != .select
+            brushSurface.isHidden = tool != .brush
         }
     }
     /// "Single click" tools like the eyedropper. Passes image coordinates.
@@ -55,6 +56,8 @@ final class CanvasView: MTKView {
     let pathOverlay = PathOverlayView()
     /// Layer-edit selection tools (StudioSelection.swift)
     let selectionTool = SelectionToolView()
+    /// Layer-edit brush tools (Retouch/RetouchHost.swift)
+    let brushSurface = BrushSurfaceView()
     /// Layer-edit selection, drawn as a marching-ants outline (source coordinates)
     var selectionMask: LayerMask? { didSet { needsDisplay = true } }
     /// Guides, measure, count layer and rulers (Workspace.swift)
@@ -180,6 +183,10 @@ final class CanvasView: MTKView {
         selectionTool.isHidden = true
         selectionTool.autoresizingMask = [.width, .height]
         addSubview(selectionTool)
+        brushSurface.canvas = self
+        brushSurface.isHidden = true
+        brushSurface.autoresizingMask = [.width, .height]
+        addSubview(brushSurface)
         guidesOverlay.canvas = self
         guidesOverlay.autoresizingMask = [.width, .height]
         addSubview(guidesOverlay)
@@ -272,6 +279,7 @@ final class CanvasView: MTKView {
         pointsOverlay.needsDisplay = true
         pathOverlay.needsDisplay = true
         selectionTool.needsDisplay = true
+        brushSurface.needsDisplay = true
         guidesOverlay.needsDisplay = true
         rulerTop.needsDisplay = true; rulerLeft.needsDisplay = true
     }

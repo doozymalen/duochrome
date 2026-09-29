@@ -122,7 +122,7 @@ extension MainWindowController {
         case .library: libraryMode
         case .edit: split
         case .tether: tetherMode
-        case .studio: studioMode
+        case .studio: retouchEditor
         }
         if window.contentViewController !== vc {
             // Swapping content shrinks the window to the new view's size (the first view was 0×0, so the window vanished).
@@ -641,8 +641,7 @@ extension MainWindowController {
         switch m {
         case .edit: return of(split)
         case .tether: return of(tetherMode.split)
-        case .studio: return (studioMode.showsLayers ? studioMode.layersWidth.constant : nil,
-                              studioMode.showsOptions ? studioMode.optionsWidth.constant : nil)
+        case .studio: return (retouchEditor.layersWidth.constant, retouchEditor.optionsWidth.constant)
         case .library: return (nil, nil)
         }
     }
@@ -655,9 +654,9 @@ extension MainWindowController {
         case .edit: split.leftWidth = l; split.rightWidth = r
         case .tether: tetherMode.split.leftWidth = l; tetherMode.split.rightWidth = r
         case .studio:
-            studioMode.layersWidth.constant = l
-            studioMode.optionsWidth.constant = r
-            studioMode.updateCanvasInsets()
+            retouchEditor.layersWidth.constant = l
+            retouchEditor.optionsWidth.constant = r
+            retouchEditor.updateCanvasInsets()
         case .library: break
         }
     }

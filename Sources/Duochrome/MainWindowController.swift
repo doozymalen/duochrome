@@ -61,6 +61,8 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     let libraryMode = LibraryModeController()
     /// Layer-edit mode (Studio.swift)
     let studioMode = StudioModeController()
+    /// Layer editor (Retouch/): replaces the older layer-edit view
+    let retouchEditor = RetouchEditor()
     /// One toolbar shared by the three modes (mode-specific items live in per-mode bars over the canvas).
     var bulkToolbar: NSToolbar?
     /// Cursor tool buttons in the batch-edit mode bar (CanvasView.Tool order)
@@ -821,10 +823,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         layersTab.onChange = { [weak self] s, dragging in self?.apply(s, dragging: dragging) }
         layersTab.onSelect = { [weak self] id in
             guard let self else { return }
-            if self.mode == .studio { DispatchQueue.main.async { self.studioMode.refreshOptionsForSelection() } }
+            if self.mode == .studio { DispatchQueue.main.async { self.retouchEditor.reload() } }
             self.canvas.maskOverlay.adjustLayer = self.photo?.settings.layers.first { $0.id == id }
             if self.canvas.maskLayerID != nil { self.canvas.maskLayerID = id }
-            if id != nil, self.tools.tabTitle(self.tools.selected) == "레이어" { self.enterTool(.mask) }
+            if id != nil, self.mode != .studio, self.tools.tabTitle(self.tools.selected) == "레이어" { self.enterTool(.mask) }
         }
         layersTab.onShowMask = { [weak self] on in
             guard let self else { return }
@@ -985,7 +987,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         canvas.maskOverlay.adjustLayer = s.layers.first { $0.id == layersTab.selectedID }
         canvas.maskOverlay.brushRadius = layersTab.brushRadius
         if !dragging { layersTab.sync(s); inspector.refreshLayers() }
-        if !dragging, mode == .studio { studioMode.layersPanel.reload() }
+        if !dragging, mode == .studio { retouchEditor.reload() }
         if !dragging, mode == .studio, studioMode.currentTool == "effects" { syncStudioEffects() }
         if !dragging, mode == .studio, studioMode.currentTool == "style" { syncStudioStyles() }
     }

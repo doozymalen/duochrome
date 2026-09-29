@@ -328,10 +328,11 @@ extension MainWindowController {
             check("도구 탭 전환 창 크기 유지", changed.isEmpty, changed.isEmpty ? "여섯 탭 × 두 창 크기" : changed.joined(separator: ", "))
         }
 
-        // 8-01. Cycling through all layer-edit tools keeps window and panel sizes (even in a small window)
+        // 8-01. Cycling through all layer-edit tools keeps window and panel sizes (even in a small window), and picking changes nothing
         do {
             let saved = window?.frame ?? .zero
-            let tool0 = studioMode.currentTool
+            let ed = retouchEditor
+            let tool0 = ed.currentTool
             let settings0 = photo?.settings
             setMode(.studio)
             var changed: [String] = []
@@ -339,51 +340,52 @@ extension MainWindowController {
                 window?.setFrame(NSRect(origin: saved.origin, size: size), display: true)
                 window?.layoutIfNeeded()
                 let f0 = window?.frame ?? .zero
-                let o0 = studioMode.options.frame, l0 = studioMode.layersPanel.frame
-                for t in StudioTool.all where !["export", "transform"].contains(t.id) {
-                    studioMode.selectTool(t.id)
+                let o0 = ed.inspector.frame, l0 = ed.layersPanel.frame
+                for t in RetouchTool.all {
+                    ed.selectTool(t.id)
                     window?.layoutIfNeeded()
                     let f = window?.frame ?? .zero
-                    if f != f0 || studioMode.options.frame != o0 || studioMode.layersPanel.frame != l0 {
-                        changed.append("\(t.title) 창 \(Int(f.width))×\(Int(f.height)) 옵션 \(Int(studioMode.options.frame.height))")
+                    if f != f0 || ed.inspector.frame != o0 || ed.layersPanel.frame != l0 {
+                        changed.append("\(t.title) 창 \(Int(f.width))×\(Int(f.height))")
                     }
                 }
             }
-            studioMode.selectTool(tool0)
+            ed.selectTool(tool0)
             setMode(.edit)
             window?.setFrame(saved, display: true)
-            // Just picking a tool must not change adjustments
-            if let s0 = settings0, let s1 = photo?.settings {
-                let a = settingsDict(s0), b = settingsDict(s1)
-                let diff = Set(a.keys).union(b.keys).filter { k in
-                    guard let x = a[k], let y = b[k] else { return true }
-                    return !((x as AnyObject).isEqual(y as AnyObject))
-                }.sorted()
-                if !diff.isEmpty { changed.append("바뀐 조정값: " + diff.joined(separator: ", ")); replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
+            if let s0 = settings0, let s1 = photo?.settings, s0 != s1 {
+                changed.append("도구만 골랐는데 조정값이 바뀜")
+                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
             }
-            check("심화 도구 전환 창 크기 유지", changed.isEmpty, changed.isEmpty ? "\(StudioTool.all.count - 2)개 도구 × 두 창 크기" : changed.prefix(8).joined(separator: ", "))
+            check("심화 도구 전환 창 크기 유지", changed.isEmpty, changed.isEmpty ? "\(RetouchTool.all.count)개 도구 × 두 창 크기" : changed.prefix(8).joined(separator: ", "))
         }
 
-        // 8-02. Layer edit: tools needing a layer create it on the first canvas click, not on pick
+        // 8-02. Layer edit brushes: picking makes no layer; the first stroke makes the brush's layer, later strokes go on it,
+        //       ⌥ erases; the mask brush paints the selected layer's mask
         do {
             let s0 = photo?.settings
             setMode(.studio)
-            let st = studioMode
+            let ed = retouchEditor
             let n0 = photo?.settings.layers.count ?? 0
-            st.selectTool("fill")
+            ed.selectTool("dodge")
             let afterPick = photo?.settings.layers.count ?? 0
-            let mo = canvas.maskOverlay
-            click(mo, at: CGPoint(x: mo.bounds.midX, y: mo.bounds.midY))
-            let afterFill = photo?.settings.layers.count ?? 0
-            st.selectTool("lighten")
-            let afterPick2 = photo?.settings.layers.count ?? 0
-            drag(mo, from: CGPoint(x: mo.bounds.midX - 60, y: mo.bounds.midY), to: CGPoint(x: mo.bounds.midX + 60, y: mo.bounds.midY), steps: 8)
+            let b = canvas.brushSurface
+            let visible = !b.isHidden && canvas.tool == .brush
+            drag(b, from: CGPoint(x: b.bounds.midX - 60, y: b.bounds.midY), to: CGPoint(x: b.bounds.midX + 60, y: b.bounds.midY), steps: 8)
+            drag(b, from: CGPoint(x: b.bounds.midX - 60, y: b.bounds.midY + 40), to: CGPoint(x: b.bounds.midX + 60, y: b.bounds.midY + 40), steps: 8)
             let last = photo?.settings.layers.last
-            check("심화 도구: 처음 누를 때 레이어 만들기",
-                  afterPick == n0 && afterFill == n0 + 1 && afterPick2 == n0 + 1
-                    && photo?.settings.layers.count == n0 + 2 && last?.preset == "lighten" && (last?.mask.strokes.count ?? 0) >= 1,
-                  "고름 \(n0)→\(afterPick), 칠 누름 →\(afterFill), 닷지 고름 →\(afterPick2), 붓질 →\(photo?.settings.layers.count ?? 0) (\(last?.preset ?? "-"), 획 \(last?.mask.strokes.count ?? 0))")
-            st.selectTool("hand")
+            let dodgeOK = afterPick == n0 && photo?.settings.layers.count == n0 + 1 && last?.preset == "dodge" && last?.mask.strokes.count == 2
+            drag(b, from: CGPoint(x: b.bounds.midX - 20, y: b.bounds.midY), to: CGPoint(x: b.bounds.midX + 20, y: b.bounds.midY), flags: .option)
+            let eraseOK = photo?.settings.layers.last?.mask.strokes.last?.erase == true
+            // Mask brush on a new adjustment layer: the first stroke limits the layer to where it is painted
+            retouchAddAdjustLayer()
+            ed.selectTool("maskBrush")
+            drag(b, from: CGPoint(x: b.bounds.midX - 60, y: b.bounds.midY), to: CGPoint(x: b.bounds.midX + 60, y: b.bounds.midY))
+            let m = photo?.settings.layers.last?.mask
+            let maskOK = m?.kind == .brush && m?.strokes.count == 1 && m?.brushWhite == false
+            check("심화 붓: 처음 칠할 때 레이어·이어 칠하기·지우기·마스크 붓", visible && dodgeOK && eraseOK && maskOK,
+                  "붓 층 \(visible), 고름 \(n0)→\(afterPick), 닷지 \(dodgeOK), 지우기 \(eraseOK), 마스크 붓 \(maskOK)")
+            ed.selectTool("hand")
             setMode(.edit)
             if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
         }
@@ -533,42 +535,6 @@ extension MainWindowController {
             check("카탈로그 백업", ok, detail)
         }
 
-        // 8-07. Effects: picking in the layer-edit effects tool creates an effect layer and changes the result. Change values in the editor and toggle off
-        do {
-            let s0 = photo?.settings
-            layersTab.select(nil)
-            setMode(.studio)
-            studioMode.selectTool("effects")
-            let before = photo?.settings.layers.count ?? 0
-            studioEffects.browser.onPick?("mosaic")
-            let added = photo?.settings.layers.last
-            let made = photo?.settings.layers.count == before + 1 && added?.adjust.fx.first?.kind == "mosaic"
-            // change values (editor) → save
-            var list = added?.adjust.fx ?? []
-            if !list.isEmpty { list[0].params["size"] = 80 }
-            studioEffects.editor.onChange?(list, false)
-            let changed = photo?.settings.layers.last?.adjust.fx.first?.value("size") == 80
-            // did the render change (mosaic cells)
-            var differs = false
-            if let doc = photo {
-                let a = doc.image(scale: Develop.guideScale)
-                var off = doc.settings; off.layers[off.layers.count - 1].adjust.effects?[0].enabled = false
-                let saved = doc.settings
-                doc.settings = off
-                let b = doc.image(scale: Develop.guideScale)
-                doc.settings = saved
-                let d = a.applyingFilter("CIDifferenceBlendMode", parameters: [kCIInputBackgroundImageKey: b])
-                    .applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: a.extent)])
-                var px = [Float](repeating: 0, count: 4)
-                Render.context.render(d, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
-                differs = px[0] + px[1] + px[2] > 0.001
-            }
-            studioMode.selectTool("hand")
-            setMode(.edit)
-            if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
-            check("효과 도구: 고르기·값·렌더", made && changed && differs, "레이어 \(made), 값 \(changed), 렌더 바뀜 \(differs)")
-        }
-
         // 8-08. Advanced layers: Blend If, pattern fill, layer comps, snapshots, align/link, merge/stamp, linked images
         do {
             setMode(.edit)
@@ -677,7 +643,7 @@ extension MainWindowController {
             layersTab.select(nil)
             studioSelection = nil
             // Rectangle tool: a real drag on the canvas makes a selection, no layer
-            studioMode.selectTool("selRect")
+            retouchEditor.selectTool("selRect")
             let t = canvas.selectionTool
             canvas.layoutSubtreeIfNeeded()
             if t.isHidden { notes.append("선택 도구 층이 숨어 있음") }
@@ -706,7 +672,7 @@ extension MainWindowController {
             deselectAll(nil)
             if studioSelection != nil { notes.append("선택 해제") }
             // magic wand: sky at top left
-            studioMode.selectTool("selWand")
+            retouchEditor.selectTool("selWand")
             wandSelect(at: CGPoint(x: n.width * 0.06, y: n.height * 0.9), flags: [])
             let sky = selAvg()
             if !(sky > 0.01 && sky < 0.6) { notes.append("자동 선택 \(sky)") }
@@ -727,7 +693,7 @@ extension MainWindowController {
             }
             // A new adjustment layer takes the selection as its mask
             deselectAll(nil)
-            studioMode.selectTool("selRect")
+            retouchEditor.selectTool("selRect")
             drag(t, from: vn(0, 0), to: vn(n.width * 0.5, n.height), flags: [])
             let half = selAvg()
             layersTab.addLayer(.full, native: n)
@@ -744,7 +710,7 @@ extension MainWindowController {
             if doc.settings.layers.count != count + 1 || doc.settings.layers.last?.kind != "copy" { notes.append("선택 영역 복제 레이어") }
             else if let id = layersTab.selectedID, abs(maskAvg(id) - half) > 0.03 { notes.append("선택 영역 복제 마스크 \(maskAvg(id))") }
             studioSelection = nil
-            studioMode.selectTool("hand")
+            retouchEditor.selectTool("hand")
             setMode(.edit)
             if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
             check("선택 (문서 선택 영역)", notes.isEmpty, notes.isEmpty ? "사각형 끌기·더하기·빼기·반전·전체·해제·자동·확장·색상·빠른·자석·새 레이어 마스크·지우기·복제" : notes.joined(separator: " / "))
@@ -756,16 +722,15 @@ extension MainWindowController {
             window?.layoutIfNeeded()
             var blocked: [String] = []
             let center = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
-            for tool in StudioTool.all where tool.ready {
-                if ["transform", "exportWeb", "measure", "count"].contains(tool.id) { continue }   // open their own frames/sheets
-                studioMode.selectTool(tool.id)
+            for tool in RetouchTool.all {
+                retouchEditor.selectTool(tool.id)
                 window?.layoutIfNeeded()
                 guard let frame = window?.contentView?.superview, let h = frame.hitTest(canvas.convert(center, to: nil)) else {
                     blocked.append("\(tool.title)(없음)"); continue
                 }
                 if !(h === canvas || h.isDescendant(of: canvas)) { blocked.append("\(tool.title)→\(type(of: h))") }
             }
-            studioMode.selectTool("hand")
+            retouchEditor.selectTool("hand")
             setMode(.edit)
             check("심화 보정 도구: 캔버스 클릭이 닿음", blocked.isEmpty, blocked.isEmpty ? "모든 도구" : blocked.joined(separator: ", "))
         }
@@ -869,270 +834,28 @@ extension MainWindowController {
                   "대량 \(bulkPO), 심화 원본 \(studioFull), 되돌아와 \(backPO), 100% 미리보기가 원본보다 부드러움 \(sharpOK), 내보내기 원본 크기 \(exportOK)")
         }
 
-        // 8. Layer-edit mode: moves over the same canvas and panels, and takes them back on return
+        // 8. Layer editor: takes the canvas, adjustment layer from the panel with a value, inspector shows it, gives the canvas back
         do {
-            let spots0 = doc.settings.spots.count
             setMode(.studio)
-            let st = studioMode
-            check("심화 보정 모드: 캔버스 옮겨 붙이기", canvas.isDescendant(of: st.view) && canvas.bounds.width > 200,
-                  String(format: "캔버스 %.0f×%.0f", canvas.bounds.width, canvas.bounds.height))
-            st.selectTool("repair")
-            let retouchIn = retouch.view.isDescendant(of: st.options)
-            canvas.zoomToFit()
-            click(canvas.retouchOverlay, at: canvas.viewPoint(forImage: CGPoint(x: doc.pixelSize.width * 0.5, y: doc.pixelSize.height * 0.5)))
-            check("심화 보정: 복구 도구 (옵션 패널 + 점 찍기)", retouchIn && canvas.tool == .retouch && doc.settings.spots.count == spots0 + 1
-                  && !retouch.brush.patch && retouch.brush.kind == .heal,
-                  "옵션에 리터칭 패널 \(retouchIn), 점 \(spots0) → \(doc.settings.spots.count)")
-            st.selectTool("adjust")
-            let inspIn = inspector.view.isDescendant(of: st.options)
-            st.selectTool("picker")
-            click(canvas, at: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY))
-            let picked = pickerView.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue.hasPrefix("RGB") } != nil
-            check("심화 보정: 색 조정·색상 피커", inspIn && picked && canvas.tool == .colorPick, "조정 패널 \(inspIn), 집은 색 표시 \(picked)")
-            st.selectTool("smartErase")
-            check("심화 보정: AI 스마트 지우기 도구 (붓질을 AI로 넘김)", canvas.tool == .mask && canvas.maskOverlay.quickOverride != nil && st.options.toolID == "smartErase",
-                  "캔버스 도구 \(canvas.tool)")
-            // J. Pen, Paths panel, shapes, vector masks, text (horizontal, vertical, paragraph, warp, on path, styles)
-            do {
-                let N = doc.nativeSize
-                func nv(_ fx: CGFloat, _ fy: CGFloat) -> CGPoint { canvas.viewPoint(forImage: doc.toDisplay(CGPoint(x: N.width * fx, y: N.height * fy))) }
-                let o = canvas.pathOverlay
-                let paths0 = doc.settings.paths?.count ?? 0
-                // Pen: three points + the first point → closed path
-                VectorToolState.shared.penKind = 0; VectorToolState.shared.penTarget = 0
-                st.selectTool("pen")
-                newPath()
-                click(o, at: nv(0.3, 0.3)); drag(o, from: nv(0.6, 0.3), to: nv(0.65, 0.4)); click(o, at: nv(0.45, 0.6)); click(o, at: nv(0.3, 0.3))
-                let p1 = doc.settings.paths?.last
-                let penOK = canvas.tool == .path && (doc.settings.paths?.count ?? 0) == paths0 + 1 && p1?.closed == true && p1?.anchors.count == 3
-                    && p1.map { !$0.anchors[1].isCorner } == true
-                // Direct selection: drag the first point to move it
-                VectorToolState.shared.penKind = 3
-                startVectorTool("pen")
-                let a0 = doc.settings.paths?.last?.anchors.first?.point ?? .zero
-                drag(o, from: nv(0.3, 0.3), to: nv(0.25, 0.25))
-                let a1 = doc.settings.paths?.last?.anchors.first?.point ?? .zero
-                let directOK = a1.x < a0.x - N.width * 0.03
-                // Curvature pen: click four points then the first → closed smooth path
-                VectorToolState.shared.penKind = 2
-                startVectorTool("pen"); newPath()
-                for (x, y) in [(0.55, 0.55), (0.75, 0.6), (0.7, 0.8), (0.55, 0.75)] as [(CGFloat, CGFloat)] { click(o, at: nv(x, y)) }
-                click(o, at: nv(0.55, 0.55))
-                let c = doc.settings.paths?.last
-                let curvOK = c?.closed == true && c?.anchors.count == 4 && c.map { $0.anchors.allSatisfy { !$0.isCorner } } == true
-                // Paths panel: make selection → lasso mask layer
-                let n0 = doc.settings.layers.count
-                pathToSelection()
-                let selOK = doc.settings.layers.count == n0 + 1 && (doc.settings.layers.last?.mask.polygon.count ?? 0) > 20
-                // Shape tool: drag a rectangle shape layer → filled inside, transparent outside
-                VectorToolState.shared.preset = .ellipse; VectorToolState.shared.customPathID = nil
-                VectorToolState.shared.fillOn = true; VectorToolState.shared.fill = [1, 0, 0]; VectorToolState.shared.strokeOn = true
-                st.selectTool("shape")
-                drag(o, from: nv(0.1, 0.1), to: nv(0.3, 0.3))
-                let shapeLayer = doc.settings.layers.last
-                var shapeOK = shapeLayer?.kind == "shape" && shapeLayer?.vector?.path.anchors.count == 4
-                if let v = shapeLayer?.vector {
-                    let k: CGFloat = 0.1
-                    let img = VectorRender.shapeImage(v, scale: k, nativeRect: CGRect(x: 0, y: 0, width: N.width * k, height: N.height * k))
-                    var px = [Float](repeating: 0, count: 4), qx = [Float](repeating: 0, count: 4)
-                    Render.context.render(img, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: N.width * k * 0.2, y: N.height * k * 0.2, width: 1, height: 1), format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-                    Render.context.render(img, toBitmap: &qx, rowBytes: 16, bounds: CGRect(x: N.width * k * 0.11, y: N.height * k * 0.29, width: 1, height: 1), format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-                    shapeOK = shapeOK && px[3] > 0.99 && px[0] > 0.9 && px[1] < 0.1 && qx[3] < 0.05
-                }
-                // Changing shape options applies to the selected shape layer
-                VectorToolState.shared.fill = [0, 0, 1]
-                applyShapeOptionsToSelection()
-                let restyled = doc.settings.layers.last?.vector?.fill == [0, 0, 1]
-                // Vector mask: a curvature path as the vector mask of the selected (shape) layer
-                VectorToolState.shared.pathID = c?.id
-                pathToVectorMask()
-                var vmaskOK = false
-                if let l = doc.settings.layers.last, l.mask.vector != nil {
-                    let k: CGFloat = 0.05
-                    let m = VectorRender.mask(l.mask.vector!, scale: k, nativeRect: CGRect(x: 0, y: 0, width: N.width * k, height: N.height * k))
-                    var inside = [Float](repeating: 0, count: 4), outside = [Float](repeating: 0, count: 4)
-                    Render.context.render(m, toBitmap: &inside, rowBytes: 16, bounds: CGRect(x: N.width * k * 0.65, y: N.height * k * 0.66, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
-                    Render.context.render(m, toBitmap: &outside, rowBytes: 16, bounds: CGRect(x: N.width * k * 0.2, y: N.height * k * 0.2, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
-                    vmaskOK = inside[0] > 0.9 && outside[0] < 0.1 && LayerThumbs.hasMask(l)
-                }
-                // Text: click for single-line text, drag for a paragraph box
-                st.selectTool("text")
-                click(o, at: nv(0.5, 0.5))
-                let tl = doc.settings.layers.last
-                let textOK = tl?.isText == true && tl?.text?.boxWidth == nil && textOptions.window != nil
-                editSelectedText { $0.string = "가나다라마바사" }
-                let hImg = doc.settings.layers.last?.text.flatMap { TextRender.image($0, scale: 0.2) }
-                editSelectedText { $0.vertical = true }
-                let vImg = doc.settings.layers.last?.text.flatMap { TextRender.image($0, scale: 0.2) }
-                let verticalOK = (hImg?.extent.width ?? 0) > (hImg?.extent.height ?? 0) && (vImg?.extent.height ?? 0) > (vImg?.extent.width ?? 1)
-                editSelectedText { $0.vertical = nil; $0.warp = TextWarp.arc.rawValue; $0.warpBend = 60 }
-                let wImg = doc.settings.layers.last?.text.flatMap { TextRender.image($0, scale: 0.2) }
-                let warpOK = (wImg?.extent.height ?? 0) > (hImg?.extent.height ?? 0)
-                editSelectedText { $0.warp = nil; $0.warpBend = nil; $0.onPath = c; $0.pathOffset = 0 }
-                let pImg = doc.settings.layers.last?.text.flatMap { TextRender.image($0, scale: 0.2) }
-                let onPathOK = pImg != nil && (pImg?.extent.width ?? 0) > 10
-                editSelectedText { $0.onPath = nil }
-                drag(o, from: nv(0.1, 0.9), to: nv(0.3, 0.6))
-                editSelectedText { $0.string = String(repeating: "상자 안에서 줄이 바뀝니다 ", count: 6) }
-                let box = doc.settings.layers.last?.text
-                let bImg = box.flatMap { TextRender.image($0, scale: 0.2) }
-                let boxOK = box?.boxWidth != nil && (bImg?.extent.width ?? 1e9) < (CGFloat(box?.boxWidth ?? 0) + CGFloat(box?.size ?? 0) * 1.3) * 0.2 && (bImg?.extent.height ?? 0) > CGFloat(box?.size ?? 0) * 0.2 * 2
-                // save/apply character styles, font substitution
-                var t = LayerText(string: "a"); t.font = "NoSuchFont-Bold"; t.size = 77; t.tracking = 30
-                let saved = TextStyle.saved
-                TextStyle.saved = saved + [TextStyle(name: "시험", from: t)]
-                editSelectedText { TextStyle.saved.last!.apply(to: &$0) }
-                let styleOK = doc.settings.layers.last?.text?.size == 77 && doc.settings.layers.last?.text?.tracking == 30
-                    && NSFont(name: doc.settings.layers.last?.text?.font ?? "", size: 12) != nil && TextRender.isSubstituted("NoSuchFont-Bold")
-                TextStyle.saved = saved
-                check("J 텍스트와 벡터 (펜·직접 선택·곡률 펜·선택으로·모양·벡터 마스크·글자)",
-                      penOK && directOK && curvOK && selOK && shapeOK && restyled && vmaskOK && textOK && verticalOK && warpOK && onPathOK && boxOK && styleOK,
-                      "펜 \(penOK), 직접 \(directOK), 곡률 \(curvOK), 선택 \(selOK), 모양 \(shapeOK)/\(restyled), 벡터 마스크 \(vmaskOK), 글자 \(textOK), 세로 \(verticalOK), 뒤틀기 \(warpOK), 패스 위 \(onPathOK), 단락 \(boxOK), 스타일 \(styleOK)")
-                enterTool(.pan)
-            }
-            // L. Display profile, HDR view, 32-bit export, CMYK export, split/merge channels, swatches
-            do {
-                let s0 = doc.settings
-                let screenSpace = (canvas.window?.screen ?? NSScreen.main)?.colorSpace?.cgColorSpace
-                canvas.updateDisplaySpace()
-                let displayOK = screenSpace == nil || (canvas.layer as? CAMetalLayer)?.colorspace?.name == screenSpace?.name
-                canvas.hdrView = true
-                let edrScreen = ((canvas.window?.screen ?? NSScreen.main)?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1) > 1
-                let hdrOK = !edrScreen || (canvas.colorPixelFormat == .rgba16Float && (canvas.layer as? CAMetalLayer)?.wantsExtendedDynamicRangeContent == true)
-                canvas.hdrView = false
-                let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-L-\(UUID().uuidString)")
-                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                var r = ExportRecipe(); r.folder = dir.path; r.longSide = 600; r.format = .tiff32; r.sharpen = 0; r.keepMetadata = false
-                let f32 = try? Exporter.export(doc, recipe: r, name: "t32")
-                let img32 = f32.flatMap { CGImageSourceCreateWithURL($0 as CFURL, nil) }.flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
-                var st = doc.settings; st.docMode = DocMode.cmyk.rawValue
-                replaceSettings(st, recordUndo: false, label: "시험")
-                r.format = .tiff8
-                let fc = try? Exporter.export(doc, recipe: r, name: "cmyk")
-                let imgC = fc.flatMap { CGImageSourceCreateWithURL($0 as CFURL, nil) }.flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
-                // Channels: back to RGB, split into three, then merge again
-                replaceSettings(s0, recordUndo: false, label: "시험")
-                let files = (try? writeChannels(to: dir)) ?? []
-                let n0 = doc.settings.layers.count
-                mergeChannelFiles(files)
-                let merged = doc.settings.layers.count == n0 + 1 && doc.settings.layers.last?.isImage == true
-                // Swatch: becomes the paint brush color
-                pickerView.swatches.onPick?([0.1, 0.2, 0.3])
-                let swatchOK = PaintBrush.current.color == [0.1, 0.2, 0.3]
-                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
-                try? FileManager.default.removeItem(at: dir)
-                check("L 화면 프로파일·HDR·32비트·CMYK 내보내기·채널 분리/합치기·견본",
-                      displayOK && hdrOK && img32?.bitsPerComponent == 32 && imgC?.colorSpace?.model == .cmyk && files.count == 3 && merged && swatchOK,
-                      "화면 \(displayOK), HDR \(hdrOK) (EDR 화면 \(edrScreen)), 32비트 \(img32?.bitsPerComponent ?? 0), CMYK \(imgC?.colorSpace?.model == .cmyk), 채널 \(files.count), 합치기 \(merged), 견본 \(swatchOK)")
-            }
-            // O. Rulers, guides, snapping, measure, count, focus loupe, workspaces, layer kind filter
-            do {
-                let s0 = doc.settings
-                let size = doc.pixelSize
-                canvas.showRulers = true
-                let rulersOK = !canvas.rulerTop.isHidden && canvas.rulerTop.frame.height == RulerView.thickness
-                // drag from the ruler for a vertical guide (photo center)
-                guideDragged(vertical: true, at: size.width * 0.4, dragging: true)
-                let pendingOK = canvas.guidesOverlay.pending != nil
-                guideDragged(vertical: true, at: size.width * 0.4, dragging: false)
-                guideDragged(vertical: false, at: -50, dragging: false)   // not created when dropped outside the photo
-                let guidesOK = pendingOK && doc.settings.guidesV?.count == 1 && doc.settings.guidesH == nil && canvas.guidesOverlay.vertical.count == 1
-                // Snapping: a point near a guide snaps
-                UserDefaults.standard.set(true, forKey: "view.snap")
-                let near = doc.toNative(CGPoint(x: size.width * 0.4 + 2 / max(canvas.zoom, 0.01), y: size.height * 0.3))
-                let snapped = doc.toDisplay(snapNative(near))
-                let snapOK = abs(snapped.x - size.width * 0.4) < 0.5
-                // measure
-                startMeasure()
-                canvas.guidesOverlay.onMeasure?(CGPoint(x: 100, y: 100), CGPoint(x: 400, y: 500), false)
-                let measureOK = canvas.guidesOverlay.tool == .measure && GuidesOverlayView.measureText(CGPoint(x: 100, y: 100), CGPoint(x: 400, y: 500)).contains("500.0 px")
-                // Count: place two and remove one with ⌥
-                startCount()
-                canvas.guidesOverlay.onCount?(CGPoint(x: 200, y: 200), false)
-                canvas.guidesOverlay.onCount?(CGPoint(x: 800, y: 600), false)
-                canvas.guidesOverlay.onCount?(CGPoint(x: 801, y: 601), true)
-                let countOK = doc.settings.countMarks?.count == 2 && canvas.guidesOverlay.counts.count == 1
-                canvas.guidesOverlay.tool = .none
-                // focus loupe: 100% tile
-                let loupe = FocusLoupe()
-                let loupeOK = loupe.show(doc, at: CGPoint(x: size.width / 2, y: size.height / 2))
-                // save/apply workspace
-                let right0 = split.showsRight
-                saveWorkspace("시험 공간")
-                split.showsRight = !right0
-                applyWorkspace("시험 공간")
-                let wsOK = split.showsRight == right0 && MainWindowController.workspaces["시험 공간"] != nil
-                var ws = MainWindowController.workspaces; ws["시험 공간"] = nil; MainWindowController.workspaces = ws
-                // layer kind filter: shapes only
-                var st = doc.settings
-                var shapeL = AdjustLayer(name: "거르기 모양"); shapeL.kind = "shape"; shapeL.vector = VectorShape(path: .preset(.rect, in: CGRect(x: 10, y: 10, width: 50, height: 50)))
-                st.layers.append(shapeL)
-                var adj = AdjustLayer(name: "거르기 조정"); adj.kind = "adjust"
-                st.layers.append(adj)
-                replaceSettings(st, recordUndo: false, label: "시험")
-                let panel = studioMode.layersPanel
-                panel.kindFilter.selectItem(at: 4)
-                panel.reload()
-                let rows = panel.dropList.arrangedSubviews.count
-                panel.kindFilter.selectItem(at: 0)
-                panel.reload()
-                let filterOK = rows == doc.settings.layers.filter { $0.kind == "shape" }.count
-                canvas.showRulers = false
-                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
-                syncGuides(); syncCounts()
-                check("O 눈금자·안내선·스냅·측정·계수·초점 확인·작업 공간·레이어 거르기",
-                      rulersOK && guidesOK && snapOK && measureOK && countOK && loupeOK && wsOK && filterOK,
-                      "눈금자 \(rulersOK), 안내선 \(guidesOK), 스냅 \(snapOK), 측정 \(measureOK), 계수 \(countOK), 초점 \(loupeOK), 작업 공간 \(wsOK), 거르기 \(filterOK) (\(rows)줄)")
-            }
-            // Q. Arrange tool (size, rotation, center), preset view, split compare, photo tabs
-            do {
-                let s0 = doc.settings
-                var st = doc.settings
-                var sh = AdjustLayer(name: "배치 모양"); sh.kind = "shape"
-                sh.vector = VectorShape(path: .preset(.rect, in: CGRect(x: 1000, y: 1000, width: 400, height: 200)))
-                st.layers.append(sh)
-                replaceSettings(st, recordUndo: false, label: "시험")
-                layersTab.select(sh.id)
-                studioMode.selectTool("arrange")
-                arrangeOptions.sync()
-                func bounds() -> CGRect { doc.settings.layers.last?.vector?.path.bounds ?? .zero }
-                let rows = arrangeOptions.arrangedSubviews.compactMap { $0 as? SliderRow }
-                rows.first?.value = 200; rows.first?.onChange?(200, false)
-                let b1 = bounds()
-                let scaleOK = abs(b1.width - 800) < 1 && abs(b1.height - 400) < 1
-                rows.last?.onChange?(90, false)
-                let b2 = bounds()
-                let rotOK = abs(b2.width - 400) < 1 && abs(b2.height - 800) < 1
-                arrangeOptions.perform(Selector(("centerH")))
-                let mid = doc.toNative(CGPoint(x: doc.pixelSize.width / 2, y: doc.pixelSize.height / 2))
-                let centerOK = abs(bounds().midX - mid.x) < 1
-                // preset view (styles saved in earlier tests)
-                studioMode.selectTool("adjust")
-                let hasStyle = !MainWindowController.styleNames().isEmpty
-                let preview = MainWindowController.styleNames().first.flatMap { stylePreview($0) }
-                let presetOK = !hasStyle || (preview != nil && inspector.view.isDescendant(of: adjustContainer))
-                // split compare
-                let split0 = canvas.splitCompare
-                studioMode.options.onSplit?()
-                let splitOK = canvas.splitCompare != split0
-                studioMode.options.onSplit?()
-                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
-                check("Q 배치 도구·프리셋·반반 비교", scaleOK && rotOK && centerOK && presetOK && splitOK,
-                      "크기 \(scaleOK), 회전 \(rotOK), 가운데 \(centerOK), 프리셋 \(presetOK), 반반 \(splitOK)")
-            }
-            let before = StudioTool.strip
-            let sheet = ToolCustomizeSheet()
-            sheet.toggle("twirl")
-            var list: [String] = []
-            sheet.onDone = { list = $0 }
-            sheet.perform(Selector(("done")))
-            check("도구 사용자화 (넣기)", list.contains("twirl") && list.count == before.count + 1, "\(before.count) → \(list.count)개")
+            let ed = retouchEditor
+            let s0 = doc.settings
+            let attached = canvas.isDescendant(of: ed.view) && canvas.bounds.width > 200
+            layersTab.select(nil)
+            retouchAddAdjustLayer()
+            let added = doc.settings.layers.last
+            var s = doc.settings
+            if let i = s.layers.indices.last { s.layers[i].adjust.exposure = 1 }
+            apply(s, dragging: false)
+            ed.reload()
+            let sliders = ed.inspector.allSubviews.compactMap { $0 as? SliderRow }
+            let shows = sliders.contains { abs($0.value - 1) < 0.001 }
+            let rows = ed.layersPanel.allSubviews.compactMap { $0 as? LayerListRow }.count
+            check("심화 보정: 캔버스·조정 레이어·속성·레이어 목록", attached && added?.kind == "adjust" && shows && rows == doc.settings.layers.count + 1,
+                  "캔버스 \(attached), 레이어 \(added?.name ?? "-"), 속성에 노출 표시 \(shows), 목록 \(rows)줄")
+            replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
             setMode(.edit)
             let back = canvas.isDescendant(of: viewer.view) && tools.view.window != nil
-            tools.select(tools.index(of: "리터칭"))
-            check("대량 보정으로 돌아오기", back && retouch.view.isDescendant(of: tools.view) && canvas.bounds.width > 200,
-                  String(format: "캔버스 %.0f×%.0f", canvas.bounds.width, canvas.bounds.height))
-            var s = doc.settings; s.spots.removeLast(); apply(s, dragging: false)
+            check("대량 보정으로 돌아오기", back && canvas.bounds.width > 200, String(format: "캔버스 %.0f×%.0f", canvas.bounds.width, canvas.bounds.height))
         }
 
         // 5-1. Color editor eyedropper: picking the sky (top left) adds one blue range
@@ -1401,25 +1124,6 @@ extension MainWindowController {
             if doc.settings.layers.last?.name != "페인트 통" || doc.settings.layers.last?.mask.kind != .image { notes.append("페인트 통") }
             check("칠하기 도구", notes.isEmpty, notes.isEmpty ? "칠하기·지우개(칠·마스크)·배경 지우개·작업 내역 브러시·적목·페인트 통" : notes.joined(separator: " / "))
             replaceSettings(s0, recordUndo: true)
-        }
-
-        // Q. Photo tabs (last, since opening another photo changes the document)
-        do {
-            setMode(.studio)
-            // Photo tabs: opening another photo makes two tabs; clicking the first tab returns
-            var tabsOK = false
-            let first = photoItem
-            if library.items.count < 2 { library.show(.all); browser.reload() }
-            if let other = library.items.first(where: { $0 !== first && !$0.offline }), let first {
-                show(other)
-                let two = studioTabs.contains { $0 === first } && studioTabs.contains { $0 === other } && !studioMode.tabs.isHidden
-                if let i = studioTabs.firstIndex(where: { $0 === first }) { pickTab(i) }
-                let back = photoItem === first
-                if let j = studioTabs.firstIndex(where: { $0 === other }) { closeTab(j) }
-                tabsOK = two && back && !studioTabs.contains { $0 === other }
-            }
-            check("Q 사진 탭", tabsOK, "탭 \(studioTabs.count)개, 되돌아오기 \(tabsOK)")
-            setMode(.edit)
         }
 
         print(failures == 0 ? "UI 시험 모두 통과" : "UI 시험 \(failures)개 실패")
