@@ -208,9 +208,6 @@ extension MainWindowController {
 
     private func moreMenu() -> NSMenu {
         let m = NSMenu()
-        if mode == .studio {
-            m.addItem(withTitle: "도구 사용자화…", action: #selector(studioCustomize(_:)), keyEquivalent: "").target = self
-        }
         m.addItem(withTitle: "맞춤 크기로 보기", action: #selector(zoomActiveFit(_:)), keyEquivalent: "").target = self
         m.addItem(withTitle: "실제 크기 (100%)", action: #selector(zoomActiveActual(_:)), keyEquivalent: "").target = self
         m.addItem(.separator())

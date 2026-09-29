@@ -2,7 +2,7 @@ import AppKit
 
 /// Per-mode bar. A rounded bar floating below the toolbar, over the canvas.
 /// The toolbar (top) is the same in all three modes; tools and actions used only in one mode go here.
-/// Same look, height, and position as the layer-edit tool strip (StudioToolStrip).
+/// Same look, height, and position as the layer-edit tool bar (RetouchToolBar).
 final class ModeBar: NSView {
     /// Plain arrow over panels and bars (so the photo view's edit cursor doesn't show through)
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
@@ -142,7 +142,7 @@ final class ModeBarButton: BarToolButton {
 
 /// Search field inside a per-mode bar (pill shape, small size matched to the bar height).
 final class ModeBarSearchField: NSSearchField {
-    /// Takes focus only on click, so it doesn't grab focus when the window first appears (same as ClickFocusSearchField).
+    /// Takes focus only on click, so it doesn't grab focus when the window first appears.
     override var acceptsFirstResponder: Bool {
         let t = NSApp.currentEvent?.type
         return t == .leftMouseDown || t == .keyDown && window?.firstResponder === currentEditor()
@@ -206,9 +206,9 @@ extension MainWindowController {
         if let layout {
             if left { layout.showsLeft.toggle() } else { layout.showsRight.toggle() }
         } else if left {
-            studioMode.showsLayers.toggle()
+            retouchEditor.showsLayers.toggle()
         } else {
-            studioMode.showsOptions.toggle()
+            retouchEditor.showsOptions.toggle()
         }
     }
 }

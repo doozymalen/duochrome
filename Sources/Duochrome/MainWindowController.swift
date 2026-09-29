@@ -37,10 +37,6 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     /// Starting position while dragging an image layer.
     var imageMoveOrigin: CGPoint?
     var shapeMoveOrigin: VectorPath?
-    /// Photo tabs in layer edit (in open order)
-    var studioTabs: [PhotoItem] = []
-    lazy var arrangeOptions = ArrangeOptionsView(host: self)
-    lazy var adjustContainer = AdjustOptionsContainer(host: self)
     let retouch = RetouchTabController()
     lazy var tools = ToolPanelController(tabs: [
         .init(title: "라이브러리", symbol: "folder", controller: libraryTab),
@@ -59,9 +55,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
     // the three modes (Modes.swift)
     let libraryMode = LibraryModeController()
-    /// Layer-edit mode (Studio.swift)
-    let studioMode = StudioModeController()
-    /// Layer editor (Retouch/): replaces the older layer-edit view
+    /// Layer-edit mode (Retouch/RetouchEditor.swift)
     let retouchEditor = RetouchEditor()
     /// One toolbar shared by the three modes (mode-specific items live in per-mode bars over the canvas).
     var bulkToolbar: NSToolbar?
@@ -71,16 +65,6 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     weak var bulkSearchField: NSSearchField?
     weak var studioZoomSlider: NSSlider?
     weak var studioZoomLabel: NSTextField?
-    /// Color picked with the color picker (shown in layer-edit tool options)
-    lazy var pickerView: StudioPickerView = {
-        let v = StudioPickerView()
-        v.swatches.onPick = { [weak self] c in self?.applySwatch(c) }
-        return v
-    }()
-    /// Layer-edit effects tool options (effect picker + editing the selected layer's effects)
-    lazy var studioEffects = StudioEffectsPanel()
-    /// Layer-edit styles tool options
-    lazy var studioStyles = LayerStylesEditor()
     /// Pixel selection computation (rebuilt when the photo or settings change)
     var selectionEngineCache: (String, SelectionEngine)?
     /// Layer-edit selection (StudioSelection.swift). Belongs to the open photo, not saved.
@@ -370,7 +354,6 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             mark("설정")
             photo = doc
             LayerThumbs.doc = doc; LayerThumbs.backgroundThumb = nil
-            rememberTab(item)
             DispatchQueue.main.async { [weak self] in self?.syncGuides(); self?.syncCounts() }
             photoItem = item
             history.reset(doc.settings)
@@ -413,7 +396,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             enterTool(canvas.tool)
             updateHistogram()
             mark("히스토그램")
-            if mode == .studio { studioMode.layersPanel.reload() }
+            if mode == .studio { retouchEditor.reload() }
             prefetchPreviews(around: item, current: doc)
             mark("미리 준비")
         } catch {
@@ -643,11 +626,6 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         for i in 0..<25 { c += SIMD3(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]) }
         let avg = c / 25
         if colorPickPurpose == 20 || colorPickPurpose == 21 { normalizePicked(avg); return }
-        if colorPickPurpose == 9 {
-            // Layer-edit color picker: keeps the tool and just shows the picked color.
-            pickerView.show(avg)
-            return
-        }
         if (30...32).contains(colorPickPurpose) {
             inspector.pickedCurve(colorPickPurpose, rgb: avg)
             enterTool(.pan)
@@ -709,11 +687,6 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         retouch.onBrushChange = { [weak self] b in
             self?.canvas.retouchOverlay.brushRadius = b.radius
             self?.canvas.retouchOverlay.patchMode = b.patch
-            // Layer-edit mode: switching heal/clone/patch in the panel updates the tool bar too.
-            if let self, self.mode == .studio, ["repair", "clone", "patch"].contains(self.studioMode.currentTool) {
-                let id = b.patch ? "patch" : (b.kind == .heal ? "repair" : "clone")
-                if id != self.studioMode.currentTool { self.studioMode.noteTool(id) }
-            }
         }
         retouch.onRemoveLast = { [weak self] in
             guard let self, let s = self.photo?.settings, !self.targetSpots(s).isEmpty else { return }
@@ -858,7 +831,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         layersTab.onPlaceImage = { [weak self] in self?.placeImageLayer(nil) }
         o.onPoint = { [weak self] p, flags in
             guard let self else { return }
-            switch self.studioMode.currentTool {
+            switch self.retouchEditor.currentTool {
             case "selRow": self.rowColumnSelect(at: p, column: false, flags: flags)
             case "selColumn": self.rowColumnSelect(at: p, column: true, flags: flags)
             case "selWand": self.wandSelect(at: p, flags: flags)
@@ -941,7 +914,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 return
             }
             let o = self.canvas.maskOverlay
-            let toolKind: LayerMask.Kind? = self.mode == .studio ? ["selRect": .rect, "selOval": .ellipse][self.studioMode.currentTool] : nil
+            let toolKind: LayerMask.Kind? = self.mode == .studio ? ["selRect": .rect, "selOval": .ellipse][self.retouchEditor.currentTool] : nil
             let cur = s.layers[i].mask
             let hasShape = (cur.kind == .rect || cur.kind == .ellipse) && (cur.box[0] != cur.box[2] || cur.box[1] != cur.box[3])
             if let op = self.selectionOp(o.startFlags), hasShape || (toolKind != nil && toolKind != cur.kind && cur.kind != .full) {
@@ -991,8 +964,6 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         canvas.maskOverlay.brushRadius = layersTab.brushRadius
         if !dragging { layersTab.sync(s); inspector.refreshLayers() }
         if !dragging, mode == .studio { retouchEditor.reload() }
-        if !dragging, mode == .studio, studioMode.currentTool == "effects" { syncStudioEffects() }
-        if !dragging, mode == .studio, studioMode.currentTool == "style" { syncStudioStyles() }
     }
 
     @objc func toggleMaskView(_ sender: Any?) {
@@ -1065,7 +1036,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         case .panelLeft: return button("왼쪽 패널 보기", "sidebar.left", #selector(toggleLeftPanel(_:)))
         case .panelRight: return button("오른쪽 패널 보기", "sidebar.right", #selector(toggleRightPanel(_:)))
         case .modeSwitch: return modeToolbarItem()
-        default: return studioToolbarItem(id)
+        default: return nil
         }
     }
 
@@ -1182,12 +1153,9 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 }
             }
         }
-        // DUOCHROME_STUDIO_TOOL=tool id, DUOCHROME_STUDIO_CUSTOMIZE=1 — for checking the layer-edit mode look
+        // DUOCHROME_STUDIO_TOOL=tool id — for checking the layer-edit mode look
         if let t = env["DUOCHROME_STUDIO_TOOL"] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if self.mode == .studio { self.studioMode.selectTool(t) } }
-        }
-        if env["DUOCHROME_STUDIO_CUSTOMIZE"] != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if self.mode == .studio { self.studioMode.customize() } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if self.mode == .studio { self.retouchEditor.selectTool(t) } }
         }
         // DUOCHROME_AUTO_KEYSTONE=0|1|2 (vertical, horizontal, both)
         if let m = env["DUOCHROME_AUTO_KEYSTONE"].flatMap(Int.init).flatMap(Geometry.KeystoneMode.init) {
@@ -1286,7 +1254,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             DispatchQueue.main.async {
                 for _ in 0..<3 { self.layersTab.addLayer(.full, native: doc.nativeSize) }
                 self.layersTab.groupSelected()
-                if self.mode == .studio { self.studioMode.layersPanel.reload() }
+                if self.mode == .studio { self.retouchEditor.reload() }
             }
         }
         if let spec = env["DUOCHROME_LAYER"]?.split(separator: ":"), spec.count >= 1,

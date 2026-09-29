@@ -22,6 +22,9 @@ final class RetouchEditor: NSViewController {
     /// Name of the tool under the pointer, shown right under the tool bar
     let hoverTip = ToolHoverTip()
     private(set) var currentTool = UserDefaults.standard.string(forKey: "retouchTool") ?? "hand"
+    /// Panel visibility (⇥ or the toolbar panel buttons)
+    var showsLayers = true { didSet { layersPanel.isHidden = !showsLayers; updateCanvasInsets() } }
+    var showsOptions = true { didSet { inspector.isHidden = !showsOptions; updateCanvasInsets() } }
 
     override func loadView() {
         let root = NSView()
@@ -89,8 +92,8 @@ final class RetouchEditor: NSViewController {
     func updateCanvasInsets() {
         guard let canvas = canvasHost.subviews.first(where: { $0 is CanvasView }) as? CanvasView else { return }
         let gap: CGFloat = 8
-        canvas.fitInsets = NSEdgeInsets(top: 44 + gap * 2, left: gap * 2 + layersWidth.constant,
-                                        bottom: gap, right: gap * 2 + optionsWidth.constant)
+        canvas.fitInsets = NSEdgeInsets(top: 44 + gap * 2, left: showsLayers ? gap * 2 + layersWidth.constant : gap,
+                                        bottom: gap, right: showsOptions ? gap * 2 + optionsWidth.constant : gap)
     }
 
     /// Moves the shared canvas in (it goes back to batch edit on leaving)
@@ -118,6 +121,7 @@ final class RetouchEditor: NSViewController {
         if id == "transform" { host.freeTransform(nil); return }
         if id == "perspective" { host.perspectiveLayer(nil); return }
         currentTool = id
+        host.traceTool(id)
         UserDefaults.standard.set(id, forKey: "retouchTool")
         toolBar.reload(selected: id)
         host.applyRetouchTool(tool)

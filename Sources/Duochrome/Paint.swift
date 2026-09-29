@@ -265,7 +265,7 @@ extension MainWindowController {
         // Select the new layer after it's in the document (selecting first dropped the selection since it wasn't in the list yet)
         if let created {
             layersTab.select(created)
-            if mode == .studio { studioMode.layersPanel.reload() }
+            if mode == .studio { retouchEditor.reload() }
         }
     }
 

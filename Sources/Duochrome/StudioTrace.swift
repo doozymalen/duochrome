@@ -38,7 +38,7 @@ extension MainWindowController {
     func traceState() -> String {
         let layer = layersTab.selectedID.flatMap { id in photo?.settings.layers.first { $0.id == id } }
         let sel = layer.map { "\($0.kind)/\($0.mask.kind)\($0.isGroup ? "/group" : "")" } ?? "none"
-        return "mode \(mode) studioTool \(studioMode.currentTool) canvasTool \(viewer.canvas.tool) selected \(sel) photo \(photo == nil ? "none" : "open")"
+        return "mode \(mode) studioTool \(retouchEditor.currentTool) canvasTool \(viewer.canvas.tool) selected \(sel) photo \(photo == nil ? "none" : "open")"
     }
 
     private func traceLayers() -> String {

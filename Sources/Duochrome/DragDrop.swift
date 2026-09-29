@@ -7,7 +7,6 @@ import UniformTypeIdentifiers
 // ③ within the layer list: reorder, move into a group
 // ④ Finder image → layer list / canvas: image layer
 // ⑤ Finder folder / photo → window: open (DropWindow)
-// ⑥ Tool customization: drag tools into the bar, reorder (Studio.swift ToolCustomizeSheet)
 
 extension NSPasteboard.PasteboardType {
     /// In-app photo drag (value: photo paths, newline-separated)
@@ -215,7 +214,7 @@ extension MainWindowController {
         guard LayerTree.drop(&s.layers, from: i, onto: t, place) else { NSSound.beep(); return }
         replaceSettings(s, recordUndo: true, label: "레이어 옮기기")
         layersTab.select(id)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     /// Inserts images dragged from Finder as image layers (files copied into the catalog Assets).
@@ -232,7 +231,7 @@ extension MainWindowController {
                 NSLog("이미지 레이어 넣기 실패: %@", "\(error)")
             }
         }
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
         return added > 0
     }
 
@@ -282,7 +281,7 @@ extension MainWindowController {
 
     /// Drag-and-drop wiring (once, after setupModes)
     func installDragAndDrop() {
-        for list in [layersTab.dropList, studioMode.layersPanel.dropList] {
+        for list in [layersTab.dropList] {
             list.onDropLayer = { [weak self] id, t, p in self?.dropLayer(id, onto: t, p) }
             list.onDropFiles = { [weak self] urls in self?.dropImageLayers(urls) ?? false }
         }

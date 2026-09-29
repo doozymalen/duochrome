@@ -446,7 +446,7 @@ final class ShortcutSettingsController: NSViewController, NSTableViewDataSource,
 enum ShortcutCatalog {
     static func describe() -> String {
         var lines = ["심화 보정 (도구 단축키)"]
-        for t in StudioTool.all where !t.key.isEmpty { lines.append("  \(t.key.uppercased())    \(t.title)\(t.ready ? "" : " (준비 중)")") }
+        for t in RetouchTool.all where !t.key.isEmpty { lines.append("  \(t.key.uppercased())    \(t.title)") }
         lines.append("")
         lines.append("대량 보정")
         for (k, v) in [("H", "이동"), ("Z", "확대"), ("C", "크롭"), ("L", "수평"), ("K", "키스톤"), ("W", "화이트 밸런스"), ("Q", "리터칭"),

@@ -350,8 +350,7 @@ extension MainWindowController {
             "frame": NSStringFromRect(window?.frame ?? .zero),
             "left": split.showsLeft, "right": split.showsRight,
             "leftWidth": split.leftWidth, "rightWidth": split.rightWidth,
-            "studioLayers": studioMode.showsLayers, "studioOptions": studioMode.showsOptions,
-            "strip": StudioTool.strip,
+            "studioLayers": retouchEditor.showsLayers, "studioOptions": retouchEditor.showsOptions,
             "tab": tools.selected,
         ]
         ws[name] = d
@@ -360,15 +359,14 @@ extension MainWindowController {
 
     func applyWorkspace(_ name: String) {
         guard let d = Self.workspaces[name] else { NSSound.beep(); return }
-        if let s = d["strip"] as? [String] { StudioTool.strip = s; studioMode.strip.reload(selected: studioMode.currentTool) }
         if let m = (d["mode"] as? Int).flatMap(AppMode.init) { setMode(m) }
         if let f = d["frame"] as? String { let r = NSRectFromString(f); if r.width > 400 { window?.setFrame(r, display: true) } }
         if let v = d["left"] as? Bool { split.showsLeft = v }
         if let v = d["right"] as? Bool { split.showsRight = v }
         if let v = d["leftWidth"] as? Double { split.leftWidth = CGFloat(v) }
         if let v = d["rightWidth"] as? Double { split.rightWidth = CGFloat(v) }
-        if let v = d["studioLayers"] as? Bool { studioMode.showsLayers = v }
-        if let v = d["studioOptions"] as? Bool { studioMode.showsOptions = v }
+        if let v = d["studioLayers"] as? Bool { retouchEditor.showsLayers = v }
+        if let v = d["studioOptions"] as? Bool { retouchEditor.showsOptions = v }
         if let t = d["tab"] as? Int { tools.select(t) }
     }
 

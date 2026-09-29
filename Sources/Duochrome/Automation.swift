@@ -208,7 +208,7 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: "동작: \(act.name)")
         inspector.show(doc)
         layersTab.sync(s)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     // MARK: Batch processing

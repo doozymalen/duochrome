@@ -208,7 +208,7 @@ extension MainWindowController {
         s.layers.insert(l, at: min(aiLayerCut, s.layers.count))
         replaceSettings(s, recordUndo: true, label: name)
         layersTab.select(l.id)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     /// Runs engine work in the background (shown in the jobs panel), alerts on failure

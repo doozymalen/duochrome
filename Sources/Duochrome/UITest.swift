@@ -513,17 +513,9 @@ extension MainWindowController {
                 else { library.removeSettings(for: other.url) }
                 if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
             }
-            // Tool strip customization: insert and move at the drop position
-            let sheet = ToolCustomizeSheet()
-            var list: [String] = []
-            sheet.onDone = { list = $0 }
-            sheet.insert("twirl", at: 0)
-            sheet.insert(StudioTool.strip[2], at: 1)
-            sheet.perform(Selector(("done")))
-            let stripOK = list.first == "twirl" && list.count > 2 && list[1] == StudioTool.strip[2]
-            check("끌어 놓기: 레이어·그림·앨범·조정·도구 막대",
-                  intoOK && aboveOK && selfBlocked && bottomOK && winOK && imgOK && !rawIsLayer && albumOK && adjOK && stripOK,
-                  "그룹 안 \(intoOK) 위 \(aboveOK) 자기막기 \(selfBlocked) 맨아래 \(bottomOK) 창 \(winOK) 그림 \(imgOK) RAW제외 \(!rawIsLayer) 앨범 \(albumOK) 조정 \(adjOK) 도구막대 \(stripOK)")
+            check("끌어 놓기: 레이어·그림·앨범·조정",
+                  intoOK && aboveOK && selfBlocked && bottomOK && winOK && imgOK && !rawIsLayer && albumOK && adjOK,
+                  "그룹 안 \(intoOK) 위 \(aboveOK) 자기막기 \(selfBlocked) 맨아래 \(bottomOK) 창 \(winOK) 그림 \(imgOK) RAW제외 \(!rawIsLayer) 앨범 \(albumOK) 조정 \(adjOK)")
         }
 
         // 8-06. Catalog backup: back up the test catalog to a temp folder, open the backup, and check the adjustment count matches

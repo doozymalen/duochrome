@@ -387,7 +387,7 @@ extension MainWindowController {
     func keyTogglePanels(left: Bool) {
         switch mode {
         case .studio:
-            studioMode.showsLayers.toggle(); studioMode.showsOptions = studioMode.showsLayers
+            retouchEditor.showsLayers.toggle(); retouchEditor.showsOptions = retouchEditor.showsLayers
         default:
             togglePanel(left: left)
         }

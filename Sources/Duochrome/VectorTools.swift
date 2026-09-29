@@ -109,7 +109,7 @@ extension MainWindowController {
             s.layers.append(l)
             apply(s, dragging: dragging)
             layersTab.select(l.id)
-            if mode == .studio { studioMode.layersPanel.reload() }
+            if mode == .studio { retouchEditor.reload() }
             return
         }
         var paths = s.paths ?? []
@@ -132,7 +132,7 @@ extension MainWindowController {
             if vs.penTarget == 0 { vs.pathID = canvas.pathOverlay.path.id }
         }
         penOptions.reloadPaths()
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     /// Starts a new path (Paths panel "새 패스")
@@ -140,7 +140,7 @@ extension MainWindowController {
         let p = VectorPath(name: "패스 \((photo?.settings.paths?.count ?? 0) + 1)")
         vs.pathID = p.id
         canvas.pathOverlay.path = p
-        if canvas.tool != .path { studioMode.selectTool("pen") }
+        if canvas.tool != .path { enterTool(.path) }
     }
 
     // MARK: Shapes
@@ -187,7 +187,7 @@ extension MainWindowController {
         s.layers.append(l)
         replaceSettings(s, recordUndo: true, label: "모양 레이어")
         layersTab.select(l.id)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
         canvas.pathOverlay.path = path
         shapeOptions.sync()
     }
@@ -232,7 +232,7 @@ extension MainWindowController {
         s.layers[i].name = "\(p.name) 선택"
         replaceSettings(s, recordUndo: true, label: "패스를 선택으로")
         layersTab.sync(s)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     /// Fill: a shape layer filling the path shape (no stroke)
@@ -245,7 +245,7 @@ extension MainWindowController {
         s.layers.append(l)
         replaceSettings(s, recordUndo: true, label: "패스 칠하기")
         layersTab.select(l.id)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     /// Stroke: paints along the path with the current brush (paint layer)
@@ -255,7 +255,7 @@ extension MainWindowController {
         if p.closed, let f = pts.first { pts.append(f) }
         layersTab.select(nil)
         paintStroke(pts, pressures: pts.map { _ in 1 }, erase: false)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     /// To shape layer: a shape layer with the shape options (fill, stroke)
@@ -268,7 +268,7 @@ extension MainWindowController {
         s.layers.append(l)
         replaceSettings(s, recordUndo: true, label: "패스를 모양 레이어로")
         layersTab.select(l.id)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     /// To vector mask: the path as the selected layer's vector mask
@@ -278,14 +278,14 @@ extension MainWindowController {
         var q = p; q.closed = true
         s.layers[i].mask.vector = q
         replaceSettings(s, recordUndo: true, label: "벡터 마스크")
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     func removeVectorMask() {
         guard var s = photo?.settings, let (i, l) = selectedLayer, l.mask.vector != nil else { NSSound.beep(); return }
         s.layers[i].mask.vector = nil
         replaceSettings(s, recordUndo: true, label: "벡터 마스크 지우기")
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     // MARK: Text
@@ -309,7 +309,7 @@ extension MainWindowController {
         s.layers.append(l)
         replaceSettings(s, recordUndo: true, label: "글자 레이어")
         layersTab.select(l.id)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
         textOptions.sync(focus: true)
     }
 
@@ -326,7 +326,7 @@ extension MainWindowController {
             s.layers[i].name = String(t.string.prefix(20)).replacingOccurrences(of: "\n", with: " ")
         }
         apply(s, dragging: dragging)
-        if !dragging, mode == .studio { studioMode.layersPanel.reload() }
+        if !dragging, mode == .studio { retouchEditor.reload() }
     }
 
     var selectedText: LayerText? { selectedLayer.flatMap { $0.1.isText ? $0.1.text : nil } }

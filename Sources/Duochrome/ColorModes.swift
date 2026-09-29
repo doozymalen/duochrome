@@ -328,7 +328,7 @@ extension MainWindowController {
         s.layers.append(l)
         replaceSettings(s, recordUndo: true, label: "채널 합치기")
         layersTab.select(l.id)
-        if mode == .studio { studioMode.layersPanel.reload() }
+        if mode == .studio { retouchEditor.reload() }
     }
 
     /// Color mode menu (under the Image menu)

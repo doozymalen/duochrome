@@ -105,7 +105,7 @@ extension MainWindowController {
         s.layers[i].name = f.stringValue
         apply(s, dragging: false)
         layersTab.sync(s)
-        studioMode.layersPanel.reload()
+        retouchEditor.reload()
     }
 }
 
@@ -119,7 +119,7 @@ extension MainWindowController {
         apply(s, dragging: false)
         layersTab.select(l.id)
         layersTab.sync(s)
-        studioMode.layersPanel.reload()
+        retouchEditor.reload()
     }
 
     /// ⌘J: duplicate the selected layer, or the background if none is selected

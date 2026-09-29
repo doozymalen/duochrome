@@ -240,7 +240,7 @@ extension MainWindowController {
                 configure?(&s.layers[i])
                 self.replaceSettings(s, recordUndo: true, label: name)
                 self.layersTab.sync(s)
-                if self.mode == .studio { self.studioMode.layersPanel.reload() }
+                if self.mode == .studio { self.retouchEditor.reload() }
             }
         }
     }
