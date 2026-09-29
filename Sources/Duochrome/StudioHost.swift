@@ -37,6 +37,7 @@ extension MainWindowController {
         viewer.onZoom = { [weak self] z in if self?.mode != .tether { self?.studioZoomChanged(z) } }
         tetherMode.viewer.onZoom = { [weak self] z in if self?.mode == .tether { self?.studioZoomChanged(z) } }
         installKeyMap()
+        installTrace()
     }
 
     func enterStudio() {
@@ -101,6 +102,7 @@ extension MainWindowController {
 
     /// Maps layer-edit tools to canvas tools.
     func applyStudioTool(_ tool: StudioTool) {
+        traceTool(tool.id)
         colorPickPurpose = 0
         canvas.guidesOverlay.tool = .none
         // Just picking a tool doesn't change the photo. Tools that need a layer create it on the first canvas click.
