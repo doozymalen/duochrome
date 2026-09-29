@@ -818,10 +818,14 @@ extension MainWindowController {
             let backPO = photo?.previewOnly == true
             var sharpOK = false, exportOK = false
             if let d = photo {
-                // 100% tile: preview-only is softer than full size (upscaled), full size is sharp — compared by edge strength
+                // 100% tile: preview-only is softer than full size (upscaled), full size is sharp — compared by fine-detail energy
+                // (mean difference from a 1 px blur). Averaged edge strength barely separated the two on bright, low-contrast
+                // areas (1.196× on a white wall), while an upscaled preview has almost nothing at this scale.
                 let r = CGRect(x: 3000, y: 2000, width: 256, height: 256)
                 func detail(_ img: CIImage) -> Float {
-                    let e = img.cropped(to: r).applyingFilter("CIEdges", parameters: [kCIInputIntensityKey: 4])
+                    let tile = img.cropped(to: r)
+                    let blurred = img.clampedToExtent().applyingGaussianBlur(sigma: 1).cropped(to: r)
+                    let e = tile.applyingFilter("CIDifferenceBlendMode", parameters: [kCIInputBackgroundImageKey: blurred])
                         .applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: r)])
                     var p = [Float](repeating: 0, count: 4)
                     Render.context.render(e, toBitmap: &p, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
