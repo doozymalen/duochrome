@@ -85,7 +85,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     var selectionEngineCache: (String, SelectionEngine)?
     /// Layer-edit selection (StudioSelection.swift). Belongs to the open photo, not saved.
     var studioSelection: LayerMask? {
-        didSet { viewer.canvas.selectionMask = mode == .studio ? studioSelection : nil }
+        didSet {
+            viewer.canvas.selectionMask = mode == .studio ? studioSelection : nil
+            if mode == .studio { retouchEditor.inspector.selectionChanged(self) }
+        }
     }
     var selectAndMaskPanel: SelectAndMaskPanel?
     lazy var selectionOptions = SelectionOptionsView(host: self)
@@ -1021,6 +1024,8 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 self.inspector.histogram.data = data
                 self.tetherMode.histogram.data = data
                 self.inspector.curveEditor.histogram = data.luma
+                self.retouchEditor.inspector.histogram.data = data
+                self.retouchEditor.inspector.curveEditor.histogram = data.luma
             }
         }
     }

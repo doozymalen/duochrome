@@ -47,6 +47,8 @@ extension MainWindowController {
         retouchEditor.reload()
         retouchEditor.restoreTool()
         viewer.canvas.selectionMask = studioSelection
+        viewer.canvas.beforeIsBase = true
+        updateHistogram()
         viewer.canvas.zoomToFit()
         window?.makeFirstResponder(viewer.canvas)
         // Once more so the search field doesn't grab focus when the window first appears.
@@ -89,6 +91,7 @@ extension MainWindowController {
     /// Leaving layer-edit mode: returns the canvas and moved panels to the batch-edit view.
     func leaveStudio() {
         viewer.canvas.selectionMask = nil
+        viewer.canvas.beforeIsBase = false
         viewer.canvas.maskOverlay.prepare = nil
         viewer.canvas.maskOverlay.clickMode = .none
         viewer.canvas.maskOverlay.quickOverride = nil

@@ -112,7 +112,7 @@ final class RetouchEditor: NSViewController {
 
 /// One tool of the layer editor
 struct RetouchTool: Equatable {
-    enum Group { case view, arrange, select, brush, retouch }
+    enum Group { case view, arrange, select, brush, gradient, retouch }
     let id: String
     let title: String
     let symbol: String
@@ -132,6 +132,7 @@ struct RetouchTool: Equatable {
         .init(id: "selQuick", title: "빠른 선택", symbol: "wand.and.rays", group: .select, key: "W"),
         .init(id: "selWand", title: "자동 선택 (비슷한 색)", symbol: "wand.and.stars", group: .select, key: "⇧W"),
         .init(id: "selSubject", title: "피사체 선택 (AI)", symbol: "person.crop.rectangle", group: .select),
+        .init(id: "selSky", title: "하늘 선택 (AI)", symbol: "cloud.sun", group: .select),
         .init(id: "dodge", title: "밝게 (닷지)", symbol: "sun.max", group: .brush, key: "O"),
         .init(id: "burn", title: "어둡게 (번)", symbol: "moon", group: .brush),
         .init(id: "saturate", title: "채도 높이기", symbol: "drop.fill", group: .brush),
@@ -139,6 +140,8 @@ struct RetouchTool: Equatable {
         .init(id: "sharpen", title: "선명하게", symbol: "triangle", group: .brush),
         .init(id: "soften", title: "부드럽게", symbol: "aqi.medium", group: .brush),
         .init(id: "maskBrush", title: "마스크 붓 (고른 레이어)", symbol: "paintbrush", group: .brush, key: "B"),
+        .init(id: "gradLinear", title: "선형 그라디언트 (끌어서 긋기)", symbol: "square.bottomhalf.filled", group: .gradient, key: "G"),
+        .init(id: "gradRadial", title: "원형 그라디언트 (끌어서 원)", symbol: "circle.circle", group: .gradient),
         .init(id: "heal", title: "복구 (누르면 스팟, 끌면 붓)", symbol: "bandage", group: .retouch, key: "J"),
         .init(id: "clone", title: "복제 도장", symbol: "doc.on.doc", group: .retouch, key: "S"),
         .init(id: "patch", title: "패치 (고칠 곳을 두르기)", symbol: "square.dashed.inset.filled", group: .retouch),

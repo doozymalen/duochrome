@@ -57,12 +57,12 @@ defaults delete com.doozymalen.duochrome            # app preferences
 - Photo management: catalog, ratings, picks, color tags, keywords, albums, smart albums, search, backup
 - Copy and selectively paste adjustments, styles, batch export (JPEG, PNG, HEIC, TIFF 8/16/32-bit, DNG, web)
 
-**Layer editing**
-- Adjustment, image, text, shape, and fill layers, groups, masks (brush, gradient, selection, vector, luminance range), blend modes, layer styles
-- Selection tools (marquee, lasso, magnetic, quick selection, magic wand, color range), Select and Mask
-- Brush, eraser, healing, clone, patch, dodge, burn, free transform, warp, puppet warp, liquify
-- Over 100 filters (blur, sharpen, distort, stylize, render, filter gallery), pen and paths, text (vertical, warped, on a path)
-- PSD/PSB read and write with layers, 8/16/32-bit, CMYK, Lab, grayscale, action recording and batch processing
+**Layer editing** (retouching on top of the batch-edit result)
+- Adjustment layers with exposure, tone, color, clarity, curves, and per-color hue/saturation/lightness; photo layers with blend modes, move, free transform, and perspective
+- Masks: brush, linear and radial gradients, luminance range, selection; feather and invert
+- Selections: rectangle, ellipse, lasso, quick selection, magic wand, AI subject and sky; grow, feather, and edge refine
+- Dodge, burn, saturate, desaturate, sharpen, and soften brushes; heal, clone, patch, smart erase, AI remove
+- Histogram and before/after (Y shows the photo without layers)
 
 **Tethering**
 - Remote aperture, shutter, ISO, and white balance, live view, AF, manual focus, and zoom for USB-connected cameras supported by libgphoto2 (Canon, Nikon, Sony, Fujifilm, and more); only the controls your camera supports are shown
@@ -161,12 +161,12 @@ defaults delete com.doozymalen.duochrome            # 앱 설정
 - 사진 관리: 카탈로그, 별점·채택·색 태그·키워드·앨범·스마트 앨범, 검색, 백업
 - 조정 복사·골라 붙이기, 스타일, 일괄 내보내기(JPEG·PNG·HEIC·TIFF 8/16/32비트·DNG·웹용)
 
-**심화 보정**
-- 조정·이미지·글자·모양·칠 레이어, 그룹, 마스크(붓·그라디언트·선택·벡터·밝기 범위), 혼합 모드, 레이어 스타일
-- 선택 도구(사각형·올가미·자석·빠른 선택·자동 선택·색상 범위), 선택 및 마스크
-- 브러시·지우개·복구·복제·패치·닷지·번, 자유 변형·뒤틀기·퍼펫 뒤틀기·픽셀 유동화
-- 필터 100가지 이상(흐림·선명·왜곡·스타일화·렌더·필터 갤러리), 펜·패스, 텍스트(세로쓰기·뒤틀기·패스 위 글자)
-- PSD·PSB 읽고 쓰기(레이어째), 8/16/32비트, CMYK·Lab·회색조, 동작 기록·일괄 처리
+**심화 보정** (대량 보정 결과 위에 쌓는 리터칭)
+- 조정 레이어(노출·톤·색·클래리티·커브·색상별 색조/채도/밝기), 사진 레이어(혼합 모드·이동·자유 변형·원근)
+- 마스크: 붓·선형/원형 그라디언트·밝기 범위·선택 영역, 가장자리 흐림·반전
+- 선택: 사각형·타원·올가미·빠른 선택·자동 선택·AI 피사체·AI 하늘, 넓히기·흐림·가장자리 다듬기
+- 닷지·번·채도·선명·부드럽게 붓, 복구·복제·패치·스마트 지우기·AI 지우기
+- 히스토그램, 보정 전후 비교(Y: 레이어 없는 모습)
 
 **테더링**
 - USB로 연결한 카메라(libgphoto2가 지원하는 캐논·니콘·소니·후지필름 등)의 조리개·셔터·ISO·화이트 밸런스 원격 변경, 라이브 뷰, AF·수동 초점·확대 (카메라가 지원하는 것만 보입니다)

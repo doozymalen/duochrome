@@ -50,6 +50,21 @@ struct LocalAdjust: Equatable, Codable {
     /// Layer effects (stacked in order like smart filters, Effects.swift). Optional since older documents lack it
     var effects: [LayerEffect]? = nil
     var fx: [LayerEffect] { effects ?? [] }
+    /// Tone curves (RGB, luma, channels). nil = off
+    var curves: CurveSet? = nil
+    /// Per-color hue/saturation/lightness for the eight basic colors (ColorRange.basic): dHue, dSat, dLight × 8. nil = off
+    var hsl: [Float]? = nil
+    /// Color-LUT pass for the luma curve and per-color adjustments (nil when neither is set)
+    var colorKey: ColorLUT.Key? {
+        var k = ColorLUT.Key()
+        if let c = curves { k.luma = c.luma }
+        if let h = hsl, h.count == ColorRange.basic.count * 3 {
+            for i in k.editor.indices where i < ColorRange.basic.count {
+                k.editor[i].dHue = h[i * 3]; k.editor[i].dSat = h[i * 3 + 1]; k.editor[i].dLight = h[i * 3 + 2]
+            }
+        }
+        return k.isNeutral ? nil : k
+    }
 }
 
 /// One brush stroke of a brush mask (decoded source coordinates).
@@ -600,7 +615,10 @@ enum Layers {
             var s = DevelopSettings()
             s.contrast = a.contrast; s.brightness = a.brightness; s.saturation = a.saturation
             s.highlightTone = a.highlightTone; s.shadow = a.shadow
-            return colorAdjust(a, Develop.tone(s, o, scale: sc).cropped(to: img.extent))
+            if let c = a.curves { s.curves = c }
+            o = Develop.tone(s, o, scale: sc).cropped(to: img.extent)
+            if let k = a.colorKey { o = ColorLUT.apply(k, to: o).cropped(to: img.extent) }
+            return colorAdjust(a, o)
         }
         if a.dehaze > 0 {
             (out, g) = Develop.dehaze(out, guide: g, guideScale: gs, scale: scale, amount: a.dehaze / 100,

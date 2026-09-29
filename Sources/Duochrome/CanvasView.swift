@@ -14,6 +14,11 @@ final class CanvasView: MTKView {
     var showOriginal = false { didSet { needsDisplay = true } }
     /// Side-by-side before/after: left half before, right half after (white line in the middle).
     var splitCompare = false { didSet { needsDisplay = true } }
+    /// Layer edit: "before" is the develop result without layers (instead of the undeveloped photo)
+    var beforeIsBase = false { didSet { needsDisplay = true } }
+    private func beforeImage(_ doc: RawDocument, _ level: CGFloat) -> CIImage {
+        beforeIsBase ? doc.imageWithoutLayers(scale: level) : doc.originalImage(scale: level)
+    }
     /// Mask display: false red overlay, true grayscale (white is the effect).
     var maskGray = false { didSet { maskStyle = maskGray ? 1 : (maskStyle == 1 ? 0 : maskStyle) } }
     /// Mask display: 0 red overlay (selection), 1 grayscale, 2 on black, 3 on white, 4 red overlay (outside, quick mask)
@@ -22,7 +27,7 @@ final class CanvasView: MTKView {
     /// Soft proof (look when exported to sRGB), gamut warning (pixels outside sRGB shown gray)
     var softProof = false { didSet { needsDisplay = true } }
     var gamutWarning = false { didSet { needsDisplay = true } }
-    enum Tool: CaseIterable { case pan, zoom, crop, straighten, keystone, whiteBalance, retouch, mask, colorPick, transform, points, path, select, brush, move }
+    enum Tool: CaseIterable { case pan, zoom, crop, straighten, keystone, whiteBalance, retouch, mask, colorPick, transform, points, path, select, brush, move, gradient }
     /// Cursor tool. Hand drags to pan, zoom clicks 2× (Option zooms out).
     var tool: Tool = .pan {
         didSet {
@@ -37,6 +42,8 @@ final class CanvasView: MTKView {
             selectionTool.isHidden = tool != .select
             brushSurface.isHidden = tool != .brush
             moveSurface.isHidden = tool != .move
+            gradientSurface.isHidden = tool != .gradient
+            gradientSurface.needsDisplay = true
         }
     }
     /// "Single click" tools like the eyedropper. Passes image coordinates.
@@ -61,6 +68,8 @@ final class CanvasView: MTKView {
     let brushSurface = BrushSurfaceView()
     /// Layer-edit move tool
     let moveSurface = MoveSurfaceView()
+    /// Layer-edit gradient tools (Retouch/GradientTool.swift)
+    let gradientSurface = GradientSurfaceView()
     /// Layer-edit selection, drawn as a marching-ants outline (source coordinates)
     var selectionMask: LayerMask? { didSet { needsDisplay = true } }
     /// Guides, measure, count layer and rulers (Workspace.swift)
@@ -193,6 +202,9 @@ final class CanvasView: MTKView {
         moveSurface.isHidden = true
         moveSurface.autoresizingMask = [.width, .height]
         addSubview(moveSurface)
+        gradientSurface.isHidden = true
+        gradientSurface.autoresizingMask = [.width, .height]
+        addSubview(gradientSurface)
         guidesOverlay.canvas = self
         guidesOverlay.autoresizingMask = [.width, .height]
         addSubview(guidesOverlay)
@@ -286,6 +298,7 @@ final class CanvasView: MTKView {
         pathOverlay.needsDisplay = true
         selectionTool.needsDisplay = true
         brushSurface.needsDisplay = true
+        gradientSurface.needsDisplay = true
         guidesOverlay.needsDisplay = true
         rulerTop.needsDisplay = true; rulerLeft.needsDisplay = true
     }
@@ -348,7 +361,7 @@ final class CanvasView: MTKView {
             onSample(nil); return
         }
         let level = previewLevel(for: zoom * backing)
-        let img = showOriginal ? doc.originalImage(scale: level) : doc.image(scale: level)
+        let img = showOriginal ? beforeImage(doc, level) : doc.image(scale: level)
         var px = [UInt8](repeating: 0, count: 4)
         let r = CGRect(x: (ip.x * level).rounded(.down), y: (ip.y * level).rounded(.down), width: 1, height: 1)
         ciContext.render(img, toBitmap: &px, rowBytes: 4, bounds: r, format: .RGBA8, colorSpace: displaySpace)
@@ -443,7 +456,7 @@ final class CanvasView: MTKView {
         if fitting { applyFit() }
         let pz = zoom * backing
         let level = previewLevel(for: pz)
-        var img = showOriginal ? doc.originalImage(scale: level) : doc.image(scale: level)
+        var img = showOriginal ? beforeImage(doc, level) : doc.image(scale: level)
         if let ph = placeholder {
             placeholder = nil
             placeholderFrames += 1
@@ -455,7 +468,7 @@ final class CanvasView: MTKView {
         }
         if splitCompare && !showOriginal {
             // Overlay the before image on the left half (screen center, converted to image coordinates).
-            let before = doc.originalImage(scale: level)
+            let before = beforeImage(doc, level)
             let midX = (center.x + (bounds.midX - bounds.midX) / zoom) * level
             let left = CGRect(x: img.extent.minX, y: img.extent.minY, width: max(midX - img.extent.minX, 0), height: img.extent.height)
             let line = CIImage(color: .white).cropped(to: CGRect(x: midX - 1 / zoom * level, y: img.extent.minY,

@@ -172,6 +172,25 @@ final class RetouchInspector: NSView {
     private let retouchSize = SliderRow(label: "크기", min: 2, max: 500, format: "%.0f px", defaultValue: 40)
     private let retouchFeather = SliderRow(label: "부드러움", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.5)
     private let retouchOpacity = SliderRow(label: "불투명도", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
+    /// Histogram of the whole result (fed from updateHistogram)
+    let histogram = HistogramView()
+    // Adjustment layer: curves and per-color adjustments
+    let curveEditor = CurveEditorView()
+    private let curveChannel = NSPopUpButton()
+    private let hslColor = NSPopUpButton()
+    private let hslRows = [SliderRow(label: "색조", min: -30, max: 30, format: "%+.0f°", defaultValue: 0),
+                           SliderRow(label: "채도", min: -100, max: 100, format: "%+.0f", defaultValue: 0),
+                           SliderRow(label: "밝기", min: -100, max: 100, format: "%+.0f", defaultValue: 0)]
+    // Mask refinements
+    private let maskFeather = SliderRow(label: "가장자리 흐림", min: 0, max: 300, format: "%.0f px", defaultValue: 0)
+    private let radialFeather = SliderRow(label: "원 가장자리", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.5)
+    private let lumaMin = SliderRow(label: "밝기 범위 아래", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0)
+    private let lumaMax = SliderRow(label: "밝기 범위 위", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
+    private let lumaSoft = SliderRow(label: "범위 부드러움", min: 0, max: 0.5, format: "%.0f%%", display: 100, defaultValue: 0.1)
+    // Selection refinements (the document selection)
+    private let selFeather = SliderRow(label: "선택 가장자리 흐림", min: 0, max: 300, format: "%.0f px", defaultValue: 0)
+    private let selGrow = SliderRow(label: "넓히기/좁히기", min: -100, max: 100, format: "%+.0f px", defaultValue: 0)
+    private let selRefine = SliderRow(label: "머리카락 다듬기", min: 0, max: 60, format: "%.0f px", defaultValue: 0)
 
     /// Adjustment values of an adjustment layer (LocalAdjust), in the order shown
     private static let adjustSpecs: [(String, WritableKeyPath<LocalAdjust, Float>, Double, Double, String)] = [
@@ -203,7 +222,41 @@ final class RetouchInspector: NSView {
         retouchFeather.onChange = { [weak self] v, _ in self?.host?.retouch.brush.feather = v }
         retouchOpacity.onChange = { [weak self] v, _ in self?.host?.retouch.brush.opacity = v }
 
-        let stack = NSStackView(views: [toolTitle, toolBox, separator(), layerTitle, layerBox])
+        curveChannel.addItems(withTitles: CurveSet.channels.map(\.0))
+        curveChannel.selectItem(at: 0)
+        curveChannel.target = self
+        curveChannel.action = #selector(curveChannelChanged)
+        curveEditor.onChange = { [weak self] c, dragging in
+            self?.editAdjust(dragging) { $0.curves = c.isIdentity && c.luma.isIdentity ? nil : c }
+        }
+        curveEditor.heightAnchor.constraint(equalTo: curveEditor.widthAnchor).isActive = true
+        hslColor.addItems(withTitles: ColorRange.basic.map(\.name))
+        hslColor.selectItem(at: 0)
+        hslColor.target = self
+        hslColor.action = #selector(hslColorChanged)
+        for (k, r) in hslRows.enumerated() {
+            r.onChange = { [weak self] v, dragging in
+                guard let self else { return }
+                let i = max(self.hslColor.indexOfSelectedItem, 0)
+                self.editAdjust(dragging) { a in
+                    var h = a.hsl ?? [Float](repeating: 0, count: ColorRange.basic.count * 3)
+                    if h.count != ColorRange.basic.count * 3 { h = [Float](repeating: 0, count: ColorRange.basic.count * 3) }
+                    h[i * 3 + k] = Float(v)
+                    a.hsl = h.allSatisfy { $0 == 0 } ? nil : h
+                }
+            }
+        }
+        maskFeather.onChange = { [weak self] v, d in self?.editMask(d) { $0.feather = v } }
+        radialFeather.onChange = { [weak self] v, d in self?.editMask(d) { $0.radialFeather = v } }
+        lumaMin.onChange = { [weak self] v, d in self?.editMask(d) { $0.lumaMin = Float(min(v, Double($0.lumaMax))) } }
+        lumaMax.onChange = { [weak self] v, d in self?.editMask(d) { $0.lumaMax = Float(max(v, Double($0.lumaMin))) } }
+        lumaSoft.onChange = { [weak self] v, d in self?.editMask(d) { $0.lumaSoft = Float(v) } }
+        selFeather.onChange = { [weak self] v, _ in self?.editSelection { $0.feather = v } }
+        selGrow.onChange = { [weak self] v, _ in self?.editSelection { $0.grow = v == 0 ? nil : v } }
+        selRefine.onChange = { [weak self] v, _ in self?.editSelection { $0.refine = v == 0 ? nil : v } }
+        histogram.heightAnchor.constraint(equalToConstant: 80).isActive = true
+
+        let stack = NSStackView(views: [histogram, toolTitle, toolBox, separator(), layerTitle, layerBox])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -227,6 +280,7 @@ final class RetouchInspector: NSView {
             holder.widthAnchor.constraint(equalTo: scroll.widthAnchor),
             toolBox.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24),
             layerBox.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24),
+            histogram.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24),
         ])
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -266,6 +320,8 @@ final class RetouchInspector: NSView {
             views = [host.selectionOptions]
             if tool.id == "selQuick" { brushSize.value = host.layersTab.brushRadius; views.insert(brushSize, at: 0) }
             if tool.id == "selSubject" { views.insert(note("사진을 누르면 AI가 피사체를 골라 선택 영역으로 잡습니다."), at: 0) }
+            if tool.id == "selSky" { views.insert(note("사진을 누르면 하늘을 찾아 선택 영역으로 잡습니다. 가장자리는 아래 '머리카락 다듬기'로 나뭇가지·건물 윤곽에 맞춥니다."), at: 0) }
+            views += selectionRefineViews(host)
         case .brush:
             brushSize.value = host.layersTab.brushRadius
             brushHardness.value = host.layersTab.brushHardness
@@ -274,6 +330,11 @@ final class RetouchInspector: NSView {
                 ? "고른 조정 레이어의 마스크를 칠합니다. 칠한 곳에만 조정이 걸리고, ⌥를 누르고 칠하면 지웁니다."
                 : "칠한 곳에 '\(RetouchTool.presets[tool.id]?.name ?? tool.title)' 레이어가 걸립니다. 세기는 아래 레이어 값으로 바꾸고, ⌥를 누르고 칠하면 지웁니다."
             views = [brushSize, brushHardness, brushFlow, note(what)]
+        case .gradient:
+            views = [note(tool.id == "gradLinear"
+                ? "사진 위를 끌어 그으면 시작점은 조정이 다 걸리고 끝점으로 갈수록 사라지는 그라디언트 레이어가 생깁니다 (하늘 어둡게 등). 고른 그라디언트의 점을 끌면 고칩니다."
+                : "가운데에서 끌어 원을 그리면 안쪽에만 조정이 걸리는 레이어가 생깁니다 (⌥ 타원). 가운데를 끌면 옮기고, 오른쪽 점을 끌면 크기를 바꿉니다. 바깥에 걸려면 마스크 '반전'.")]
+            if host.studioSelection != nil { views.append(note("선택 영역이 있어 그 안에만 걸립니다.")) }
         case .arrange:
             views = [note("왼쪽에서 고른 사진 레이어를 끌어 옮깁니다.\n\n자유 변형(⌘T): 모서리를 끌면 크기(⇧ 비율 무시), 변 가운데는 한쪽만, 바깥을 끌면 회전(⇧ 15°씩).\n원근 변형: 네 모서리를 끌어 맞춥니다.\n둘 다 ↩ 확정, esc 취소.")]
         case .retouch:
@@ -318,6 +379,16 @@ final class RetouchInspector: NSView {
                 r.value = Double(layer.adjust[keyPath: key])
                 views.append(r)
             }
+            // Curves
+            views.append(heading("커브"))
+            curveEditor.curves = layer.adjust.curves ?? CurveSet()
+            curveEditor.histogram = histogram.data?.luma
+            views += [curveChannel, curveEditor]
+            // Per-color
+            views.append(heading("색상별"))
+            views.append(hslColor)
+            loadHSL(layer.adjust)
+            views += hslRows
         } else if layer.isImage {
             views.append(note("사진 레이어입니다. 불투명도와 혼합 모드는 왼쪽 레이어 패널에서 바꿉니다."))
         }
@@ -326,6 +397,17 @@ final class RetouchInspector: NSView {
         maskTitle.font = .systemFont(ofSize: 12, weight: .semibold)
         views.append(maskTitle)
         views.append(maskButtons())
+        maskFeather.value = layer.mask.feather
+        views.append(maskFeather)
+        if layer.mask.kind == .radial {
+            radialFeather.value = layer.mask.radialFeather
+            views.append(radialFeather)
+        }
+        // Luma range: the layer only acts on this brightness band (e.g. only the highlights)
+        lumaMin.value = Double(layer.mask.lumaMin)
+        lumaMax.value = Double(layer.mask.lumaMax)
+        lumaSoft.value = Double(layer.mask.lumaSoft)
+        views += [lumaMin, lumaMax, lumaSoft]
         put(views, in: layerBox)
     }
 
@@ -370,6 +452,62 @@ final class RetouchInspector: NSView {
         guard !s.layers[i].locked else { NSSound.beep(); return }
         f(&s.layers[i].adjust)
         host.apply(s, dragging: dragging)
+    }
+
+    private func heading(_ s: String) -> NSTextField {
+        let h = NSTextField(labelWithString: s)
+        h.font = .systemFont(ofSize: 12, weight: .semibold)
+        return h
+    }
+
+    @objc private func curveChannelChanged() {
+        let (_, key, color) = CurveSet.channels[max(curveChannel.indexOfSelectedItem, 0)]
+        curveEditor.channelColor = color
+        curveEditor.channel = key
+    }
+
+    private func loadHSL(_ a: LocalAdjust) {
+        let i = max(hslColor.indexOfSelectedItem, 0)
+        let h = a.hsl ?? []
+        for (k, r) in hslRows.enumerated() { r.value = h.count > i * 3 + k ? Double(h[i * 3 + k]) : 0 }
+    }
+
+    @objc private func hslColorChanged() {
+        guard let host, let id = host.layersTab.selectedID,
+              let l = host.photo?.settings.layers.first(where: { $0.id == id }) else { return }
+        loadHSL(l.adjust)
+    }
+
+    private func editMask(_ dragging: Bool, _ f: (inout LayerMask) -> Void) {
+        guard let host, var s = host.photo?.settings, let id = host.layersTab.selectedID,
+              let i = s.layers.firstIndex(where: { $0.id == id }) else { return }
+        guard !s.layers[i].locked else { NSSound.beep(); return }
+        f(&s.layers[i].mask)
+        host.apply(s, dragging: dragging)
+    }
+
+    /// Feather, grow and edge refine of the document selection (applied on top of its shape)
+    private func selectionRefineViews(_ host: MainWindowController) -> [NSView] {
+        let sel = host.studioSelection
+        selFeather.value = sel?.feather ?? 0
+        selGrow.value = sel?.grow ?? 0
+        selRefine.value = sel?.refine ?? 0
+        return [heading("선택 영역 다듬기"), selFeather, selGrow, selRefine]
+    }
+
+    private func editSelection(_ f: (inout LayerMask) -> Void) {
+        guard let host, var sel = host.studioSelection else { NSSound.beep(); return }
+        f(&sel)
+        host.studioSelection = sel
+    }
+
+    /// The selection changed: keep the refine sliders in step
+    func selectionChanged(_ host: MainWindowController) {
+        guard RetouchTool.named(host.retouchEditor.currentTool)?.group == .select else { return }
+        let sel = host.studioSelection
+        selFeather.value = sel?.feather ?? 0
+        selGrow.value = sel?.grow ?? 0
+        selRefine.value = sel?.refine ?? 0
     }
 
     @objc private func invertMask() { editLayer("마스크 반전") { $0.mask.invert.toggle() } }

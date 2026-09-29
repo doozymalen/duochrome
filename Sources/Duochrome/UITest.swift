@@ -735,6 +735,95 @@ extension MainWindowController {
             check("심화 보정 도구: 캔버스 클릭이 닿음", blocked.isEmpty, blocked.isEmpty ? "모든 도구" : blocked.joined(separator: ", "))
         }
 
+        // 8-10. Layer editor extras: linear/radial gradient tools (drag makes a layer, handle drag edits it), luma range,
+        //       curves and per-color adjustments on an adjustment layer, "before" = develop without layers,
+        //       selection grow/feather, AI sky selection
+        do {
+            setMode(.studio)
+            let s0 = photo?.settings
+            var notes: [String] = []
+            guard let doc = photo else { check("심화 추가 기능", false, "사진 없음"); return }
+            let n = doc.nativeSize
+            func avg(_ m: CIImage) -> Float {
+                let d = m.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: m.extent)])
+                var px = [Float](repeating: 0, count: 4)
+                Render.context.render(d, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+                return px[0]
+            }
+            func maskAvg(_ id: String) -> Float { doc.maskPreview(id, scale: Develop.guideScale).map(avg) ?? -1 }
+            func imgAvg() -> Float { avg(doc.image(scale: Develop.guideScale)) }
+            func vn(_ x: CGFloat, _ y: CGFloat) -> CGPoint { canvas.viewPoint(forImage: doc.toDisplay(CGPoint(x: x, y: y))) }
+            var s = doc.settings; s.layers = []; s.adoptGeometry(from: doc.asShot); replaceSettings(s, recordUndo: false)
+            layersTab.select(nil)
+            studioSelection = nil
+            let plain = imgAvg()
+            // Linear gradient: top (full) → middle (none)
+            retouchEditor.selectTool("gradLinear")
+            let g = canvas.gradientSurface
+            canvas.layoutSubtreeIfNeeded()
+            if canvas.tool != .gradient || g.isHidden { notes.append("그라디언트 층이 안 보임") }
+            drag(g, from: vn(n.width / 2, n.height * 0.05), to: vn(n.width / 2, n.height * 0.5))
+            let lin = doc.settings.layers.last
+            if doc.settings.layers.count != 1 || lin?.mask.kind != .linear { notes.append("선형 레이어 \(doc.settings.layers.count)") }
+            if let id = lin?.id {
+                let a = maskAvg(id)
+                if !(a > 0.1 && a < 0.6) { notes.append("선형 마스크 \(a)") }
+                if !(imgAvg() < plain - 0.002) { notes.append("선형 어둡게 \(plain) → \(imgAvg())") }
+                // Before (Y) in layer edit = develop without layers
+                if !canvas.beforeIsBase || abs(avg(doc.imageWithoutLayers(scale: Develop.guideScale)) - plain) > 0.002 { notes.append("보정 전 = 레이어 없는 현상") }
+                // Drag the end handle down: same layer, gradient longer
+                let y0 = lin?.mask.linear[3] ?? 0
+                drag(g, from: vn(n.width / 2, n.height * 0.5), to: vn(n.width / 2, n.height * 0.9))
+                if doc.settings.layers.count != 1 || abs((doc.settings.layers.last?.mask.linear[3] ?? 0) - y0) < 1 { notes.append("끝점 끌기") }
+                // Luma range: only the brighter half keeps the effect
+                let darker = imgAvg()
+                var s1 = doc.settings; s1.layers[0].mask.lumaMin = 0.6; apply(s1, dragging: false)
+                if !(imgAvg() > darker + 0.001) { notes.append("밝기 범위 \(darker) → \(imgAvg())") }
+            }
+            // Radial: a circle in the middle
+            retouchEditor.selectTool("gradRadial")
+            layersTab.select(nil)
+            drag(g, from: vn(n.width / 2, n.height / 2), to: vn(n.width * 0.7, n.height / 2))
+            let rad = doc.settings.layers.last
+            if doc.settings.layers.count != 2 || rad?.mask.kind != .radial { notes.append("원형 레이어") }
+            else if let id = rad?.id, !(maskAvg(id) > 0.02 && maskAvg(id) < 0.5) { notes.append("원형 마스크 \(maskAvg(id))") }
+            // Curves and per-color on a whole-photo adjustment layer
+            s = doc.settings; s.layers = []; replaceSettings(s, recordUndo: false)
+            retouchAddAdjustLayer()
+            let base = imgAvg()
+            s = doc.settings
+            var c = CurveSet(); c.rgb = ToneCurve(points: [CGPoint(x: 0, y: 0), CGPoint(x: 0.5, y: 0.75), CGPoint(x: 1, y: 1)])
+            s.layers[0].adjust.curves = c
+            apply(s, dragging: false)
+            let curved = imgAvg()
+            if !(curved > base + 0.01) { notes.append("커브 \(base) → \(curved)") }
+            s = doc.settings
+            s.layers[0].adjust.curves = nil
+            var h = [Float](repeating: 0, count: 24)
+            for i in 0..<8 { h[i * 3 + 2] = -100 }
+            s.layers[0].adjust.hsl = h
+            apply(s, dragging: false)
+            if !(imgAvg() < base - 0.002) { notes.append("색상별 밝기 \(base) → \(imgAvg())") }
+            // Selection refine: growing the selection makes it bigger, the inspector sliders follow the selection
+            retouchEditor.selectTool("selRect")
+            drag(canvas.selectionTool, from: vn(n.width * 0.3, n.height * 0.3), to: vn(n.width * 0.6, n.height * 0.6))
+            if let sel = studioSelection {
+                let a0 = avg(doc.selectionPreview(sel, scale: Develop.guideScale, base: doc.image(scale: Develop.guideScale)))
+                var grown = sel; grown.grow = 100; grown.feather = 20
+                studioSelection = grown
+                let a1 = avg(doc.selectionPreview(grown, scale: Develop.guideScale, base: doc.image(scale: Develop.guideScale)))
+                if !(a1 > a0) { notes.append("선택 넓히기 \(a0) → \(a1)") }
+            } else { notes.append("사각형 선택 없음") }
+            studioSelection = nil
+            // Sky (the test photo has sky at the top)
+            if AISelect.mask(doc, target: .sky) == nil { notes.append("하늘 선택 실패") }
+            retouchEditor.selectTool("hand")
+            setMode(.edit)
+            if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
+            check("심화 추가 기능 (그라디언트·밝기 범위·커브·색상별·보정 전·선택 다듬기·하늘)", notes.isEmpty,
+                  notes.isEmpty ? "모두" : notes.joined(separator: " / "))
+        }
+
         // 8-0. Switching modes keeps the window size
         do {
             let f0 = window?.frame ?? .zero

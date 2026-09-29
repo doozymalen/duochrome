@@ -222,6 +222,7 @@ extension MainWindowController {
             guard let self else { return }
             switch self.retouchEditor.currentTool {
             case "selSubject": self.addAISelection(.subject)
+            case "selSky": self.addAISelection(.sky)
             case "selWand": self.wandSelect(at: p, flags: f)
             case "selColor": self.colorRangeSelect(at: p, flags: f)
             case "selRow": self.rowColumnSelect(at: p, column: false, flags: f)

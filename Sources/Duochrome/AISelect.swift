@@ -9,6 +9,7 @@ enum AISelect {
 
     /// Builds a mask from a source-coordinate image (safe to call in the background). nil on failure.
     static func mask(_ doc: RawDocument, target: Target) -> String? {
+        if target == .sky { return AIBasic.skyMask(doc) }
         let img = doc.nativePreview(scale: 0.25)
         let e = img.extent
         guard let cg = Render.context.createCGImage(img, from: e, format: .RGBA8,
@@ -30,6 +31,8 @@ enum AISelect {
                 try handler.perform([req])
                 guard let buf = req.results?.first?.pixelBuffer else { return nil }
                 maskCI = CIImage(cvPixelBuffer: buf)
+            case .sky:
+                return nil
             }
         } catch {
             NSLog("AI 선택 실패: %@", "\(error)")

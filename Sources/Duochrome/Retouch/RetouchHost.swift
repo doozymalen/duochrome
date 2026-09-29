@@ -89,6 +89,7 @@ extension MainWindowController {
         m.fromView = b.fromView
         // Moving goes through the same code as batch edit's layer move (snapping, text anchors, shapes)
         m.onDrag = { [weak self] a, p, dragging in self?.viewer.canvas.maskOverlay.onMoveImage?(a, p, dragging) }
+        setupGradientTool()
     }
 
     /// Picks a tool in the layer editor: exactly one canvas input goes with it
@@ -112,6 +113,9 @@ extension MainWindowController {
             } else {
                 enterTool(photo == nil ? .pan : .brush)
             }
+        case .gradient:
+            c.gradientSurface.kind = tool.id == "gradRadial" ? .radial : .linear
+            enterTool(photo == nil ? .pan : .gradient)
         case .arrange:
             // "transform" never gets here (it is a command, RetouchEditor.selectTool)
             enterTool(photo == nil ? .pan : .move)
@@ -135,7 +139,7 @@ extension MainWindowController {
 
     /// Key shortcuts and older callers pick layer-editor tools by id (older ids are mapped, unknown ones ignored)
     func retouchSelect(_ id: String) {
-        let map = ["lighten": "dodge", "darken": "burn", "maskPaint": "maskBrush", "repair": "heal", "arrange": "move"]
+        let map = ["lighten": "dodge", "darken": "burn", "maskPaint": "maskBrush", "repair": "heal", "arrange": "move", "gradient": "gradLinear"]
         let t = map[id] ?? id
         guard RetouchTool.named(t) != nil else { return }
         retouchEditor.selectTool(t)

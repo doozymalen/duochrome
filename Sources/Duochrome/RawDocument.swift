@@ -380,8 +380,9 @@ final class RawDocument {
 
     /// `scale` is one of 1, 1/2, 1/4, 1/8. Result size is pixelSize × scale.
     func image(scale: CGFloat) -> CIImage {
-        let settings = SliderResponse.effective(self.settings)
-        if let hit = cache[cacheKey(scale)] { return hit }
+        var settings = SliderResponse.effective(self.settings)
+        if layersOff { settings.layers = [] }
+        if !layersOff, let hit = cache[cacheKey(scale)] { return hit }
         // Maps for wide-radius tools are built at 1/8 resolution. At source resolution the whole 45 MP,
         // even off screen, had to be decoded and the first 100% view took 3–5 s.
         let guideScale = Develop.guideScale
@@ -457,7 +458,25 @@ final class RawDocument {
                   "\(decoded(scale: scale, guide: false).extent)", "\(shaped(decoded(scale: scale, guide: false), scale).extent)",
                   "\(base.extent)", "\(img.extent)", "\(CGSize(width: pixelSize.width * scale, height: pixelSize.height * scale))")
         }
-        cache[cacheKey(scale)] = img
+        if !layersOff { cache[cacheKey(scale)] = img }
+        return img
+    }
+
+    /// While on, image(scale:) develops without layers and leaves the cache alone (imageWithoutLayers)
+    private var layersOff = false
+    private var bareCache: [CGFloat: (key: DevelopSettings, full: Bool, draft: Bool, image: CIImage)] = [:]
+
+    /// The develop result without layers: the layer editor's "before"
+    func imageWithoutLayers(scale: CGFloat) -> CIImage {
+        var bare = settings
+        bare.layers = []
+        let k = cacheKey(scale)
+        if let hit = bareCache[k], hit.key == bare, hit.full == showFullFrame, hit.draft == draft { return hit.image }
+        guard !settings.layers.isEmpty else { return image(scale: scale) }
+        layersOff = true
+        defer { layersOff = false }
+        let img = image(scale: scale)
+        bareCache[k] = (bare, showFullFrame, draft, img)
         return img
     }
 

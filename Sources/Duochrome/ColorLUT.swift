@@ -1,3 +1,4 @@
+import Foundation
 import CoreImage
 
 /// One color balance region (one color wheel). Hue 0–360, amount 0–1, luminance -1–1.
@@ -80,14 +81,26 @@ enum ColorLUT {
         }
     }
 
-    private static var cache: (Key, Data)?
+    /// A few recent tables (the base develop and adjustment layers each have their own key, so one entry would thrash)
+    private static var cache: [(Key, Data)] = []
+    private static let cacheLock = NSLock()
 
     static func apply(_ key: Key, to image: CIImage) -> CIImage {
         guard !key.isNeutral else { return image }
         let data: Data
-        if let (k, d) = cache, k == key { data = d } else {
+        cacheLock.lock()
+        let hit = cache.firstIndex { $0.0 == key }
+        if let i = hit {
+            data = cache[i].1
+            cache.append(cache.remove(at: i))
+            cacheLock.unlock()
+        } else {
+            cacheLock.unlock()
             data = bake(key)
-            cache = (key, data)
+            cacheLock.lock()
+            cache.append((key, data))
+            if cache.count > 6 { cache.removeFirst() }
+            cacheLock.unlock()
         }
         // Applied in display gamma space, to split region weights by perceived brightness.
         return image.applyingFilter("CIColorCubeWithColorSpace", parameters: [
