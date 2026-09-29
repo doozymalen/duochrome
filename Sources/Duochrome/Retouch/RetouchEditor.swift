@@ -80,7 +80,7 @@ final class RetouchEditor: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        let room = work.layoutFrame.width
+        let room = work.frame.width
         let w = max(min(toolBar.contentWidth, room), 44)
         if abs(toolBarWidth.constant - w) > 0.5 { toolBarWidth.constant = w }
     }
