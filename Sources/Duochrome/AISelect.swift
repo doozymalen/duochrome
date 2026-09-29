@@ -5,7 +5,7 @@ import Vision
 /// AI selection: builds subject/person masks on-device with Apple Vision.
 /// Masks are saved as grayscale PNGs (quarter size, source coordinates) in the layer image folder and become adjustment-layer masks.
 enum AISelect {
-    enum Target: String { case subject = "피사체", background = "배경", person = "사람" }
+    enum Target: String { case subject = "피사체", background = "배경", person = "사람", sky = "하늘" }
 
     /// Builds a mask from a source-coordinate image (safe to call in the background). nil on failure.
     static func mask(_ doc: RawDocument, target: Target) -> String? {

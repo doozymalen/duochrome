@@ -4,7 +4,7 @@ import CoreImage
 /// All zeros means "unchanged".
 struct LocalAdjust: Equatable, Codable {
     /// Whether any filter (blur, sharpen, etc.) is on
-    var hasFilter: Bool { blur > 0 || motionBlur > 0 || highPass > 0 || noise > 0 || median > 0 || sharpen > 0 || (skinSmooth ?? 0) > 0 }
+    var hasFilter: Bool { blur > 0 || motionBlur > 0 || highPass > 0 || noise > 0 || median > 0 || sharpen > 0 || (skinSmooth ?? 0) > 0 || (denoise ?? 0) > 0 }
     var exposure: Float = 0        // EV
     var contrast: Float = 0        // -100~100
     var brightness: Float = 0
@@ -45,6 +45,11 @@ struct LocalAdjust: Equatable, Codable {
     var sharpen: Float = 0         // sharpen 0–300
     /// Skin smoothing 0–100: evens out blotches, keeps fine texture like pores
     var skinSmooth: Float? = nil
+    /// Noise reduction 0–100 (luminance and color noise)
+    var denoise: Float? = nil
+    /// Non-optional views of the optional filters, for sliders (0 turns them off)
+    var skinAmount: Float { get { skinSmooth ?? 0 } set { skinSmooth = newValue == 0 ? nil : newValue } }
+    var denoiseAmount: Float { get { denoise ?? 0 } set { denoise = newValue == 0 ? nil : newValue } }
     /// .cube LUT (file name in the layer image folder). Empty = off. Applied to sRGB display values.
     var lut: String = ""
     /// Layer effects (stacked in order like smart filters, Effects.swift). Optional since older documents lack it
@@ -640,6 +645,13 @@ enum Layers {
     static func filters(_ a: LocalAdjust, _ img: CIImage, scale: CGFloat) -> CIImage {
         let e = img.extent
         var o = img
+        if let dn = a.denoise, dn > 0 {
+            // Luminance noise with Core Image's noise reduction, then color noise (coarser) by blurring only the chroma
+            let d = CGFloat(min(dn, 100) / 100)
+            o = o.clampedToExtent().applyingFilter("CINoiseReduction", parameters: ["inputNoiseLevel": 0.005 + 0.05 * d, "inputSharpness": 0.4]).cropped(to: e)
+            let chroma = o.clampedToExtent().blurred(max(4 * scale, 0.5)).cropped(to: e)
+            if let k = chromaKernel { o = k.apply(extent: e, arguments: [o, chroma, d]) ?? o }
+        }
         if a.median > 0 {
             for _ in 0..<min(Int(a.median.rounded()), 5) { o = o.applyingFilter("CIMedianFilter").cropped(to: e) }
         }
@@ -664,6 +676,15 @@ enum Layers {
         }
         return o
     }
+
+    static let chromaKernel = CIColorKernel(source: """
+        kernel vec4 chroma_nr(__sample o, __sample c, float amt) {
+            vec3 w = vec3(0.2126, 0.7152, 0.0722);
+            float y = dot(o.rgb, w), yc = dot(c.rgb, w);
+            vec3 ch = mix(o.rgb - y, c.rgb - yc, amt);
+            return vec4(y + ch, o.a);
+        }
+        """)
 
     static let skinKernel = CIColorKernel(source: """
         kernel vec4 skin(__sample o, __sample big, __sample small, float amt) {

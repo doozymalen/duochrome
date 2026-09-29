@@ -139,6 +139,9 @@ struct RetouchTool: Equatable {
         .init(id: "desaturate", title: "채도 낮추기", symbol: "drop", group: .brush),
         .init(id: "sharpen", title: "선명하게", symbol: "triangle", group: .brush),
         .init(id: "soften", title: "부드럽게", symbol: "aqi.medium", group: .brush),
+        .init(id: "denoiseBrush", title: "노이즈 제거 붓", symbol: "circle.dotted", group: .brush),
+        .init(id: "blurBrush", title: "흐림 붓 (배경 흐리게)", symbol: "drop.halffull", group: .brush),
+        .init(id: "skinBrush", title: "피부 붓 (매끈하게)", symbol: "face.smiling", group: .brush),
         .init(id: "maskBrush", title: "마스크 붓 (고른 레이어)", symbol: "paintbrush", group: .brush, key: "B"),
         .init(id: "gradLinear", title: "선형 그라디언트 (끌어서 긋기)", symbol: "square.bottomhalf.filled", group: .gradient, key: "G"),
         .init(id: "gradRadial", title: "원형 그라디언트 (끌어서 원)", symbol: "circle.circle", group: .gradient),
@@ -159,6 +162,9 @@ struct RetouchTool: Equatable {
         "desaturate": ("채도 낮추기", { $0.saturation = -60 }),
         "sharpen": ("선명하게", { $0.clarity = 50 }),
         "soften": ("부드럽게", { $0.clarity = -50 }),
+        "denoiseBrush": ("노이즈 제거", { $0.denoise = 60 }),
+        "blurBrush": ("흐림", { $0.blur = 20 }),
+        "skinBrush": ("피부 매끈하게", { $0.skinSmooth = 50 }),
     ]
 }
 
@@ -166,6 +172,7 @@ struct RetouchTool: Equatable {
 final class RetouchToolBar: NSView {
     var onPick: ((String) -> Void)?
     private let stack = NSStackView()
+    private let scroll = NSScrollView()
     private var buttons: [String: NSButton] = [:]
 
     init() {
@@ -175,12 +182,27 @@ final class RetouchToolBar: NSView {
         stack.spacing = 2
         stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
+        // In a narrow window the bar gets narrower than its tools and scrolls sideways (trackpad or wheel)
+        scroll.documentView = stack
+        scroll.drawsBackground = false
+        scroll.hasHorizontalScroller = false
+        scroll.hasVerticalScroller = false
+        scroll.horizontalScrollElasticity = .allowed
+        scroll.verticalScrollElasticity = .none
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scroll)
+        let fit = widthAnchor.constraint(equalTo: stack.widthAnchor)
+        fit.priority = .defaultLow
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            stack.heightAnchor.constraint(equalTo: scroll.heightAnchor),
+            widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
+            fit,
         ])
         var last: RetouchTool.Group?
         for t in RetouchTool.all {

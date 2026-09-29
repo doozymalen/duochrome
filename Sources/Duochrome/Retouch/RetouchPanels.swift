@@ -53,6 +53,8 @@ final class RetouchLayersPanel: NSView {
             button("plus", "새 조정 레이어 (선택 영역이 있으면 그 부분에만)", #selector(addAdjust)),
             button("photo.badge.plus", "사진을 레이어로 넣기", #selector(addPhoto)),
             button("plus.square.on.square", "복제 (⌘J, 선택 영역이 있으면 그 부분만)", #selector(duplicate)),
+            button("square.stack.3d.down.forward", "보이는 레이어 도장 찍기 (지금 결과를 한 장으로 굳힌 새 레이어)", #selector(stamp)),
+            button("sparkles", "빠른 보정 (배경 흐림·피부·노이즈)", #selector(quickMenu(_:))),
             button("chevron.up", "앞으로", #selector(moveUp)),
             button("chevron.down", "뒤로", #selector(moveDown)),
             button("trash", "레이어 지우기", #selector(remove)),
@@ -136,6 +138,29 @@ final class RetouchLayersPanel: NSView {
     @objc private func addAdjust() { host?.retouchAddAdjustLayer() }
     @objc private func addPhoto() { host?.placeImageLayer(nil) }
     @objc private func duplicate() { host?.duplicateLayerOrBackground(nil) }
+    @objc private func stamp() { host?.stampVisible(nil) }
+    @objc private func quickMenu(_ b: NSButton) {
+        let m = NSMenu()
+        func item(_ title: String, _ f: @escaping (MainWindowController) -> Void) {
+            let i = NSMenuItem(title: title, action: #selector(runQuick(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = QuickAction(f)
+            m.addItem(i)
+        }
+        item("배경 흐림 (AI 피사체 밖)") { $0.retouchBackgroundBlur() }
+        item("피부 매끈하게 (AI 피부)") { $0.skinSmoothAI(nil) }
+        item("노이즈 제거 레이어 (전체)") { h in h.retouchFilterLayer("노이즈 제거") { $0.denoise = 50 } }
+        item("선명하게 레이어 (전체)") { h in h.retouchFilterLayer("선명하게") { $0.sharpen = 80 } }
+        m.popUp(positioning: nil, at: CGPoint(x: 0, y: b.bounds.height + 4), in: b)
+    }
+    private final class QuickAction {
+        let run: (MainWindowController) -> Void
+        init(_ f: @escaping (MainWindowController) -> Void) { run = f }
+    }
+    @objc private func runQuick(_ i: NSMenuItem) {
+        guard let host, let a = i.representedObject as? QuickAction else { return }
+        a.run(host)
+    }
     @objc private func moveUp() { host?.layersTab.layerUp() }
     @objc private func moveDown() { host?.layersTab.layerDown() }
     @objc private func remove() { if host?.layersTab.deleteSelectedLayer() != true { NSSound.beep() } }
@@ -166,6 +191,12 @@ final class RetouchInspector: NSView {
     private let layerTitle = NSTextField(labelWithString: "")
     private let layerBox = NSStackView()
     private var adjustRows: [(WritableKeyPath<LocalAdjust, Float>, SliderRow)] = []
+    private var filterRows: [(WritableKeyPath<LocalAdjust, Float>, SliderRow)] = []
+    /// Filters of an adjustment layer (radii in source pixels)
+    private static let filterSpecs: [(String, WritableKeyPath<LocalAdjust, Float>, Double, Double, String)] = [
+        ("노이즈 제거", \.denoiseAmount, 0, 100, "%.0f"), ("선명하게", \.sharpen, 0, 300, "%.0f"),
+        ("흐림", \.blur, 0, 100, "%.0f px"), ("피부 매끈하게", \.skinAmount, 0, 100, "%.0f"),
+    ]
     private let brushSize = SliderRow(label: "붓 크기", min: 5, max: 1500, format: "%.0f px", defaultValue: 120)
     private let brushHardness = SliderRow(label: "경도", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.3)
     private let brushFlow = SliderRow(label: "흐름", min: 0.05, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
@@ -214,6 +245,11 @@ final class RetouchInspector: NSView {
             let r = SliderRow(label: label, min: lo, max: hi, format: fmt)
             r.onChange = { [weak self] v, dragging in self?.editAdjust(dragging) { $0[keyPath: key] = Float(v) } }
             adjustRows.append((key, r))
+        }
+        for (label, key, lo, hi, fmt) in Self.filterSpecs {
+            let r = SliderRow(label: label, min: lo, max: hi, format: fmt, defaultValue: 0)
+            r.onChange = { [weak self] v, dragging in self?.editAdjust(dragging) { $0[keyPath: key] = Float(v) } }
+            filterRows.append((key, r))
         }
         brushSize.onChange = { [weak self] v, _ in self?.host?.layersTab.brushRadius = v; self?.host?.retouchBrushChanged() }
         brushHardness.onChange = { [weak self] v, _ in self?.host?.layersTab.brushHardness = v }
@@ -376,6 +412,12 @@ final class RetouchInspector: NSView {
         var views: [NSView] = []
         if layer.kind == "adjust" {
             for (key, r) in adjustRows {
+                r.value = Double(layer.adjust[keyPath: key])
+                views.append(r)
+            }
+            // Filters
+            views.append(heading("필터"))
+            for (key, r) in filterRows {
                 r.value = Double(layer.adjust[keyPath: key])
                 views.append(r)
             }

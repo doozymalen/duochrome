@@ -61,7 +61,8 @@ defaults delete com.doozymalen.duochrome            # app preferences
 - Adjustment layers with exposure, tone, color, clarity, curves, and per-color hue/saturation/lightness; photo layers with blend modes, move, free transform, and perspective
 - Masks: brush, linear and radial gradients, luminance range, selection; feather and invert
 - Selections: rectangle, ellipse, lasso, quick selection, magic wand, AI subject and sky; grow, feather, and edge refine
-- Dodge, burn, saturate, desaturate, sharpen, and soften brushes; heal, clone, patch, smart erase, AI remove
+- Dodge, burn, saturate, desaturate, sharpen, soften, noise reduction, blur, and skin brushes; heal, clone, patch, smart erase, AI remove
+- Filter layers (noise reduction, sharpen, blur, skin smoothing), one-click background blur and skin smoothing, stamp visible layers
 - Histogram and before/after (Y shows the photo without layers)
 
 **Tethering**
@@ -165,7 +166,8 @@ defaults delete com.doozymalen.duochrome            # 앱 설정
 - 조정 레이어(노출·톤·색·클래리티·커브·색상별 색조/채도/밝기), 사진 레이어(혼합 모드·이동·자유 변형·원근)
 - 마스크: 붓·선형/원형 그라디언트·밝기 범위·선택 영역, 가장자리 흐림·반전
 - 선택: 사각형·타원·올가미·빠른 선택·자동 선택·AI 피사체·AI 하늘, 넓히기·흐림·가장자리 다듬기
-- 닷지·번·채도·선명·부드럽게 붓, 복구·복제·패치·스마트 지우기·AI 지우기
+- 닷지·번·채도·선명·부드럽게·노이즈 제거·흐림·피부 붓, 복구·복제·패치·스마트 지우기·AI 지우기
+- 필터 레이어(노이즈 제거·선명하게·흐림·피부 매끈하게), 한 번에 배경 흐림·피부 보정, 보이는 레이어 도장 찍기
 - 히스토그램, 보정 전후 비교(Y: 레이어 없는 모습)
 
 **테더링**

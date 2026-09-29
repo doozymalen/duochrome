@@ -229,6 +229,22 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: erase ? "마스크 지우기" : "마스크 칠하기")
     }
 
+    /// A filter layer over the whole photo (or the selection), selected so its sliders show
+    func retouchFilterLayer(_ name: String, _ f: (inout LocalAdjust) -> Void) {
+        guard let doc = photo else { NSSound.beep(); return }
+        layersTab.addLayer(.full, native: doc.nativeSize)
+        guard var s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }) else { return }
+        s.layers[i].name = "\(name) \(s.layers.count)"
+        f(&s.layers[i].adjust)
+        replaceSettings(s, recordUndo: true, label: name)
+        retouchEditor.reload()
+    }
+
+    /// Background blur: AI finds the subject, a blur layer goes over everything else
+    func retouchBackgroundBlur() {
+        addAIMaskLayer("배경 흐림", compute: { AISelect.mask($0, target: .background) }) { $0.adjust.blur = 20 }
+    }
+
     /// The selection as one combinable shape
     func simpleSelectionMask(_ sel: LayerMask) -> LayerMask {
         (sel.combos ?? []).isEmpty && !sel.invert && !Self.isRefined(sel) ? sel : rasterizeMask(sel)

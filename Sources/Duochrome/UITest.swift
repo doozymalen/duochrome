@@ -824,6 +824,59 @@ extension MainWindowController {
                   notes.isEmpty ? "모두" : notes.joined(separator: " / "))
         }
 
+        // 8-11. Filter layers (noise reduction, sharpen, blur, skin), filter brushes, stamp visible, tool bar fits the window
+        do {
+            setMode(.studio)
+            let s0 = photo?.settings
+            var notes: [String] = []
+            guard let doc = photo else { check("필터·도장", false, "사진 없음"); return }
+            func avg(_ m: CIImage) -> Float {
+                let d = m.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: m.extent)])
+                var px = [Float](repeating: 0, count: 4)
+                Render.context.render(d, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+                return px[0]
+            }
+            let sc: CGFloat = 0.25
+            var s = doc.settings; s.layers = []; replaceSettings(s, recordUndo: false)
+            layersTab.select(nil)
+            studioSelection = nil
+            let plain = doc.image(scale: sc)
+            func change() -> Float { avg(doc.image(scale: sc).applyingFilter("CIDifferenceBlendMode", parameters: [kCIInputBackgroundImageKey: plain])) }
+            // Each filter on a whole-photo layer changes the picture
+            for (name, set) in [("노이즈 제거", { (a: inout LocalAdjust) in a.denoise = 100 }), ("선명하게", { $0.sharpen = 200 }),
+                                ("흐림", { $0.blur = 20 }), ("피부", { $0.skinSmooth = 100 })] as [(String, (inout LocalAdjust) -> Void)] {
+                s = doc.settings; s.layers = []; replaceSettings(s, recordUndo: false)
+                retouchFilterLayer(name, set)
+                let d = change()
+                if !(d > 0.0005) || doc.settings.layers.count != 1 { notes.append("\(name) \(d)") }
+            }
+            // Filter brush: the stroke makes a noise-reduction layer
+            s = doc.settings; s.layers = []; replaceSettings(s, recordUndo: false)
+            layersTab.select(nil)
+            retouchEditor.selectTool("denoiseBrush")
+            let b = canvas.brushSurface
+            drag(b, from: CGPoint(x: b.bounds.midX - 40, y: b.bounds.midY), to: CGPoint(x: b.bounds.midX + 40, y: b.bounds.midY))
+            if doc.settings.layers.last?.preset != "denoiseBrush" || (doc.settings.layers.last?.adjust.denoise ?? 0) <= 0 { notes.append("노이즈 제거 붓") }
+            // Stamp visible: one more image layer, same picture
+            s = doc.settings; s.layers = []; replaceSettings(s, recordUndo: false)
+            retouchFilterLayer("선명하게") { $0.sharpen = 100 }
+            let before = avg(doc.image(scale: sc))
+            stampVisible(nil)
+            if doc.settings.layers.count != 2 || doc.settings.layers.last?.isImage != true { notes.append("도장 레이어 \(doc.settings.layers.count)") }
+            else if abs(avg(doc.image(scale: sc)) - before) > 0.01 { notes.append("도장 결과 \(before) → \(avg(doc.image(scale: sc)))") }
+            // Tool bar stays inside the space between the panels (even in a small window)
+            let f0 = window?.frame
+            if let w = window { w.setFrame(NSRect(x: w.frame.minX, y: w.frame.minY, width: 1100, height: w.frame.height), display: true) }
+            retouchEditor.view.layoutSubtreeIfNeeded()
+            let bar = retouchEditor.toolBar.frame
+            if bar.minX < retouchEditor.layersPanel.frame.maxX || bar.maxX > retouchEditor.inspector.frame.minX { notes.append("도구 막대가 패널에 겹침 \(NSStringFromRect(bar))") }
+            if let f0 { window?.setFrame(f0, display: true) }
+            retouchEditor.selectTool("hand")
+            setMode(.edit)
+            if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
+            check("필터 레이어·필터 붓·도장 찍기·도구 막대 폭", notes.isEmpty, notes.isEmpty ? "모두" : notes.joined(separator: " / "))
+        }
+
         // 8-0. Switching modes keeps the window size
         do {
             let f0 = window?.frame ?? .zero
