@@ -667,6 +667,15 @@ final class RawDocument {
         }, base: base)
     }
 
+    /// Selection mask for the canvas outline (same geometry as layer masks). `base` is the image it is drawn over.
+    func selectionPreview(_ m: LayerMask, scale: CGFloat, base: CIImage) -> CIImage {
+        let s = settings, full = showFullFrame
+        return Layers.maskImage(m, scale: scale, native: nativeSize, shape: { mm, sc in
+            let t = Geometry.transform(s, mm, scale: sc)
+            return full ? t : Geometry.crop(s, t)
+        }, base: base)
+    }
+
     /// Source position of a stroke (offset from the stroke).
     func autoStrokeOffset(path: [CGPoint], radius: Double) -> CGPoint {
         let scale = Develop.guideScale

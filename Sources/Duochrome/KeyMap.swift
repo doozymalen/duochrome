@@ -121,6 +121,7 @@ enum KeyMap {
             act("tool.quickSel", "빠른 선택", "도구", bulk: [], studio: ["w"]) { $0.studioMode.selectTool("selQuick") },
             act("tool.wand", "자동 선택 (마술봉)", "도구", bulk: [], studio: ["$w"]) { $0.studioMode.selectTool("selWand") },
             act("sel.quickMask", "퀵 마스크", "선택", bulk: [], studio: ["q"]) { $0.toggleQuickMask(nil) },
+            sel("sel.all", "전체 선택", "선택", #selector(W.selectAllStudio(_:)), bulk: [], studio: ["@a"]),
             sel("sel.deselect", "선택 해제", "선택", #selector(W.deselectAll(_:)), bulk: [], studio: ["@d"]),
             sel("sel.invert", "선택 반전", "선택", #selector(W.invertSelection(_:)), bulk: [], studio: ["$@i"]),
             sel("sel.selectMask", "선택 및 마스크", "선택", #selector(W.showSelectAndMask(_:)), bulk: [], studio: ["~@r"]),
@@ -184,6 +185,8 @@ enum KeyMap {
             act("layer.selectUp", "위 레이어 고르기", "레이어", bulk: ["~]"], studio: ["~]"]) { $0.keyLayerEdit { $0.layersTab.selectNeighbor(up: true) } },
             act("layer.selectDown", "아래 레이어 고르기", "레이어", bulk: ["~["], studio: ["~["]) { $0.keyLayerEdit { $0.layersTab.selectNeighbor(up: false) } },
             act("layer.delete", "레이어 지우기", "레이어", bulk: ["\u{7f}", "\u{f728}"], studio: ["\u{7f}", "\u{f728}"]) { w in
+                // With a selection in layer edit, ⌫ clears the selected area instead of deleting the layer
+                if w.mode == .studio, w.studioSelection != nil { w.clearSelectedArea(); return }
                 w.keyLayerEdit { if !$0.layersTab.deleteSelectedLayer() { NSSound.beep() } }
             },
             sel("view.rulers", "눈금자", "보기", #selector(W.toggleRulers(_:)), bulk: [], studio: ["@r"]),

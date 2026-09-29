@@ -96,7 +96,7 @@ enum MainMenu {
 
         // Select — shortcuts in KeyMap
         let selMenu = submenu(in: main, title: "선택")
-        for (t, sel) in [("선택 해제", #selector(MainWindowController.deselectAll(_:))), ("선택 반전", #selector(MainWindowController.invertSelection(_:))),
+        for (t, sel) in [("전체 선택", #selector(MainWindowController.selectAllStudio(_:))), ("선택 해제", #selector(MainWindowController.deselectAll(_:))), ("선택 반전", #selector(MainWindowController.invertSelection(_:))),
                          ("확장…", #selector(MainWindowController.expandSelection(_:))), ("축소…", #selector(MainWindowController.contractSelection(_:))),
                          ("페더…", #selector(MainWindowController.featherSelection(_:))), ("테두리…", #selector(MainWindowController.borderSelection(_:))),
                          ("매끄럽게…", #selector(MainWindowController.smoothSelection(_:))), ("초점 영역", #selector(MainWindowController.selectFocusArea(_:))),

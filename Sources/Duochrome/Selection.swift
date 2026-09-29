@@ -231,6 +231,7 @@ extension MainWindowController {
 
     /// Puts a new shape into the selection. Replaces if no combine or the selection was empty; otherwise add/subtract/intersect
     func commitSelection(_ newMask: LayerMask, flags: NSEvent.ModifierFlags, label: String) {
+        if mode == .studio { addToSelection(newMask, flags: flags); return }
         guard let i = selectionTarget(), var s = photo?.settings else { return }
         guard !s.layers[i].locked else { NSSound.beep(); return }
         let op = selectionOp(flags)
@@ -271,6 +272,7 @@ extension MainWindowController {
     }
 
     func quickSelect(_ pts: [CGPoint], flags: NSEvent.ModifierFlags) {
+        if mode == .studio { studioQuickSelect(pts, flags: flags); return }
         guard let eng = selectionEngine, let i = selectionTarget(), var s = photo?.settings else { NSSound.beep(); return }
         var base = [UInt8](repeating: 0, count: eng.w * eng.h)
         let cur = s.layers[i].mask
@@ -291,6 +293,7 @@ extension MainWindowController {
     }
 
     func colorRangeSelect(at p: CGPoint, flags: NSEvent.ModifierFlags) {
+        if mode == .studio { studioColorRange(at: p, flags: flags); return }
         guard let eng = selectionEngine, let (x, y) = eng.cell(p) else { NSSound.beep(); return }
         let i = y * eng.w + x
         let c = [eng.rgb[i * 3], eng.rgb[i * 3 + 1], eng.rgb[i * 3 + 2]]
@@ -312,6 +315,12 @@ extension MainWindowController {
     // MARK: - Select menu
 
     func editSelected(_ label: String, _ f: (inout LayerMask) -> Void) {
+        if mode == .studio {
+            guard var m = studioSelection else { NSSound.beep(); return }
+            f(&m)
+            studioSelection = m
+            return
+        }
         guard var s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }) else { NSSound.beep(); return }
         f(&s.layers[i].mask)
         replaceSettings(s, recordUndo: true, label: label)
@@ -330,6 +339,7 @@ extension MainWindowController {
 
     @objc func invertSelection(_ sender: Any?) { editSelected("선택 반전") { $0.invert.toggle() } }
     @objc func deselectAll(_ sender: Any?) {
+        if mode == .studio { studioSelection = nil; return }
         editSelected("선택 해제") { m in
             m.kind = .full; m.combos = nil; m.invert = false; m.colorRange = nil
         }
@@ -358,6 +368,12 @@ extension MainWindowController {
     // MARK: - Save / load selection (alpha channels)
 
     @objc func saveSelection(_ sender: Any?) {
+        if mode == .studio {
+            guard let sel = studioSelection, var s = photo?.settings else { NSSound.beep(); return }
+            s.channels = (s.channels ?? []) + [SavedSelection(name: "알파 \((s.channels?.count ?? 0) + 1)", mask: sel)]
+            replaceSettings(s, recordUndo: true, label: "선택 저장")
+            return
+        }
         guard var s = photo?.settings, let id = layersTab.selectedID, let l = s.layers.first(where: { $0.id == id }) else { NSSound.beep(); return }
         let name = "알파 \((s.channels?.count ?? 0) + 1)"
         s.channels = (s.channels ?? []) + [SavedSelection(name: name, mask: l.mask)]
@@ -528,7 +544,7 @@ final class SelectionOptionsView: NSStackView {
         toolBox.spacing = 8
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
-        hint.stringValue = "⇧ 누르고 하면 더하기, ⌥ 빼기, ⇧⌥ 교차. ⌘D 해제, ⇧⌘I 반전, Q 퀵 마스크."
+        hint.stringValue = "⇧ 누르고 하면 더하기, ⌥ 빼기, ⇧⌥ 교차. ⌘A 전체, ⌘D 해제, ⇧⌘I 반전.\n선택한 뒤 ⌫는 고른 레이어에서 그 부분을 지우고, ⌘J는 그 부분을 새 레이어로 복제합니다. 새 조정·칠 레이어는 선택 영역에만 걸립니다."
         for v in [modePopup, toolBox, hint, buttons()] as [NSView] {
             addArrangedSubview(v)
             v.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
@@ -603,14 +619,14 @@ final class SelectionOptionsView: NSStackView {
         grid.orientation = .vertical
         grid.alignment = .leading
         grid.spacing = 6
-        let items: [(String, Selector)] = [("반전", #selector(MainWindowController.invertSelection(_:))),
+        let items: [(String, Selector)] = [("전체 선택", #selector(MainWindowController.selectAllStudio(_:))),
                                            ("해제", #selector(MainWindowController.deselectAll(_:))),
+                                           ("반전", #selector(MainWindowController.invertSelection(_:))),
+                                           ("새 레이어로", #selector(MainWindowController.duplicateLayerOrBackground(_:))),
                                            ("확장…", #selector(MainWindowController.expandSelection(_:))),
                                            ("축소…", #selector(MainWindowController.contractSelection(_:))),
                                            ("페더…", #selector(MainWindowController.featherSelection(_:))),
-                                           ("테두리…", #selector(MainWindowController.borderSelection(_:))),
-                                           ("선택 및 마스크…", #selector(MainWindowController.showSelectAndMask(_:))),
-                                           ("퀵 마스크", #selector(MainWindowController.toggleQuickMask(_:)))]
+                                           ("매끄럽게…", #selector(MainWindowController.smoothSelection(_:)))]
         var row: NSStackView?
         for (i, (t, sel)) in items.enumerated() {
             if i % 2 == 0 { row = NSStackView(); row?.distribution = .fillEqually; grid.addArrangedSubview(row!)

@@ -124,6 +124,7 @@ extension MainWindowController {
 
     /// ⌘J: duplicate the selected layer, or the background if none is selected
     @objc func duplicateLayerOrBackground(_ sender: Any?) {
+        if mode == .studio, studioSelection != nil { duplicateSelectedArea(); return }
         if layersTab.selectedID == nil { duplicateBackground(sender) } else { layersTab.duplicateLayer() }
     }
 }

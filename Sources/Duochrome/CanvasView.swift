@@ -22,7 +22,7 @@ final class CanvasView: MTKView {
     /// Soft proof (look when exported to sRGB), gamut warning (pixels outside sRGB shown gray)
     var softProof = false { didSet { needsDisplay = true } }
     var gamutWarning = false { didSet { needsDisplay = true } }
-    enum Tool: CaseIterable { case pan, zoom, crop, straighten, keystone, whiteBalance, retouch, mask, colorPick, transform, points, path }
+    enum Tool: CaseIterable { case pan, zoom, crop, straighten, keystone, whiteBalance, retouch, mask, colorPick, transform, points, path, select }
     /// Cursor tool. Hand drags to pan, zoom clicks 2× (Option zooms out).
     var tool: Tool = .pan {
         didSet {
@@ -34,6 +34,7 @@ final class CanvasView: MTKView {
             transformOverlay.isHidden = tool != .transform
             pointsOverlay.isHidden = tool != .points
             pathOverlay.isHidden = tool != .path
+            selectionTool.isHidden = tool != .select
         }
     }
     /// "Single click" tools like the eyedropper. Passes image coordinates.
@@ -52,6 +53,10 @@ final class CanvasView: MTKView {
     let pointsOverlay = PointsOverlayView()
     /// Pen/shape/text tool layer (Vector.swift)
     let pathOverlay = PathOverlayView()
+    /// Layer-edit selection tools (StudioSelection.swift)
+    let selectionTool = SelectionToolView()
+    /// Layer-edit selection, drawn as a marching-ants outline (source coordinates)
+    var selectionMask: LayerMask? { didSet { needsDisplay = true } }
     /// Guides, measure, count layer and rulers (Workspace.swift)
     let guidesOverlay = GuidesOverlayView()
     let rulerTop = RulerView(edge: .top), rulerLeft = RulerView(edge: .left)
@@ -171,6 +176,10 @@ final class CanvasView: MTKView {
         pathOverlay.isHidden = true
         pathOverlay.autoresizingMask = [.width, .height]
         addSubview(pathOverlay)
+        selectionTool.canvas = self
+        selectionTool.isHidden = true
+        selectionTool.autoresizingMask = [.width, .height]
+        addSubview(selectionTool)
         guidesOverlay.canvas = self
         guidesOverlay.autoresizingMask = [.width, .height]
         addSubview(guidesOverlay)
@@ -262,6 +271,7 @@ final class CanvasView: MTKView {
         transformOverlay.needsDisplay = true
         pointsOverlay.needsDisplay = true
         pathOverlay.needsDisplay = true
+        selectionTool.needsDisplay = true
         guidesOverlay.needsDisplay = true
         rulerTop.needsDisplay = true; rulerLeft.needsDisplay = true
     }
@@ -456,6 +466,17 @@ final class CanvasView: MTKView {
                 "inputRVector": CIVector(x: 0.55, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: 0.55, z: 0, w: 0),
                 "inputBVector": CIVector(x: 0, y: 0, z: 0.55, w: 0)])
             img = red.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: img, kCIInputMaskImageKey: half])
+        }
+        if let sel = selectionMask, !showOriginal {
+            // Marching ants: the selection edge (1.5 screen px) filled with a black/white check
+            let px = level / pz
+            let m = doc.selectionPreview(sel, scale: level, base: img)
+            let edge = m.applyingFilter("CIColorThreshold", parameters: ["inputThreshold": 0.5])
+                .applyingFilter("CIMorphologyGradient", parameters: [kCIInputRadiusKey: max(px * 1.5, 0.5)]).cropped(to: img.extent)
+            let ants = CIFilter(name: "CICheckerboardGenerator", parameters: [
+                "inputCenter": CIVector(x: 0, y: 0), "inputColor0": CIColor.black, "inputColor1": CIColor.white,
+                "inputWidth": max(px * 4, 0.5), "inputSharpness": 1])!.outputImage!.cropped(to: img.extent)
+            img = ants.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: img, kCIInputMaskImageKey: edge]).cropped(to: img.extent)
         }
         let s = pz / level
         let t = CGAffineTransform(a: s, b: 0, c: 0, d: s,

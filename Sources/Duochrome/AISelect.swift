@@ -62,6 +62,13 @@ extension MainWindowController {
                     a.runModal()
                     return
                 }
+                // Layer edit: the result becomes the document selection
+                if self.mode == .studio {
+                    var m = LayerMask(); m.kind = .image; m.maskFile = file
+                    self.addToSelection(m, flags: [])
+                    done?()
+                    return
+                }
                 self.layersTab.addLayer(.full, native: doc.nativeSize)
                 guard var s = self.photo?.settings, let i = s.layers.indices.last else { return }
                 s.layers[i].mask.kind = .image

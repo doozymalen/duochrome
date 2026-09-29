@@ -52,7 +52,9 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     ])
     let viewer = ViewerController()
     let browser = BrowserViewController(header: true)
-    private(set) var photo: RawDocument?
+    private(set) var photo: RawDocument? {
+        didSet { if photo !== oldValue { studioSelection = nil } }
+    }
     var photoItem: PhotoItem?
 
     // the three modes (Modes.swift)
@@ -79,6 +81,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     lazy var studioStyles = LayerStylesEditor()
     /// Pixel selection computation (rebuilt when the photo or settings change)
     var selectionEngineCache: (String, SelectionEngine)?
+    /// Layer-edit selection (StudioSelection.swift). Belongs to the open photo, not saved.
+    var studioSelection: LayerMask? {
+        didSet { viewer.canvas.selectionMask = mode == .studio ? studioSelection : nil }
+    }
     var selectAndMaskPanel: SelectAndMaskPanel?
     lazy var selectionOptions = SelectionOptionsView(host: self)
     /// Pen/shape/text tool options (VectorTools.swift)
@@ -429,6 +435,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
     func apply(_ settings: DevelopSettings, dragging: Bool) {
         guard let doc = photo else { return }
+        let settings = dragging ? settings : maskingNewLayers(settings, old: doc.settings)
         BackgroundGate.touch()
         if dragging && dragStart == nil { dragStart = doc.settings }
         let before = dragStart ?? doc.settings

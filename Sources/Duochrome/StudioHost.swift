@@ -38,6 +38,7 @@ extension MainWindowController {
         tetherMode.viewer.onZoom = { [weak self] z in if self?.mode == .tether { self?.studioZoomChanged(z) } }
         installKeyMap()
         installTrace()
+        setupStudioSelection()
     }
 
     func enterStudio() {
@@ -45,6 +46,7 @@ extension MainWindowController {
         layersTab.listHidden = true
         studioMode.layersPanel.reload()
         studioMode.restoreTool()
+        viewer.canvas.selectionMask = studioSelection
         viewer.canvas.zoomToFit()
         window?.makeFirstResponder(viewer.canvas)
         // Once more so the search field doesn't grab focus when the window first appears.
@@ -86,6 +88,7 @@ extension MainWindowController {
 
     /// Leaving layer-edit mode: returns the canvas and moved panels to the batch-edit view.
     func leaveStudio() {
+        viewer.canvas.selectionMask = nil
         viewer.canvas.maskOverlay.prepare = nil
         viewer.canvas.maskOverlay.clickMode = .none
         viewer.canvas.maskOverlay.quickOverride = nil
@@ -127,46 +130,22 @@ extension MainWindowController {
             enterTool(.retouch)
         case "maskPaint", "arrange":
             enterTool(layersTab.selectedID == nil ? .pan : .mask)
-        case "selRect", "selOval", "selFree":
-            let kind: LayerMask.Kind = tool.id == "selRect" ? .rect : (tool.id == "selOval" ? .ellipse : .polygon)
-            viewer.canvas.maskOverlay.prepare = { [weak self] in
-                guard let self else { return false }
-                // With add/subtract/intersect, combine into the selected layer (no new layer)
-                if self.selectionOp(self.viewer.canvas.maskOverlay.startFlags) != nil,
-                   let id = self.layersTab.selectedID, self.photo?.settings.layers.first(where: { $0.id == id })?.isGroup == false { return false }
-                self.ensureStudioLayer(kind: kind, preset: nil)
-                return false
-            }
-            enterTool(photo == nil ? .pan : .mask)
-        case "selRow", "selColumn", "selWand", "selColor":
-            viewer.canvas.maskOverlay.clickMode = .point
-            enterTool(photo == nil ? .pan : .mask)
-        case "selPolygon":
-            viewer.canvas.maskOverlay.clickMode = .polygonClicks
-            enterTool(photo == nil ? .pan : .mask)
-        case "selMagnetic":
-            viewer.canvas.maskOverlay.clickMode = .magnetic
-            enterTool(photo == nil ? .pan : .mask)
-        case "selQuick":
-            viewer.canvas.maskOverlay.clickMode = .quick
-            enterTool(photo == nil ? .pan : .mask)
+        case "selRect", "selOval", "selFree", "selRow", "selColumn", "selWand", "selColor", "selPolygon", "selMagnetic", "selQuick":
+            // The selection belongs to the document (StudioSelection.swift): no layer is made
+            enterSelectionTool(tool.id)
         case "lighten", "darken", "saturate", "desaturate", "sharpen", "soften":
             let preset = tool.id
             viewer.canvas.maskOverlay.prepare = { [weak self] in self?.ensureStudioLayer(kind: .brush, preset: preset); return false }
             enterTool(photo == nil ? .pan : .mask)
         case "selSubject":
-            // Keep an already-selected AI selection layer, otherwise create a subject selection layer
-            if let id = layersTab.selectedID, photo?.settings.layers.first(where: { $0.id == id })?.mask.kind == .image {
-                enterTool(.pan)
-            } else {
-                // Clicking the canvas creates a subject selection layer
-                viewer.canvas.maskOverlay.prepare = { [weak self] in
-                    self?.addAISelection(.subject)
-                    self?.enterTool(.pan)
-                    return true
-                }
-                enterTool(photo == nil ? .pan : .mask)
+            // Clicking the canvas selects the subject (AI) as the document selection
+            viewer.canvas.maskOverlay.prepare = { [weak self] in
+                guard let self else { return true }
+                self.addAISelection(.subject)
+                DispatchQueue.main.async { if self.studioMode.currentTool == "selSubject" { self.applyStudioTool(tool) } }
+                return true
             }
+            enterTool(photo == nil ? .pan : .mask)
         case "aiRemove", "smartErase", "selObject":
             // Takes strokes and hands them to the AI (the layer appears when the result arrives)
             let id = tool.id
@@ -246,7 +225,7 @@ extension MainWindowController {
             // With no layer selected, all layer tab cards were hidden and it was blank → explain what will happen
             if layersTab.selectedID == nil {
                 let what: [String: String] = [
-                    "selSubject": "캔버스를 누르면 AI가 피사체를 골라 선택 레이어를 만듭니다.",
+                    "selSubject": "캔버스를 누르면 AI가 피사체를 골라 선택 영역으로 잡습니다.",
                     "fill": "캔버스를 누르면 단색 칠 레이어가 생깁니다. 색은 레이어를 고른 뒤 여기서 바꿉니다.",
                     "gradient": "캔버스에서 끌면 그 방향으로 그라디언트 칠 레이어가 생깁니다.",
                     "lighten": "캔버스를 칠하면 '밝게' 레이어가 생기고 칠한 곳이 밝아집니다.",

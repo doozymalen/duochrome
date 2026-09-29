@@ -653,98 +653,121 @@ extension MainWindowController {
             check("레이어 고급", notes.isEmpty, notes.isEmpty ? "혼합 조건·무늬 칠·구성·스냅샷·정렬·연결·병합·도장·연결된 이미지" : notes.joined(separator: " / "))
         }
 
-        // 8-09. Selection: magic wand, row, color range, quick selection, focus area, polygon, magnetic, combine, refine, alpha channels, quick mask
+        // 8-09. Layer-edit selection belongs to the document (StudioSelection.swift): selection tools make a
+        //       marching-ants selection (no layer), ⇧/⌥ combine, ⌘A/⌘D/⇧⌘I, refine, ⌫ clears the selected area of a layer,
+        //       ⌘J copies it into a new layer, new adjustment layers are masked by it
         do {
             setMode(.studio)
             let s0 = photo?.settings
             var notes: [String] = []
             guard let doc = photo else { check("선택", false, "사진 없음"); return }
             let n = doc.nativeSize
-            func maskAvg(_ id: String) -> Float {
-                guard let m = doc.maskPreview(id, scale: Develop.guideScale) else { return -1 }
+            func avg(_ m: CIImage) -> Float {
                 let d = m.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: m.extent)])
                 var px = [Float](repeating: 0, count: 4)
                 Render.context.render(d, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
                 return px[0]
             }
-            // Undo the previous test's crop/rotation (sky and corners must not be cut off)
+            func selAvg() -> Float {
+                guard let m = studioSelection else { return 0 }
+                return avg(doc.selectionPreview(m, scale: Develop.guideScale, base: doc.image(scale: Develop.guideScale)))
+            }
+            func maskAvg(_ id: String) -> Float { doc.maskPreview(id, scale: Develop.guideScale).map(avg) ?? -1 }
             var s = doc.settings; s.layers = []; s.adoptGeometry(from: doc.asShot); replaceSettings(s, recordUndo: false)
             layersTab.select(nil)
+            studioSelection = nil
+            // Rectangle tool: a real drag on the canvas makes a selection, no layer
+            studioMode.selectTool("selRect")
+            let t = canvas.selectionTool
+            canvas.layoutSubtreeIfNeeded()
+            if t.isHidden { notes.append("선택 도구 층이 숨어 있음") }
+            let center = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
+            if let frame = window?.contentView?.superview, frame.hitTest(canvas.convert(center, to: nil)) !== t { notes.append("캔버스 클릭이 선택 도구에 닿지 않음") }
+            func vn(_ x: CGFloat, _ y: CGFloat) -> CGPoint { canvas.viewPoint(forImage: doc.toDisplay(CGPoint(x: x, y: y))) }
+            drag(t, from: vn(0, 0), to: vn(n.width * 0.5, n.height * 0.5))
+            let a0 = selAvg()
+            if studioSelection == nil || !(a0 > 0.15 && a0 < 0.35) { notes.append("사각형 선택 \(a0)") }
+            if !doc.settings.layers.isEmpty { notes.append("선택이 레이어를 만듦") }
+            // ⇧ adds an ellipse, ⌥ subtracts
+            t.mode = .ellipse
+            drag(t, from: vn(n.width * 0.6, n.height * 0.6), to: vn(n.width * 0.95, n.height * 0.95), flags: .shift)
+            let a1 = selAvg()
+            if !(a1 > a0 + 0.03) { notes.append("더하기 \(a0) → \(a1)") }
+            t.mode = .rect
+            drag(t, from: vn(0, 0), to: vn(n.width * 0.2, n.height * 0.2), flags: .option)
+            let a2 = selAvg()
+            if !(a2 < a1 - 0.02) { notes.append("빼기 \(a1) → \(a2)") }
+            // invert, all, deselect
+            invertSelection(nil)
+            if abs(selAvg() - (1 - a2)) > 0.03 { notes.append("반전 \(selAvg())") }
+            invertSelection(nil)
+            selectAllStudio(nil)
+            if abs(selAvg() - 1) > 0.02 { notes.append("전체 선택 \(selAvg())") }
+            deselectAll(nil)
+            if studioSelection != nil { notes.append("선택 해제") }
             // magic wand: sky at top left
             studioMode.selectTool("selWand")
             wandSelect(at: CGPoint(x: n.width * 0.06, y: n.height * 0.9), flags: [])
-            guard let wid = layersTab.selectedID else { check("선택", false, "자동 선택 레이어 없음"); return }
-            let sky = maskAvg(wid)
+            let sky = selAvg()
             if !(sky > 0.01 && sky < 0.6) { notes.append("자동 선택 \(sky)") }
-            // invert → 1 − value
-            invertSelection(nil)
-            if abs(maskAvg(wid) - (1 - sky)) > 0.02 { notes.append("반전") }
-            invertSelection(nil)
-            // expand → larger, border → smaller
             expandSelection(nil)
-            let grown = maskAvg(wid)
-            if !(grown > sky) { notes.append("확장 \(grown) ≤ \(sky)") }
-            borderSelection(nil)
-            if !(maskAvg(wid) < grown) { notes.append("테두리") }
-            // New selection layer: rectangle → ⇧ add ellipse → ⌥ subtract polygon
-            layersTab.select(nil)
-            var r = LayerMask(); r.kind = .rect; r.box = [0, 0, n.width * 0.3, n.height * 0.3]
-            commitSelection(r, flags: [], label: "사각형")
-            let rid = layersTab.selectedID ?? ""
-            let a0 = maskAvg(rid)
-            var e = LayerMask(); e.kind = .ellipse; e.box = [n.width * 0.5, n.height * 0.5, n.width * 0.9, n.height * 0.9]
-            commitSelection(e, flags: .shift, label: "더하기")
-            let a1 = maskAvg(rid)
-            var p = LayerMask(); p.kind = .polygon; p.polygon = [0, 0, Double(n.width) * 0.15, 0, 0, Double(n.height) * 0.15]
-            commitSelection(p, flags: .option, label: "빼기")
-            let a2 = maskAvg(rid)
-            if !(a1 > a0 + 0.05 && a2 < a1) || doc.settings.layers.last?.mask.combos?.count != 2 { notes.append("합치기 \(a0) \(a1) \(a2)") }
-            // save as alpha channel → deselect → load
-            saveSelection(nil)
+            if !(selAvg() > sky) { notes.append("확장") }
+            // color range, quick selection, row
             deselectAll(nil)
-            let cleared = maskAvg(rid)
-            loadSelection(0, op: nil)
-            if abs(cleared - 1) > 0.01 || abs(maskAvg(rid) - a2) > 0.01 { notes.append("알파 채널 \(cleared) \(maskAvg(rid))") }
-            // row selection: height 1
-            layersTab.select(nil)
-            rowColumnSelect(at: CGPoint(x: 100, y: n.height / 2), column: false, flags: [])
-            let box = doc.settings.layers.last?.mask.box ?? []
-            if box.count != 4 || abs(box[3] - box[1]) != 1 || box[2] - box[0] != Double(n.width) { notes.append("행 선택 \(box)") }
-            // color range
-            layersTab.select(nil)
             colorRangeSelect(at: CGPoint(x: n.width * 0.06, y: n.height * 0.9), flags: [])
-            if let cid = layersTab.selectedID, !(maskAvg(cid) > 0.01 && maskAvg(cid) < 0.8) { notes.append("색상 범위 \(maskAvg(cid))") }
-            // Quick selection: painting the sky spreads
-            layersTab.select(nil)
+            if !(selAvg() > 0.01 && selAvg() < 0.9) { notes.append("색상 범위 \(selAvg())") }
+            deselectAll(nil)
             layersTab.brushRadius = 60
             quickSelect([CGPoint(x: n.width * 0.05, y: n.height * 0.9), CGPoint(x: n.width * 0.08, y: n.height * 0.88)], flags: [])
-            if let qid = layersTab.selectedID, !(maskAvg(qid) > 0.003) { notes.append("빠른 선택 \(maskAvg(qid))") }
-            // focus area
-            layersTab.select(nil)
-            selectFocusArea(nil)
-            if let fid = layersTab.selectedID, !(maskAvg(fid) > 0.02 && maskAvg(fid) < 0.98) { notes.append("초점 영역 \(maskAvg(fid))") }
-            // Magnetic: a point beside an edge moves
-            if ProcessInfo.processInfo.environment["DUOCHROME_DEBUG_E"] != nil {
-                print("E 레이어:", doc.settings.layers.map { "\($0.name)[\($0.kind) \($0.enabled) m\($0.mask.kind.rawValue)]" })
-            }
+            if !(selAvg() > 0.003) { notes.append("빠른 선택 \(selAvg())") }
+            // magnetic snap
             if let eng = selectionEngine {
                 let q = CGPoint(x: n.width * 0.3, y: n.height * 0.5)
-                let sn = eng.snap(q, radius: 80)
-                if sn == q { notes.append("자석 붙기 없음") }
-            } else { notes.append("선택 엔진 없음") }
-            // Select and Mask: refine edge changes the values
-            if let id = layersTab.selectedID {
-                let before = maskAvg(id)
-                editSelected("다듬기") { $0.refine = 30; $0.contrast = 40 }
-                if !maskAvg(id).isFinite || maskAvg(id) == before { notes.append("다듬기 \(before) → \(maskAvg(id))") }
-                toggleQuickMask(nil)
-                if canvas.maskStyle != 4 { notes.append("퀵 마스크") }
-                toggleQuickMask(nil)
+                if eng.snap(q, radius: 80) == q { notes.append("자석 붙기 없음") }
             }
+            // A new adjustment layer takes the selection as its mask
+            deselectAll(nil)
+            studioMode.selectTool("selRect")
+            drag(t, from: vn(0, 0), to: vn(n.width * 0.5, n.height), flags: [])
+            let half = selAvg()
+            layersTab.addLayer(.full, native: n)
+            if let id = layersTab.selectedID, abs(maskAvg(id) - half) > 0.03 { notes.append("새 레이어 마스크 \(maskAvg(id)) (선택 \(half))") }
+            // ⌫ with a selection hides that area of the selected layer (the left half → 0)
+            if let id = layersTab.selectedID {
+                clearSelectedArea()
+                if maskAvg(id) > 0.03 { notes.append("선택 영역 지우기 \(maskAvg(id))") }
+            }
+            // ⌘J with a selection copies only that area (background → copy layer masked by the selection)
+            layersTab.select(nil)
+            let count = doc.settings.layers.count
+            duplicateSelectedArea()
+            if doc.settings.layers.count != count + 1 || doc.settings.layers.last?.kind != "copy" { notes.append("선택 영역 복제 레이어") }
+            else if let id = layersTab.selectedID, abs(maskAvg(id) - half) > 0.03 { notes.append("선택 영역 복제 마스크 \(maskAvg(id))") }
+            studioSelection = nil
             studioMode.selectTool("hand")
             setMode(.edit)
             if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
-            check("선택", notes.isEmpty, notes.isEmpty ? "자동·반전·확장·테두리·합치기 3·알파 채널·행·색상·빠른·초점·자석·다듬기·퀵 마스크" : notes.joined(separator: " / "))
+            check("선택 (문서 선택 영역)", notes.isEmpty, notes.isEmpty ? "사각형 끌기·더하기·빼기·반전·전체·해제·자동·확장·색상·빠른·자석·새 레이어 마스크·지우기·복제" : notes.joined(separator: " / "))
+        }
+
+        // 8-09b. Every layer-edit tool: a real click at the canvas center must reach the canvas (not a panel or glass layer on top)
+        do {
+            setMode(.studio)
+            window?.layoutIfNeeded()
+            var blocked: [String] = []
+            let center = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
+            for tool in StudioTool.all where tool.ready {
+                if ["transform", "exportWeb", "measure", "count"].contains(tool.id) { continue }   // open their own frames/sheets
+                studioMode.selectTool(tool.id)
+                window?.layoutIfNeeded()
+                guard let frame = window?.contentView?.superview, let h = frame.hitTest(canvas.convert(center, to: nil)) else {
+                    blocked.append("\(tool.title)(없음)"); continue
+                }
+                if !(h === canvas || h.isDescendant(of: canvas)) { blocked.append("\(tool.title)→\(type(of: h))") }
+            }
+            studioMode.selectTool("hand")
+            setMode(.edit)
+            check("심화 보정 도구: 캔버스 클릭이 닿음", blocked.isEmpty, blocked.isEmpty ? "모든 도구" : blocked.joined(separator: ", "))
         }
 
         // 8-0. Switching modes keeps the window size
