@@ -1375,7 +1375,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     @objc func brushLarger(_ sender: Any?) { resizeBrush(1.25) }
     private func resizeBrush(_ k: Double) {
         if canvas.tool == .retouch {
-            retouch.brush.radius = min(max(retouch.brush.radius * k, 4), 400)
+            retouch.brush.radius = min(max(retouch.brush.radius * k, 2), 500)
             canvas.retouchOverlay.brushRadius = retouch.brush.radius
             canvas.retouchOverlay.needsDisplay = true
         } else {
@@ -1383,7 +1383,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             canvas.maskOverlay.brushRadius = layersTab.brushRadius
             canvas.maskOverlay.needsDisplay = true
             layersTab.sync(photo?.settings)
+            // Layer editor brushes and quick selection
+            retouchBrushChanged()
         }
+        if mode == .studio { retouchEditor.inspector.syncBrushSizes(self) }
     }
 
     @objc func showSupportedCameras(_ sender: Any?) { SupportedCameras.show() }

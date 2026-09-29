@@ -22,6 +22,10 @@ final class RetouchEditor: NSViewController {
     /// Name of the tool under the pointer, shown right under the tool bar
     let hoverTip = ToolHoverTip()
     private(set) var currentTool = UserDefaults.standard.string(forKey: "retouchTool") ?? "hand"
+    /// Brush stroke being painted (RetouchHost.retouchStroke): settings before it, the layer it paints, whether it was shown live
+    var strokeBase: DevelopSettings?
+    var strokeLayerID: String?
+    var strokeLive = false
     /// Panel visibility (⇥ or the toolbar panel buttons)
     var showsLayers = true { didSet { layersPanel.isHidden = !showsLayers; updateCanvasInsets() } }
     var showsOptions = true { didSet { inspector.isHidden = !showsOptions; updateCanvasInsets() } }

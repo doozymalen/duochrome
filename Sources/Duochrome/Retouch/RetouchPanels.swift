@@ -543,6 +543,12 @@ final class RetouchInspector: NSView {
         host.studioSelection = sel
     }
 
+    /// Brush size changed by [ or ]: keep the size sliders in step
+    func syncBrushSizes(_ host: MainWindowController) {
+        brushSize.value = host.layersTab.brushRadius
+        retouchSize.value = host.retouch.brush.radius
+    }
+
     /// The selection changed: keep the refine sliders in step
     func selectionChanged(_ host: MainWindowController) {
         guard RetouchTool.named(host.retouchEditor.currentTool)?.group == .select else { return }

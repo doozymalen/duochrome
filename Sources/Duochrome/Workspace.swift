@@ -38,9 +38,10 @@ final class RulerView: NSView {
                 let x = origin.x + v / perPx
                 if x > bounds.maxX { break }
                 if x >= 0 {
-                    path.move(to: NSPoint(x: x, y: 0)); path.line(to: NSPoint(x: x, y: bounds.height * 0.55))
-                    ("\(Int(v))" as NSString).draw(at: NSPoint(x: x + 2, y: bounds.height - 12), withAttributes: attrs)
-                    for k in 1..<5 { let xs = x + CGFloat(k) * step / 5 / perPx; path.move(to: NSPoint(x: xs, y: 0)); path.line(to: NSPoint(x: xs, y: bounds.height * 0.25)) }
+                    // Along the bottom of the photo: ticks hang from the top edge (next to the photo), numbers below them
+                    path.move(to: NSPoint(x: x, y: bounds.height)); path.line(to: NSPoint(x: x, y: bounds.height * 0.45))
+                    ("\(Int(v))" as NSString).draw(at: NSPoint(x: x + 2, y: 1), withAttributes: attrs)
+                    for k in 1..<5 { let xs = x + CGFloat(k) * step / 5 / perPx; path.move(to: NSPoint(x: xs, y: bounds.height)); path.line(to: NSPoint(x: xs, y: bounds.height * 0.75)) }
                 }
                 v += step
             }

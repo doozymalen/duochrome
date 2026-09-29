@@ -82,11 +82,12 @@ final class CanvasView: MTKView {
     func layoutRulers() {
         let t = RulerView.thickness
         rulerTop.isHidden = !showRulers; rulerLeft.isHidden = !showRulers
-        // The canvas extends under the glass panels, so rulers go on the work-area edge between panels (on the window edge the panels hid them)
+        // The canvas extends under the glass panels, so rulers go on the work-area edge between panels (on the window edge the panels hid them).
+        // The horizontal ruler runs along the bottom: at the top it sat under the floating tool bar
         let i = fitInsets
         let top = bounds.height - i.top
-        rulerTop.frame = NSRect(x: i.left, y: top - t, width: max(bounds.width - i.left - i.right, 0), height: t)
-        rulerLeft.frame = NSRect(x: i.left, y: i.bottom, width: t, height: max(top - t - i.bottom, 0))
+        rulerTop.frame = NSRect(x: i.left, y: i.bottom, width: max(bounds.width - i.left - i.right, 0), height: t)
+        rulerLeft.frame = NSRect(x: i.left, y: i.bottom + t, width: t, height: max(top - t - i.bottom, 0))
         rulerTop.needsDisplay = true; rulerLeft.needsDisplay = true
     }
 

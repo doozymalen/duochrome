@@ -22,7 +22,7 @@ final class SelectionToolView: NSView {
     /// Snaps a view point to a nearby edge (magnetic lasso)
     var snapView: ((CGPoint) -> CGPoint)?
     /// Quick selection brush radius (source pixels)
-    var brushRadius: CGFloat = 60
+    var brushRadius: CGFloat = 60 { didSet { needsDisplay = true } }
     /// Finished shape (source coordinates) with the modifier keys held at the start
     var onShape: ((LayerMask, NSEvent.ModifierFlags) -> Void)?
     /// Single click (magic wand, color, row, column)

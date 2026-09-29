@@ -1,14 +1,18 @@
 import AppKit
 
-/// Canvas layer for brush tools (dodge/burn and the other adjustment brushes, mask brush): draws the brush circle and
-/// the stroke in progress, and hands finished strokes over in source coordinates. ⌥ while painting erases.
+/// Canvas layer for brush tools (dodge/burn and the other adjustment brushes, mask brush): draws the brush circle,
+/// and hands the stroke over in source coordinates while it is painted (so the photo updates live) and when it ends.
+/// ⌥ while painting erases.
 final class BrushSurfaceView: NSView {
     weak var canvas: CanvasView?
     var toView: ((CGPoint) -> CGPoint)?
     var fromView: ((CGPoint) -> CGPoint)?
     /// Brush radius (source pixels)
     var radius: CGFloat = 120 { didSet { needsDisplay = true } }
-    var onStroke: (([CGPoint], Bool) -> Void)?
+    /// Stroke so far: points, erasing, still painting
+    var onStroke: (([CGPoint], Bool, Bool) -> Void)?
+    /// Brushes that are too slow to redo on every move (AI remove) only get the finished stroke
+    var liveUpdates = true
     private var pts: [CGPoint] = []
     private var hover: CGPoint?
     private var erasing = false
@@ -33,12 +37,16 @@ final class BrushSurfaceView: NSView {
         pts = [p]
         hover = p
         needsDisplay = true
+        if liveUpdates, let f = fromView { onStroke?([f(p)], erasing, true) }
     }
 
     override func mouseDragged(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         hover = p
-        if let l = pts.last, hypot(p.x - l.x, p.y - l.y) >= max(viewRadius / 4, 2) { pts.append(p) }
+        if let l = pts.last, hypot(p.x - l.x, p.y - l.y) >= max(viewRadius / 4, 2) {
+            pts.append(p)
+            if liveUpdates, let f = fromView { onStroke?(pts.map(f), erasing, true) }
+        }
         needsDisplay = true
     }
 
@@ -47,11 +55,12 @@ final class BrushSurfaceView: NSView {
         pts = []
         needsDisplay = true
         guard !p.isEmpty, let f = fromView else { return }
-        onStroke?(p.map(f), erasing)
+        onStroke?(p.map(f), erasing, false)
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        if !pts.isEmpty {
+        // Live brushes show the result on the photo; the others show the stroke until it is applied
+        if !pts.isEmpty, !liveUpdates {
             let path = NSBezierPath()
             path.move(to: pts[0]); pts.dropFirst().forEach { path.line(to: $0) }
             if pts.count == 1 { path.line(to: CGPoint(x: pts[0].x + 0.1, y: pts[0].y)) }
@@ -84,7 +93,7 @@ extension MainWindowController {
             guard let self, let d = self.photo else { return p }
             return d.toNative(self.viewer.canvas.imagePoint(at: p))
         }
-        b.onStroke = { [weak self] pts, erase in self?.retouchStroke(pts, erase: erase) }
+        b.onStroke = { [weak self] pts, erase, painting in self?.retouchStroke(pts, erase: erase, painting: painting) }
         let m = viewer.canvas.moveSurface
         m.fromView = b.fromView
         // Moving goes through the same code as batch edit's layer move (snapping, text anchors, shapes)
@@ -107,6 +116,7 @@ extension MainWindowController {
             enterSelectionTool(tool.id)
         case .brush:
             c.brushSurface.radius = CGFloat(layersTab.brushRadius)
+            c.brushSurface.liveUpdates = true
             if tool.id == "maskBrush", layersTab.selectedID == nil {
                 // Nothing to paint a mask on yet: keep the tool picked, the inspector says what to do
                 enterTool(.pan)
@@ -132,6 +142,7 @@ extension MainWindowController {
             default:   // aiRemove, smartErase: strokes go to the eraser
                 if tool.id == "aiRemove", ProcessInfo.processInfo.environment["DUOCHROME_UITEST"] == nil { AIEngine.shared.warmUp() }
                 c.brushSurface.radius = CGFloat(layersTab.brushRadius)
+                c.brushSurface.liveUpdates = false
                 enterTool(photo == nil ? .pan : .brush)
             }
         }
@@ -161,23 +172,31 @@ extension MainWindowController {
         retouchEditor.reload()
     }
 
-    /// A finished brush stroke: preset brushes paint their own layer, the mask brush paints the selected layer's mask
-    func retouchStroke(_ pts: [CGPoint], erase: Bool) {
+    /// A brush stroke, while it is painted (painting) and when it ends: preset brushes paint their own layer,
+    /// the mask brush paints the selected layer's mask. Every update starts again from the settings before the stroke,
+    /// so the growing stroke is applied once and the photo shows it as it is painted; the end records one undo step.
+    func retouchStroke(_ pts: [CGPoint], erase: Bool, painting: Bool = false) {
         guard photo != nil else { return }
         let t = layersTab
+        let ed = retouchEditor
         var stroke = MaskStroke(points: pts.flatMap { [Double($0.x), Double($0.y)] }, radius: t.brushRadius,
                                 hardness: t.brushHardness, flow: t.brushFlow, erase: erase)
         stroke.tip = nil
-        let tool = retouchEditor.currentTool
+        let tool = ed.currentTool
         if tool == "aiRemove" || tool == "smartErase" {
-            aiRemove(strokes: [stroke], smart: tool == "smartErase")
+            if !painting { aiRemove(strokes: [stroke], smart: tool == "smartErase") }
             return
         }
+        if ed.strokeBase == nil { ed.strokeBase = photo?.settings; ed.strokeLive = false }
+        defer { if !painting { ed.strokeBase = nil; ed.strokeLayerID = nil } }
+        guard var s = ed.strokeBase else { return }
+        var label = erase ? "마스크 지우기" : "마스크 칠하기"
         if let preset = RetouchTool.presets[tool] {
-            guard var s = photo?.settings else { return }
+            label = preset.name
             // Continue on the selected layer if it is this brush's layer, otherwise on the top one of its kind, otherwise a new one
             let own = { (l: AdjustLayer) in l.preset == tool && l.kind == "adjust" && l.mask.kind == .brush && !l.locked }
-            var i = t.selectedID.flatMap { id in s.layers.firstIndex { $0.id == id && own($0) } } ?? s.layers.lastIndex(where: own)
+            var i = ed.strokeLayerID.flatMap { id in s.layers.firstIndex { $0.id == id } }
+                ?? t.selectedID.flatMap { id in s.layers.firstIndex { $0.id == id && own($0) } } ?? s.layers.lastIndex(where: own)
             if i == nil {
                 var l = AdjustLayer(name: preset.name)
                 l.preset = tool
@@ -186,47 +205,59 @@ extension MainWindowController {
                 // With a selection, the brush stays inside it
                 if let sel = studioSelection { l.mask.combos = [MaskCombo(op: .intersect, mask: simpleSelectionMask(sel))] }
                 s.layers.append(l)
+                ed.strokeBase = s   // the new layer is part of what later updates start from
                 i = s.layers.count - 1
             }
             guard let k = i else { return }
+            ed.strokeLayerID = s.layers[k].id
             s.layers[k].mask.strokes.append(stroke)
-            let id = s.layers[k].id
-            replaceSettings(s, recordUndo: true, label: preset.name)
-            if t.selectedID != id { t.select(id) }
-            retouchEditor.reload()
+        } else {
+            // Mask brush: the selected layer's mask
+            guard let id = t.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }), !s.layers[i].locked else {
+                if !painting { NSSound.beep() }
+                return
+            }
+            var m = s.layers[i].mask
+            if m.kind == .brush && (m.combos ?? []).isEmpty {
+                m.strokes.append(stroke)
+            } else if Self.isPlain(m) {
+                // Whole layer: painting limits the layer to where it is painted; ⌥ instead hides the painted part
+                m = LayerMask()
+                m.kind = .brush
+                m.brushWhite = erase
+                m.strokes = [stroke]
+            } else {
+                // Selection-shaped mask: strokes add to it (⌥ takes away), one combine step per paint direction.
+                // Baking an inverted/refined mask happens once, into the base, so later updates reuse the file
+                if m.invert || Self.isRefined(m) {
+                    m = rasterizeMask(m)
+                    var b = s; b.layers[i].mask = m; ed.strokeBase = b
+                }
+                var stroke2 = stroke
+                stroke2.erase = false
+                let op: MaskCombo.Op = erase ? .subtract : .add
+                var combos = m.combos ?? []
+                if let last = combos.last, last.op == op, last.mask.kind == .brush {
+                    combos[combos.count - 1].mask.strokes.append(stroke2)
+                } else {
+                    var b = LayerMask()
+                    b.kind = .brush
+                    b.strokes = [stroke2]
+                    combos.append(MaskCombo(op: op, mask: b))
+                }
+                m.combos = combos
+            }
+            s.layers[i].mask = m
+        }
+        if painting {
+            ed.strokeLive = true
+            apply(s, dragging: true)
             return
         }
-        // Mask brush: the selected layer's mask
-        guard var s = photo?.settings, let id = t.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }) else { NSSound.beep(); return }
-        guard !s.layers[i].locked else { NSSound.beep(); return }
-        var m = s.layers[i].mask
-        if m.kind == .brush && (m.combos ?? []).isEmpty {
-            m.strokes.append(stroke)
-        } else if Self.isPlain(m) {
-            // Whole layer: painting limits the layer to where it is painted; ⌥ instead hides the painted part
-            m = LayerMask()
-            m.kind = .brush
-            m.brushWhite = erase
-            m.strokes = [stroke]
-        } else {
-            // Selection-shaped mask: strokes add to it (⌥ takes away), one combine step per paint direction
-            if m.invert || Self.isRefined(m) { m = rasterizeMask(m) }
-            var stroke2 = stroke
-            stroke2.erase = false
-            let op: MaskCombo.Op = erase ? .subtract : .add
-            var combos = m.combos ?? []
-            if let last = combos.last, last.op == op, last.mask.kind == .brush {
-                combos[combos.count - 1].mask.strokes.append(stroke2)
-            } else {
-                var b = LayerMask()
-                b.kind = .brush
-                b.strokes = [stroke2]
-                combos.append(MaskCombo(op: op, mask: b))
-            }
-            m.combos = combos
-        }
-        s.layers[i].mask = m
-        replaceSettings(s, recordUndo: true, label: erase ? "마스크 지우기" : "마스크 칠하기")
+        // End: one undo step from before the stroke (apply keeps the settings from its first live update)
+        if ed.strokeLive { apply(s, dragging: false) } else { replaceSettings(s, recordUndo: true, label: label) }
+        if let id = ed.strokeLayerID, t.selectedID != id { t.select(id) }
+        ed.reload()
     }
 
     /// A filter layer over the whole photo (or the selection), selected so its sliders show
