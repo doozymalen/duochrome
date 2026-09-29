@@ -17,6 +17,8 @@ final class RetouchEditor: NSViewController {
     private let work = NSLayoutGuide()
     lazy var layersWidth = layersPanel.widthAnchor.constraint(equalToConstant: 260)
     lazy var optionsWidth = inspector.widthAnchor.constraint(equalToConstant: 300)
+    /// Name of the tool under the pointer, shown right under the tool bar
+    let hoverTip = ToolHoverTip()
     private(set) var currentTool = UserDefaults.standard.string(forKey: "retouchTool") ?? "hand"
 
     override func loadView() {
@@ -58,6 +60,20 @@ final class RetouchEditor: NSViewController {
         ])
         view = root
         toolBar.onPick = { [weak self] id in self?.selectTool(id) }
+        hoverTip.isHidden = true
+        root.addSubview(hoverTip)
+        toolBar.onHover = { [weak self] tool, button in
+            guard let self else { return }
+            guard let tool, let button else { self.hoverTip.isHidden = true; return }
+            self.hoverTip.show(tool.key.isEmpty ? tool.title : "\(tool.title)  \(tool.key)")
+            // Centered under the button, kept inside the window
+            let r = button.convert(button.bounds, to: root)
+            let size = self.hoverTip.fittingSize
+            var x = r.midX - size.width / 2
+            x = min(max(x, 8), root.bounds.width - size.width - 8)
+            let y = root.isFlipped ? self.toolBar.frame.maxY + 6 : self.toolBar.frame.minY - 6 - size.height
+            self.hoverTip.frame = CGRect(x: x, y: y, width: size.width, height: size.height)
+        }
         toolBar.reload(selected: currentTool)
     }
 
@@ -171,6 +187,8 @@ struct RetouchTool: Equatable {
 /// Floating tool bar over the canvas
 final class RetouchToolBar: NSView {
     var onPick: ((String) -> Void)?
+    /// Pointer entered a tool button (nil when it leaves)
+    var onHover: ((RetouchTool?, NSView?) -> Void)?
     private let stack = NSStackView()
     private let scroll = NSScrollView()
     private var buttons: [String: NSButton] = [:]
@@ -214,12 +232,12 @@ final class RetouchToolBar: NSView {
             last = t.group
             let img = NSImage(systemSymbolName: t.symbol, accessibilityDescription: t.title)
                 ?? NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: t.title)!
-            let b = NSButton(image: img, target: self, action: #selector(picked(_:)))
+            let b = HoverButton(image: img, target: self, action: #selector(picked(_:)))
+            b.onHover = { [weak self, weak b] inside in self?.onHover?(inside ? t : nil, inside ? b : nil) }
             b.bezelStyle = .recessed
             b.setButtonType(.pushOnPushOff)
             b.isBordered = true
             b.identifier = NSUserInterfaceItemIdentifier(t.id)
-            b.toolTip = t.key.isEmpty ? t.title : "\(t.title) (\(t.key))"
             b.widthAnchor.constraint(equalToConstant: 34).isActive = true
             buttons[t.id] = b
             stack.addArrangedSubview(b)
@@ -234,5 +252,46 @@ final class RetouchToolBar: NSView {
 
     func reload(selected: String) {
         for (id, b) in buttons { b.state = id == selected ? .on : .off }
+    }
+}
+
+/// Tool button that reports the pointer entering and leaving
+final class HoverButton: NSButton {
+    var onHover: ((Bool) -> Void)?
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.filter { $0.owner === self }.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
+    override func mouseDown(with event: NSEvent) { onHover?(false); super.mouseDown(with: event) }
+}
+
+/// Small dark label with the hovered tool's name and shortcut (shows at once, unlike a tooltip)
+final class ToolHoverTip: NSView {
+    private let label = NSTextField(labelWithString: "")
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.78).cgColor
+        layer?.cornerRadius = 6
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = .white
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    /// Clicks go through to the canvas below
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    func show(_ text: String) {
+        label.stringValue = text
+        isHidden = false
     }
 }
