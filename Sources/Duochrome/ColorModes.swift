@@ -2,13 +2,13 @@ import AppKit
 import CoreImage
 import UniformTypeIdentifiers
 
-// MARK: - 문서 색 공간·비트 깊이·색 모드(흑백·이중톤·CMYK·Lab)·채널·색상 견본
+// MARK: - Document color space · bit depth · color modes (grayscale, duotone, CMYK, Lab) · channels · swatches
 
-/// 문서 색 모드 (이미지 > 모드)
+/// Document color mode (Image > Mode)
 enum DocMode: Int, CaseIterable {
     case rgb, gray, duotone, cmyk, lab
     var title: String { ["RGB 색상", "회색조", "이중톤", "CMYK 색상", "Lab 색상"][rawValue] }
-    /// 채널 이름 (채널 패널)
+    /// Channel names (Channels panel)
     var channels: [String] {
         switch self {
         case .rgb: ["빨강", "초록", "파랑"]
@@ -22,11 +22,11 @@ enum DocMode: Int, CaseIterable {
 enum ColorModes {
     static let genericCMYKProfile = URL(fileURLWithPath: "/System/Library/ColorSync/Profiles/Generic CMYK Profile.icc")
 
-    /// 문서 모드·색 공간·비트 깊이를 마지막 단계로 건다 (작업 공간 선형 Rec.2020 → 같은 공간)
+    /// Applies document mode, color space, and bit depth as the last stage (working space linear Rec.2020 → same space)
     static func apply(_ s: DevelopSettings, _ input: CIImage) -> CIImage {
         var img = input
         let mode = DocMode(rawValue: s.docMode ?? 0) ?? .rgb
-        // 문서 색 공간으로 변환: 그 색역 밖은 잘린다
+        // Convert to the document color space: out-of-gamut values are clipped
         if let name = s.docSpace, let sp = ExportRecipe.Space(rawValue: name), mode == .rgb || mode == .lab {
             img = clampTo(img, sp.cg, depth8: s.docDepth == 8)
         } else if s.docDepth == 8 {
@@ -46,19 +46,19 @@ enum ColorModes {
                 img = out.matchedToWorkingSpace(from: srgb) ?? img
             }
         case .cmyk:
-            // CMYK 색역으로 보기 (일반 CMYK 프로파일 왕복)
+            // Preview in CMYK gamut (generic CMYK profile round-trip)
             img = cmykRoundTrip(img)
         }
         return img.cropped(to: input.extent)
     }
 
-    /// 선형 Rec.2020 밝기 계수로 회색
+    /// Gray from linear Rec.2020 luminance coefficients
     static let grayMatrix: [String: Any] = {
         let w = CIVector(x: 0.2627, y: 0.6780, z: 0.0593, w: 0)
         return ["inputRVector": w, "inputGVector": w, "inputBVector": w, "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)]
     }()
 
-    /// 색 공간으로 옮겨 0~1로 자르고 (8비트면 256단계로) 되돌린다
+    /// Converts to a color space, clamps to 0–1 (256 levels if 8-bit), and converts back
     private static func clampTo(_ img: CIImage, _ cs: CGColorSpace, depth8: Bool) -> CIImage {
         guard let inS = img.matchedFromWorkingSpace(to: cs) else { return img }
         var c = inS.applyingFilter("CIColorClamp")
@@ -66,7 +66,7 @@ enum ColorModes {
         return c.matchedToWorkingSpace(from: cs) ?? img
     }
 
-    /// 이중톤: 잉크 둘을 겹쳐 찍은 모양. 첫 잉크는 어두운 곳 전체, 둘째 잉크는 중간 밝기에 더 많이
+    /// Duotone: looks like two inks overprinted. The first ink covers all shadows, the second weights toward midtones
     private static let duotoneKernel = CIColorKernel(source: """
     kernel vec4 duotone(__sample s, vec3 ink1, vec3 ink2, float balance) {
         float g = clamp(s.r, 0.0, 1.0);
@@ -81,13 +81,13 @@ enum ColorModes {
 
     private static var cmykCube: (String, Data)?
 
-    /// CMYK 모드가 쓰는 프로파일: 교정쇄 프로파일이 CMYK면 그것(인쇄소 프로파일), 아니면 맥의 일반 CMYK
+    /// Profile used by CMYK mode: the proof profile if it's CMYK (press profile), otherwise macOS generic CMYK
     static var cmykSpace: CGColorSpace {
         if let url = ProofProfile.current, let d = try? Data(contentsOf: url), let cs = CGColorSpace(iccData: d as CFData), cs.model == .cmyk { return cs }
         return CGColorSpace(name: CGColorSpace.genericCMYK)!
     }
     static var cmykName: String { ProofProfile.current.flatMap { u in (try? Data(contentsOf: u)).flatMap { CGColorSpace(iccData: $0 as CFData) }?.model == .cmyk ? u.lastPathComponent : nil } ?? "일반 CMYK" }
-    /// sRGB → 일반 CMYK → sRGB 왕복 격자 (25³), 코어 그래픽스가 ColorSync로 바꾼다
+    /// sRGB → generic CMYK → sRGB round-trip grid (25³), converted by Core Graphics via ColorSync
     static func cmykCubeData(n: Int = 25) -> Data? {
         if let c = cmykCube, c.0 == cmykName { return c.1 }
         let w = n * n, h = n
@@ -111,7 +111,7 @@ enum ColorModes {
                                    bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
         bctx.interpolationQuality = .none
         bctx.draw(cmykImage, in: CGRect(x: 0, y: 0, width: w, height: h))
-        // 코어 그래픽스 좌표는 아래가 0이지만 위에서 그린 격자도 같은 자리로 돌아오므로 순서는 그대로
+        // Core Graphics y is bottom-up, but a grid drawn top-down comes back in the same place, so order is unchanged
         var cube = [Float](repeating: 1, count: n * n * n * 4)
         for b in 0..<n { for g in 0..<n { for r in 0..<n {
             let i = (g * w + b * n + r) * 4, o = (b * n * n + g * n + r) * 4
@@ -129,9 +129,9 @@ enum ColorModes {
         return out.matchedToWorkingSpace(from: srgb) ?? img
     }
 
-    // MARK: 내보내기
+    // MARK: Export
 
-    /// 문서 모드에 맞춰 내보낼 그림을 바꾼다: 회색조·이중톤 → 회색(이중톤은 색 그대로), CMYK → CMYK(TIFF·JPEG), Lab → Lab(TIFF)
+    /// Converts the export image for the document mode: grayscale/duotone → gray (duotone keeps its color), CMYK → CMYK (TIFF/JPEG), Lab → Lab (TIFF)
     static func convertForExport(_ cg: CGImage, mode: DocMode, format: ExportRecipe.Format) -> CGImage {
         switch mode {
         case .gray:
@@ -155,7 +155,7 @@ enum ColorModes {
         return ctx.makeImage()
     }
 
-    /// sRGB 그림 → CIE Lab (D50) 8비트 그림 (L 0~255, a·b는 128이 0)
+    /// sRGB image → CIE Lab (D50) 8-bit image (L 0–255, a/b with 128 as 0)
     static func labImage(_ cg: CGImage) -> CGImage? {
         let w = cg.width, h = cg.height
         var rgb = [UInt8](repeating: 0, count: w * h * 4)
@@ -178,11 +178,11 @@ enum ColorModes {
                        shouldInterpolate: false, intent: .defaultIntent)
     }
 
-    /// sRGB(감마) → Lab D50
+    /// sRGB (gamma) → Lab D50
     static func toLab(_ r0: Float, _ g0: Float, _ b0: Float) -> (Float, Float, Float) {
         func lin(_ c: Float) -> Float { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
         let r = lin(r0), g = lin(g0), b = lin(b0)
-        // sRGB → XYZ D50 (브래드퍼드 적응)
+        // sRGB → XYZ D50 (Bradford adaptation)
         let x = 0.4360747 * r + 0.3850649 * g + 0.1430804 * b
         let y = 0.2225045 * r + 0.7168786 * g + 0.0606169 * b
         let z = 0.0139322 * r + 0.0971045 * g + 0.7141733 * b
@@ -191,9 +191,9 @@ enum ColorModes {
         return (116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
     }
 
-    // MARK: 채널 보기
+    // MARK: Channel view
 
-    /// 채널 하나를 회색으로 (0이면 합성 그대로). RGB: 빨강·초록·파랑, CMYK: 녹청·마젠타·노랑·검정(잉크 양이 많을수록 어둡게), Lab: L·a·b
+    /// One channel as gray (0 keeps the composite). RGB: red/green/blue, CMYK: cyan/magenta/yellow/black (more ink is darker), Lab: L/a/b
     static func channelView(_ img: CIImage, mode: DocMode, channel: Int) -> CIImage {
         guard channel > 0, channel <= mode.channels.count, mode != .gray, mode != .duotone else { return img }
         let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -231,7 +231,7 @@ enum ColorModes {
     """)
 }
 
-// MARK: - 창 동작 (메뉴)
+// MARK: - Window actions (menus)
 
 extension MainWindowController {
     @objc func setDocMode(_ sender: NSMenuItem) {
@@ -255,7 +255,7 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: "\(sender.tag)비트")
     }
 
-    /// 이중톤 잉크 고르기 (색상 패널을 쓰지 않고 미리 정한 조합에서)
+    /// Pick duotone inks (from preset pairs, not the color panel)
     @objc func setDuotoneInks(_ sender: NSMenuItem) {
         guard var s = photo?.settings else { return }
         let presets: [[Float]] = [[0, 0, 0, 0.62, 0.42, 0.24], [0, 0, 0, 0.25, 0.4, 0.65], [0.1, 0.05, 0.2, 0.85, 0.55, 0.3], [0, 0, 0, 0.55, 0.55, 0.5]]
@@ -268,7 +268,7 @@ extension MainWindowController {
         canvas.channelView = sender.tag
     }
 
-    /// 채널 분리: 채널마다 회색 16비트 PNG로 (폴더를 고른다)
+    /// Split channels: each channel as a 16-bit gray PNG (choose a folder)
     @objc func splitChannels(_ sender: Any?) {
         guard photo != nil else { NSSound.beep(); return }
         let panel = NSOpenPanel()
@@ -280,7 +280,7 @@ extension MainWindowController {
         do { _ = try writeChannels(to: dir) } catch { NSSound.beep() }
     }
 
-    /// 채널 파일들을 쓴다 (시험에서도 부른다)
+    /// Writes the channel files (also called from tests)
     func writeChannels(to dir: URL) throws -> [URL] {
         guard let doc = photo else { return [] }
         let mode = DocMode(rawValue: doc.settings.docMode ?? 0) ?? .rgb
@@ -297,7 +297,7 @@ extension MainWindowController {
         return out
     }
 
-    /// 채널 합치기: 회색 그림 셋을 빨강·초록·파랑으로 합쳐 이미지 레이어로
+    /// Merge channels: combine three gray images as red/green/blue into an image layer
     @objc func mergeChannels(_ sender: Any?) {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
@@ -331,7 +331,7 @@ extension MainWindowController {
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    /// 색 모드 메뉴 (이미지 메뉴 아래)
+    /// Color mode menu (under the Image menu)
     func colorModeMenu() -> NSMenu {
         let m = NSMenu(title: "모드")
         for mode in DocMode.allCases {
@@ -378,19 +378,19 @@ extension MainWindowController {
         return m
     }
 
-    /// HDR로 보기 (EDR 화면에서 1.0 넘는 밝기)
+    /// View as HDR (brightness above 1.0 on EDR displays)
     @objc func toggleHDRView(_ sender: Any?) {
         canvas.hdrView.toggle()
         UserDefaults.standard.set(canvas.hdrView, forKey: "view.hdr")
     }
 }
 
-// MARK: - 색상 견본 (피커 옵션 아래)
+// MARK: - Swatches (under picker options)
 
 final class SwatchesView: NSView {
-    /// 견본을 눌렀을 때 (화면 값 RGB)
+    /// When a swatch is clicked (display RGB)
     var onPick: (([Float]) -> Void)?
-    /// "지금 색 더하기" 때 넣을 색
+    /// Color to add for "Add Current Color"
     var current: (() -> [Float]?)?
 
     static var saved: [[Float]] {
@@ -422,7 +422,7 @@ final class SwatchesView: NSView {
             NSColor.white.withAlphaComponent(0.2).setStroke()
             NSBezierPath(roundedRect: f[i].insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4).stroke()
         }
-        // 마지막 칸: 더하기
+        // last cell: add
         let plus = f[Self.saved.count]
         NSColor.white.withAlphaComponent(0.08).setFill()
         NSBezierPath(roundedRect: plus, xRadius: 4, yRadius: 4).fill()
@@ -438,7 +438,7 @@ final class SwatchesView: NSView {
         if i == Self.saved.count {
             if let c = current?() { Self.saved.append(c); invalidateIntrinsicContentSize(); needsDisplay = true }
         } else if event.modifierFlags.contains(.option) {
-            // ⌥누르기: 견본 지우기
+            // ⌥-click: delete swatch
             var s = Self.saved; s.remove(at: i); Self.saved = s; invalidateIntrinsicContentSize(); needsDisplay = true
         } else {
             onPick?(Self.saved[i])
@@ -447,7 +447,7 @@ final class SwatchesView: NSView {
 }
 
 extension MainWindowController {
-    /// 견본 색을 지금 쓰는 곳에: 칠하기 붓, 고른 글자 레이어, 고른 모양 레이어(채우기)
+    /// Applies the swatch color where it's in use: paint brush, selected text layer, selected shape layer (fill)
     func applySwatch(_ c: [Float]) {
         var b = PaintBrush.current; b.color = c; PaintBrush.current = b
         VectorToolState.shared.color = c
@@ -460,7 +460,7 @@ extension MainWindowController {
     }
 }
 
-/// 모드 메뉴: 열 때마다 지금 문서의 모드·채널로 다시 만든다
+/// Mode menu: rebuilt from the current document's mode and channels each time it opens
 final class ColorModeMenuDelegate: NSObject, NSMenuDelegate {
     static let shared = ColorModeMenuDelegate()
     func menuNeedsUpdate(_ menu: NSMenu) {

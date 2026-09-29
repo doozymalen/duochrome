@@ -1,44 +1,44 @@
 import AppKit
 
-// MARK: - 도구와 속성 (오른쪽)
+// MARK: - Tools and inspector (right)
 
-/// 슬라이더 하나의 정의. 화면 값 = 저장 값 × `display`.
+/// One slider definition. Displayed value = stored value × `display`.
 struct SliderSpec {
     let label: String
     let key: WritableKeyPath<DevelopSettings, Float>
     let min: Double, max: Double
     var format = "%+.0f"
     var display: Double = 1
-    /// 트랙 색 그라디언트 (왼쪽 → 오른쪽). 색온도·틴트·흑백 채널처럼 값이 색인 슬라이더
+    /// Track color gradient (left → right). For sliders whose value is a color, like temperature, tint, B&W channels
     var colors: [NSColor]? = nil
 }
 
-/// 고르기 칸 (값은 고른 번호를 Float로 저장).
+/// Picker (value stored as the chosen index in a Float).
 struct PopupSpec {
     let label: String
     let items: [String]
     let key: WritableKeyPath<DevelopSettings, Float>
 }
 
-/// 카드 하나의 정의. 꺼지면 `bypass`가 값을 중립으로 돌린다.
+/// One card definition. When off, `bypass` returns values to neutral.
 struct CardSpec {
     let id: String
     let title: String
     var rows: [SliderSpec] = []
     var popups: [PopupSpec] = []
-    /// 기본은 카드 안 값들을 카메라 기록값으로 되돌리기.
+    /// By default resets the card's values to the as-shot values.
     var bypass: ((inout DevelopSettings, DevelopSettings) -> Void)? = nil
-    /// RAW 필터가 지원할 때만 보인다.
+    /// Shown only when the RAW filter supports it.
     var rawOnly = false
-    /// 있으면 카드 스위치가 "끄기"가 아니라 이 기능을 켜고 끈다 (흑백처럼 기본이 꺼진 도구).
+    /// If set, the card switch toggles this feature instead of "off" (for tools off by default, like B&W).
     var enableKey: WritableKeyPath<DevelopSettings, Bool>? = nil
-    /// 제목 줄에 "자동" 단추 (이 카드만 자동으로)
+    /// "Auto" button in the title row (auto for this card only)
     var auto = false
-    /// 제목 옆에 다 못 쓰는 설명 (풍선 도움말)
+    /// Description that doesn't fit next to the title (tooltip)
     var help: String? = nil
 }
 
-/// 도구 순서.
+/// Tool order.
 let developCards: [CardSpec] = [
     CardSpec(id: "wb", title: "화이트 밸런스", rows: [
         SliderSpec(label: "색온도", key: \.temperature, min: 2000, max: 12000, format: "%.0f K", colors: TrackColors.temperature),
@@ -132,9 +132,9 @@ let developCards: [CardSpec] = [
     ]),
 ]
 
-/// 보정 항목을 카드로 쌓는다. 카드마다 켜고 끄기와 초기화가 있다.
+/// Stacks adjustments as cards. Each card has enable and reset.
 final class InspectorViewController: NSViewController {
-    /// (새 값, 슬라이더를 끄는 중인지)
+    /// (new value, dragging a slider)
     var onChange: ((DevelopSettings, Bool) -> Void)?
     let histogram = HistogramView()
     private let meter = NSTextField(labelWithString: " ")
@@ -146,19 +146,19 @@ final class InspectorViewController: NSViewController {
     private var rows: [(SliderSpec, SliderRow)] = []
     private var cards: [(CardSpec, Card)] = []
     let curveEditor = CurveEditorView()
-    /// 캔버스에서 색을 집어 달라 (0 컬러 에디터 범위 더하기, 1 스킨 톤 고르기).
+    /// Requests picking a color on the canvas (0 add color editor range, 1 pick skin tone).
     var onPickColor: ((Int) -> Void)?
     var onAutoWB: (() -> Void)?
-    /// 카드 "자동" 단추 (노출·레벨)
+    /// Card "Auto" button (exposure, levels)
     var onAutoCard: ((String) -> Void)?
-    /// 레벨 스포이트 (2 검정 점, 3 흰 점, 4 회색 점)
+    /// Levels eyedroppers (2 black point, 3 white point, 4 gray point)
     var onLevelPick: ((Int) -> Void)?
     fileprivate var popups: [(PopupSpec, NSPopUpButton)] = []
-    /// "기본 모습" 줄: 그 카메라의 보정표가 있을 때만 보인다 (없으면 Apple 기본)
+    /// "Base look" row: shown only if that camera has a look table (otherwise Apple default)
     private var lookRows: [NSView] = []
     fileprivate var popupTargets: [PopupTarget] = []
     fileprivate var buttonTargets: [ClosureTarget] = []
-    /// -1 RGB(전체 레벨), 0~2 빨강·초록·파랑
+    /// -1 RGB (master levels), 0–2 red/green/blue
     fileprivate var levelChannel = -1
     fileprivate let levelsView = LevelsView()
     fileprivate var levelMasterRows: [SliderRow] = []
@@ -171,18 +171,18 @@ final class InspectorViewController: NSViewController {
     fileprivate let editorRemove = NSButton(title: "이 범위 지우기", target: nil, action: nil)
     fileprivate var skinRows: [SliderRow] = []
     fileprivate let skinSwatch = NSView()
-    /// 컬러 에디터 (기본·고급·스킨 톤, ColorEditor.swift)
+    /// Color editor (basic, advanced, skin tone; ColorEditor.swift)
     let colorEditor = ColorEditorView()
-    /// 선택한 색 범위 보기 (캔버스)
+    /// View selected color range (canvas)
     var onViewRange: ((ColorRange?) -> Void)?
-    /// UI 시험용: 컬러 밸런스 휠 (0 마스터, 1 섀도, 2 미드톤, 3 하이라이트)
+    /// For UI tests: color balance wheel (0 master, 1 shadows, 2 midtones, 3 highlights)
     func wheel(_ i: Int) -> ColorWheelView? { wheels.indices.contains(i) ? wheels[i].1 : nil }
     fileprivate var wheels: [(WritableKeyPath<DevelopSettings, ColorShift>, ColorWheelView)] = []
-    /// 커브 채널 고르기 (팝업)
+    /// Curve channel picker (popup)
     private let curveChannel = CurveChannelPopup()
 
-    // 위: 레이어 고르기·더하기 / 아래: 전체 강도·초기화·⋯
-    /// (레이어 id, 이름) 목록. nil id = 배경
+    // top: layer picker / add · bottom: overall strength, reset, ⋯
+    /// (layer id, name) list. nil id = background
     var layerList: (() -> [(String?, String)])?
     var currentLayer: (() -> String?)?
     var onPickLayer: ((String?) -> Void)?
@@ -197,7 +197,7 @@ final class InspectorViewController: NSViewController {
     override func loadView() {
         let root = NSView()
         let content = buildScroll()
-        // 위: 레이어
+        // top: layers
         layerPopup.controlSize = .regular
         layerPopup.target = self
         layerPopup.action = #selector(layerPicked)
@@ -210,7 +210,7 @@ final class InspectorViewController: NSViewController {
         let top = NSStackView(views: [layerPopup, addButton])
         top.spacing = 8
         let topBox = Card.plain(top)
-        // 아래: 강도·초기화·⋯
+        // bottom: strength, reset, ⋯
         intensityRow.onChange = { [weak self] v, d in
             guard let self else { return }
             self.settings.intensity = Float(v)
@@ -257,12 +257,12 @@ final class InspectorViewController: NSViewController {
             layerPopup.widthAnchor.constraint(equalTo: top.widthAnchor, constant: -32),
         ])
         view = root
-        // 사진이 패널보다 먼저 열렸으면(탭을 늦게 연 경우) 그 사진으로 바로 채우고 켠다.
-        // 예전엔 늘 끈 채로 시작해, 유리 배치로 바꾼 뒤 조정 슬라이더가 안 눌렸다.
+        // If the photo opened before the panel (tab opened late), fill with it right away and enable.
+        // It used to always start disabled, and after the glass layout change the adjustment sliders wouldn't respond.
         if let doc { show(doc) } else { setEnabled(false); refreshLayers() }
     }
 
-    /// 레이어 팝업을 지금 사진의 레이어로 채운다
+    /// Fills the layer popup with the current photo's layers
     func refreshLayers() {
         guard isViewLoaded else { return }
         layerPopup.removeAllItems()
@@ -297,7 +297,7 @@ final class InspectorViewController: NSViewController {
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 16, right: 12)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        // 빈 NSView를 documentView로 두면 높이가 0이 된다. 스택을 바로 넣는다.
+        // An empty NSView as documentView gets zero height. Insert the stack directly.
         scroll.documentView = stack
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
@@ -317,7 +317,7 @@ final class InspectorViewController: NSViewController {
         return scroll
     }
 
-    /// 형태 탭이 바꾼 값을 받아 둔다. 안 그러면 다음 슬라이더 조작이 옛 형태 값으로 덮어쓴다.
+    /// Keeps values changed by the Geometry tab. Otherwise the next slider change overwrites with old geometry.
     func adoptGeometry(_ s: DevelopSettings) { settings.adoptGeometry(from: s) }
 
     func showSample(_ rgb: [Int]?) {
@@ -326,7 +326,7 @@ final class InspectorViewController: NSViewController {
         meter.stringValue = String(format: "R %3d  G %3d  B %3d   ·   L %3.0f  a %+4.0f  b %+4.0f", c[0], c[1], c[2], lab.0, lab.1, lab.2)
     }
 
-    /// 화면(Display P3) 8비트 값 → CIE Lab (D65).
+    /// Display (Display P3) 8-bit value → CIE Lab (D65).
     static func lab(_ c: [Int]) -> (Double, Double, Double) {
         func lin(_ v: Int) -> Double { let x = Double(v) / 255; return x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4) }
         let r = lin(c[0]), g = lin(c[1]), b = lin(c[2])
@@ -343,7 +343,7 @@ final class InspectorViewController: NSViewController {
         self.doc = doc
         settings = doc.settings
         bypassed = []
-        // 두 번 누르기·달라붙기의 기준은 카메라 기록값 (색온도·샤프닝처럼 0이 아닌 값도 있다).
+        // Double-click and snapping reference the as-shot values (some are nonzero, like temperature and sharpening).
         for (spec, row) in rows { row.defaultValue = Double(doc.asShot[keyPath: spec.key]) }
         for (spec, card) in cards {
             card.isHidden = spec.rawOnly && !doc.isRaw
@@ -369,7 +369,7 @@ final class InspectorViewController: NSViewController {
         for (key, wheel) in wheels { wheel.shift = settings[keyPath: key] }
     }
 
-    /// 꺼진 카드는 중립값으로 대신한다.
+    /// Disabled cards substitute neutral values.
     private func effective() -> DevelopSettings {
         guard let doc else { return settings }
         var s = settings
@@ -467,7 +467,7 @@ extension InspectorViewController {
         curveChannel.controlSize = .regular
         curveChannel.target = self
         curveChannel.action = #selector(curveChannelChanged)
-        // 스포이트 셋: 누른 곳을 검정 / 무채색 / 흰색으로 (커브 점을 만든다)
+        // Three eyedroppers: make the clicked spot black / neutral / white (creates curve points)
         let picks = NSSegmentedControl(images: [
             NSImage(systemSymbolName: "eyedropper", accessibilityDescription: "검정 점")!,
             NSImage(systemSymbolName: "eyedropper.halffull", accessibilityDescription: "회색 점")!,
@@ -490,10 +490,10 @@ extension InspectorViewController {
         curveEditor.heightAnchor.constraint(equalTo: curveEditor.widthAnchor).isActive = true
     }
 
-    /// 3방향 색상: 하이라이트·미드톤·섀도 휠을 세로로. 휠 옆 호는 세기(왼쪽)와 밝기(오른쪽),
-    /// 휠마다 오른쪽 위에 되돌리기. 위 고르기 칸에서 "마스터"를 고르면 전체 휠 하나만.
+    /// 3-way color: highlight, midtone, and shadow wheels stacked vertically. Arcs beside each wheel are strength (left) and luminance (right),
+    /// with reset at each wheel's top right. Choosing "Master" in the picker above shows a single master wheel.
     fileprivate func buildBalance(in card: Card) {
-        // 순서는 설정 번호와 맞춘다 (0 마스터, 1 섀도, 2 미드톤, 3 하이라이트)
+        // Order matches setting indices (0 master, 1 shadows, 2 midtones, 3 highlights)
         let zones: [(String, WritableKeyPath<DevelopSettings, ColorShift>)] = [
             ("마스터", \.color.master), ("섀도", \.color.shadow), ("미드톤", \.color.mid), ("하이라이트", \.color.high),
         ]
@@ -554,7 +554,7 @@ extension InspectorViewController {
         mode.selectItem(at: saved)
         card.body.addArrangedSubview(mode)
         mode.widthAnchor.constraint(equalTo: card.body.widthAnchor).isActive = true
-        // 보이는 순서: 마스터(마스터 모드), 하이라이트, 미드톤, 섀도
+        // Display order: master (master mode), highlights, midtones, shadows
         for i in [0, 3, 2, 1] {
             card.body.addArrangedSubview(cells[i])
             cells[i].widthAnchor.constraint(equalTo: card.body.widthAnchor).isActive = true
@@ -563,7 +563,7 @@ extension InspectorViewController {
         for c in cells[1...] { c.isHidden = saved == 1 }
     }
 
-    /// 개발용: 카드가 보이게 속성 패널을 굴린다.
+    /// Dev only: scrolls the inspector so a card is visible.
     func reveal(_ id: String) {
         guard let card = cards.first(where: { $0.0.id == id })?.1 else { return }
         view.layoutSubtreeIfNeeded()
@@ -582,7 +582,7 @@ extension InspectorViewController {
     }
 }
 
-// MARK: - 컬러 에디터·스킨 톤
+// MARK: - Color editor · skin tone
 
 extension InspectorViewController {
     fileprivate func buildEditor(in card: Card) {
@@ -651,10 +651,10 @@ extension InspectorViewController {
 
     @objc fileprivate func skinPickTapped() { onPickColor?(1) }
 
-    // MARK: 채널별 레벨·스포이트
+    // MARK: Per-channel levels · eyedroppers
 
     fileprivate func buildChannelLevels(in card: Card) {
-        // 한 줄: 채널 팝업 · 스포이트 셋 · ⋯ (숫자로 입력 펼치기)
+        // One row: channel popup · three eyedroppers · ⋯ (expand numeric input)
         channelPopup.controlSize = .regular
         channelPopup.addItems(withTitles: ["RGB", "빨강", "초록", "파랑"])
         channelPopup.target = self
@@ -690,7 +690,7 @@ extension InspectorViewController {
         histogram.mirror = levelsView
         card.body.insertArrangedSubview(levelsView, at: 1)
         levelsView.widthAnchor.constraint(equalTo: card.body.widthAnchor).isActive = true
-        // 채널별 숫자 줄 (⋯로 펼친다)
+        // per-channel numeric rows (expanded with ⋯)
         let labels = ["입력 검정", "입력 흰색", "중간 (감마)", "출력 검정", "출력 흰색"]
         let ranges: [(Double, Double, String, Double)] = [(0, 0.9, "%.0f", 255), (0.1, 1, "%.0f", 255), (0.2, 3, "%.2f", 1),
                                                           (0, 0.9, "%.0f", 255), (0.1, 1, "%.0f", 255)]
@@ -727,7 +727,7 @@ extension InspectorViewController {
         applyLevelNumbers()
     }
 
-    /// 숫자 줄: RGB면 전체 레벨 줄, 채널이면 그 채널 줄. ⋯를 눌러야 보인다.
+    /// Numeric row: the master levels row for RGB, that channel's row otherwise. Shown only after pressing ⋯.
     fileprivate func applyLevelNumbers() {
         let show = UserDefaults.standard.bool(forKey: "levels.numbers")
         levelMasterRows.forEach { $0.isHidden = !show || levelChannel >= 0 }
@@ -742,7 +742,7 @@ extension InspectorViewController {
     @objc fileprivate func channelPicked() { levelChannel = channelPopup.indexOfSelectedItem - 1; syncChannelLevels() }
     @objc fileprivate func curvePickSegment(_ s: NSSegmentedControl) { onLevelPick?([30, 31, 32][s.selectedSegment]) }
 
-    /// 커브 스포이트로 집은 색 (화면 값 0~1): 30 검정 점, 31 회색 점, 32 흰 점
+    /// Color picked with the curve eyedropper (display value 0–1): 30 black point, 31 gray point, 32 white point
     func pickedCurve(_ purpose: Int, rgb c: SIMD3<Float>) {
         var cv = settings.curves
         func setEnd(_ curve: inout ToneCurve, x: CGFloat, y: CGFloat) {
@@ -774,7 +774,7 @@ extension InspectorViewController {
     @objc fileprivate func levelPickSegment(_ s: NSSegmentedControl) { onLevelPick?([2, 4, 3][s.selectedSegment]) }
     @objc fileprivate func levelPickTapped(_ b: NSButton) { onLevelPick?(b.tag) }
 
-    /// 레벨 스포이트로 집은 값 (화면 값 0~1): 검정 점이면 입력 검정, 흰 점이면 입력 흰색.
+    /// Value picked with the levels eyedropper (display value 0–1): input black for the black point, input white for the white point.
     func pickedLevel(_ purpose: Int, value: Float) {
         if purpose == 2 { settings.levelInBlack = min(max(value, 0), settings.levelInWhite - 0.05) }
         if purpose == 3 { settings.levelInWhite = max(min(value, 1), settings.levelInBlack + 0.05) }
@@ -782,7 +782,7 @@ extension InspectorViewController {
         onChange?(effective(), false)
     }
 
-    // MARK: 화이트 밸런스·기본 커브 프리셋
+    // MARK: White balance · base curve presets
 
     static let wbPresets: [(String, Float?, Float?)] = [
         ("촬영", nil, nil), ("자동", nil, nil), ("주광", 5500, 10), ("흐림", 6500, 10), ("그늘", 7500, 10),
@@ -839,7 +839,7 @@ extension InspectorViewController {
         return t
     }
 
-    /// 캔버스에서 집은 색 (화면 값 HSV). 0이면 컬러 에디터 범위를 더하고, 1이면 스킨 톤 기준색으로.
+    /// Color picked on the canvas (display HSV). 0 adds a color editor range, 1 sets the skin tone reference.
     func pickedColor(hue: Float, sat: Float, value: Float, purpose: Int) {
         if purpose == 0 {
             guard settings.color.editor.count < ColorRange.basic.count + 35 else { NSSound.beep(); return }
@@ -865,8 +865,8 @@ extension InspectorViewController {
     }
 }
 
-/// 고르기 칸의 동작을 닫힘으로 받는다.
-/// 커브 채널 팝업
+/// Receives picker actions as closures.
+/// Curve channel popup
 final class CurveChannelPopup: NSPopUpButton {}
 
 final class PopupTarget: NSObject {
@@ -879,7 +879,7 @@ class FlippedStackView: NSStackView {
     override var isFlipped: Bool { true }
 }
 
-/// 카드 제목 줄의 작은 "자동" 단추
+/// Small "Auto" button in the card title row
 final class CardAutoButton: NSButton {
     private var run: () -> Void = {}
     convenience init(title: String, run: @escaping () -> Void) {
@@ -904,9 +904,9 @@ final class Card: NSView {
     let body = NSStackView()
     var onToggle: ((Bool) -> Void)?
     var onReset: (() -> Void)?
-    /// 켜고 끄기 스위치 (오른쪽 위 파란 스위치)
+    /// Enable switch (blue switch at the top right)
     private let toggle = NSSwitch()
-    /// 제목 줄 오른쪽에 붙이는 단추 (자동·⋯ 등)
+    /// Button attached to the right of the title row (auto, ⋯, etc.)
     let accessory = NSStackView()
     private let reset = NSButton(image: NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: "초기화")!,
                                  target: nil, action: nil)
@@ -976,7 +976,7 @@ final class Card: NSView {
     private(set) var titleLabel: NSTextField?
     private var collapseKey = ""
 
-    /// 제목을 누르면 접는다. 접은 상태는 다음 실행에도 남는다.
+    /// Clicking the title collapses. The collapsed state persists across launches.
     var collapsed: Bool {
         get { UserDefaults.standard.bool(forKey: collapseKey) }
         set {
@@ -992,10 +992,10 @@ final class Card: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        // 끌기가 끝난 뒤 늦게 한 번 더 오는 누름(단추가 이미 떼어짐)은 무시한다.
-        // 슬라이더를 끈 뒤 그 누름이 카드로 넘어와 카드가 접혔다 (실제 마우스로 확인).
+        // Ignore a click arriving late after a drag ends (button already released).
+        // After dragging a slider, that click passed to the card and collapsed it (confirmed with a real mouse).
         guard NSEvent.pressedMouseButtons & 1 != 0 else { return }
-        // 제목 줄을 누르면 접기·펼치기
+        // Clicking the title row collapses/expands
         let p = convert(event.locationInWindow, from: nil)
         if let t = titleLabel, !body.arrangedSubviews.isEmpty, p.y > bounds.height - 40, p.x < t.frame.maxX + 60 {
             collapsed.toggle()
@@ -1005,7 +1005,7 @@ final class Card: NSView {
     }
     override var isFlipped: Bool { false }
 
-    /// 제목 없이 내용만 담는 둥근 판 (조정 패널 맨 위 레이어 줄)
+    /// Rounded plate holding content without a title (the layer row at the top of the adjust panel)
     static func plain(_ content: NSView) -> NSView {
         let box = NSView()
         box.wantsLayer = true
@@ -1022,13 +1022,13 @@ final class Card: NSView {
         return box
     }
 
-    /// 켜고 끌 수 없는 카드 (형태 탭).
+    /// Card that can't be toggled (Geometry tab).
     func hideToggle() { toggle.isHidden = true }
 }
 
-/// 조정 슬라이더 한 줄: 이름, 값 칸(눌러서 숫자 입력), 슬라이더.
-/// - 슬라이더나 이름을 두 번 누르면 기본값으로 돌아간다.
-/// - 기본값 가까이 끌면 기본값에 달라붙는다 (트랙패드 촉각 피드백).
+/// One adjustment slider row: name, value field (click to type a number), slider.
+/// - Double-clicking the slider or name returns to the default.
+/// - Dragging near the default snaps to it (trackpad haptic feedback).
 final class SliderRow: NSView, NSTextFieldDelegate {
     let slider: SnapSlider
     var onChange: ((Double, Bool) -> Void)?
@@ -1036,7 +1036,7 @@ final class SliderRow: NSView, NSTextFieldDelegate {
         get { slider.doubleValue }
         set { slider.doubleValue = newValue; updateLabel() }
     }
-    /// 두 번 누르기와 달라붙기의 기준. 조정 탭은 카메라 기록값으로 바꿔 둔다.
+    /// Reference for double-click and snapping. The Adjust tab sets it to the as-shot values.
     var defaultValue: Double {
         get { slider.defaultValue }
         set { slider.defaultValue = newValue }
@@ -1062,7 +1062,7 @@ final class SliderRow: NSView, NSTextFieldDelegate {
         name.font = .systemFont(ofSize: 12)
         name.textColor = NSColor.labelColor.withAlphaComponent(0.82)
         name.toolTip = "두 번 누르면 기본값으로"
-        // 값 칸: 평소엔 글자처럼 보이고, 누르면 숫자를 넣을 수 있다.
+        // Value field: looks like a label normally; click to enter a number.
         valueField.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         valueField.textColor = NSColor.labelColor.withAlphaComponent(0.82)
         valueField.alignment = .right
@@ -1096,7 +1096,7 @@ final class SliderRow: NSView, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     override func mouseDown(with event: NSEvent) {
-        // 이름을 두 번 누르면 초기화
+        // double-clicking the name resets
         if event.clickCount == 2, name.convert(name.bounds, to: self).insetBy(dx: -4, dy: -4).contains(convert(event.locationInWindow, from: nil)) {
             resetToDefault()
         } else {
@@ -1112,7 +1112,7 @@ final class SliderRow: NSView, NSTextFieldDelegate {
 
     @objc private func changed() {
         updateLabel()
-        // 마우스를 떼는 순간의 이벤트면 끄기가 끝난 것이다. 그때 정밀 디모자이크로 다시 그린다.
+        // An event at mouse-up means the drag ended. Redraw with precise demosaicing then.
         let dragging = NSApp.currentEvent?.type == .leftMouseDragged
         onChange?(slider.doubleValue, dragging)
     }
@@ -1122,7 +1122,7 @@ final class SliderRow: NSView, NSTextFieldDelegate {
         valueField.stringValue = String(format: format, slider.doubleValue * display)
     }
 
-    /// 입력한 숫자를 받는다. 단위 글자(%, K, °, px)는 무시하고, 범위를 넘으면 자른다.
+    /// Accepts a typed number. Unit characters (%, K, °, px) are ignored; out-of-range values are clamped.
     func controlTextDidEndEditing(_ obj: Notification) {
         let text = valueField.stringValue.replacingOccurrences(of: ",", with: ".")
         let allowed = text.filter { "0123456789.-+".contains($0) }
@@ -1136,7 +1136,7 @@ final class SliderRow: NSView, NSTextFieldDelegate {
     }
 }
 
-/// 두 번 누르면 알리는 이름표 (슬라이더 이름을 두 번 눌러 기본값으로)
+/// Label that reports double-clicks (double-click a slider name to reset)
 final class ResetLabel: NSTextField {
     var onDoubleClick: (() -> Void)?
     override func mouseDown(with event: NSEvent) {
@@ -1144,7 +1144,7 @@ final class ResetLabel: NSTextField {
     }
 }
 
-/// 누를 때만 초점을 받는 입력칸. 창이 뜰 때 첫 숫자칸이 초점을 가져가면 값 갱신이 멈춰 옛 값(색온도 2000K 등)이 보였다.
+/// Text field that takes focus only on click. When the first number field grabbed focus on window open, value updates stopped and stale values showed (temperature 2000K etc.).
 final class ClickFocusTextField: NSTextField {
     override var acceptsFirstResponder: Bool {
         let t = NSApp.currentEvent?.type
@@ -1152,25 +1152,25 @@ final class ClickFocusTextField: NSTextField {
     }
 }
 
-/// 기본값에 달라붙고, 두 번 누르면 기본값으로 돌아가는 슬라이더.
+/// Slider that snaps to the default and resets on double-click.
 final class SnapSlider: NSSlider {
     override class var cellClass: AnyClass? { get { PixelSliderCell.self } set {} }
     var defaultValue: Double = 0 { didSet { needsDisplay = true } }
-    /// 트랙 색 그라디언트 (색온도·틴트 등). 없으면 기본값에서 지금 값까지 채운다.
+    /// Track color gradient (temperature, tint, etc.). If absent, fills from the default to the current value.
     var trackColors: [NSColor]? { didSet { needsDisplay = true } }
     var onReset: (() -> Void)?
     private var snapped = false
 
-    // 두 번 누르면 기본값: 슬라이더 칸이 끌기 추적을 시작할 때 누름 횟수를 본다 (PixelSliderCell.startTracking).
-    // mouseDown을 덮어쓰면 실제 마우스 끌기가 끊기고, 두 번 누르기 인식기는 끌기 추적이
-    // 두 번째 누름을 먼저 가져가 실제 마우스로는 불리지 않았다.
+    // Double-click resets: the click count is checked when the slider cell starts tracking (PixelSliderCell.startTracking).
+    // Overriding mouseDown broke real mouse drags, and with a double-click recognizer, drag tracking
+    // took the second click first, so it never fired with a real mouse.
     override init(frame: NSRect) { super.init(frame: frame) }
     required init?(coder: NSCoder) { super.init(coder: coder) }
     @objc func doubleClicked() { onReset?() }
 
     override func sendAction(_ action: Selector?, to target: Any?) -> Bool { snapAndSend(action, to: target) }
 
-    /// 끄는 동안 기본값 근처면 기본값으로 붙인다.
+    /// While dragging, snaps to the default when near it.
     private func snapAndSend(_ action: Selector?, to target: Any?) -> Bool {
         let range = maxValue - minValue
         let snapFraction = AppSettings.snapEnabled ? AppSettings.snapPercent / 100 : 0
@@ -1193,11 +1193,11 @@ func sectionTitle(_ s: String) -> NSTextField {
     return t
 }
 
-/// 색상 조정 슬라이더 모양: 가는 트랙, 세로 알약 손잡이, 기본값에서 지금 값까지 채움, 색 트랙.
+/// Color adjustment slider look: thin track, vertical pill knob, fill from default to current value, color track.
 final class PixelSliderCell: NSSliderCell {
     private var slider: SnapSlider? { controlView as? SnapSlider }
 
-    /// 두 번째 누름이면 끌지 않고 기본값으로
+    /// On a second click, reset to default instead of dragging
     override func startTracking(at startPoint: NSPoint, in controlView: NSView) -> Bool {
         if let e = NSApp.currentEvent, e.type == .leftMouseDown, e.clickCount >= 2, let s = slider {
             s.doubleClicked()
@@ -1206,7 +1206,7 @@ final class PixelSliderCell: NSSliderCell {
         return super.startTracking(at: startPoint, in: controlView)
     }
 
-    /// 값 → 막대 위 x. 시스템 손잡이 위치 계산과 같게 (손잡이 반폭만큼 안쪽에서 움직인다).
+    /// Value → x on the bar. Matches the system knob position math (moves inset by half the knob width).
     private func x(for v: Double, in r: NSRect) -> CGFloat {
         let t = maxValue > minValue ? (v - minValue) / (maxValue - minValue) : 0
         let half = super.knobRect(flipped: controlView?.isFlipped ?? false).width / 2
@@ -1225,7 +1225,7 @@ final class PixelSliderCell: NSSliderCell {
         }
         NSColor.white.withAlphaComponent(enabled ? 0.13 : 0.07).setFill()
         path.fill()
-        // 기본값(없으면 왼쪽 끝)에서 지금 값까지
+        // from the default (or the left end) to the current value
         let d = slider?.defaultValue ?? minValue
         let origin = (d >= minValue && d <= maxValue) ? d : minValue
         let x0 = x(for: origin, in: rect), x1 = x(for: doubleValue, in: rect)
@@ -1235,9 +1235,9 @@ final class PixelSliderCell: NSSliderCell {
         NSBezierPath(roundedRect: fill, xRadius: h / 2, yRadius: h / 2).fill()
     }
 
-    // knobRect는 바꾸지 않는다. 바꾸면 실제 마우스로 끌 때 슬라이더가 누름을 받자마자 추적을 끝내
-    // 값이 안 움직이고 누름이 뒤의 카드로 넘어갔다 (창 막대의 확대 슬라이더는 멀쩡해서 비교로 찾음).
-    // 알약 손잡이는 drawKnob에서 시스템 손잡이 가운데에 그린다.
+    // knobRect isn't overridden. Overriding it made the slider end tracking right after mouse-down with a real mouse,
+    // so the value didn't move and the click fell through to the card behind (found by comparing with the toolbar zoom slider, which worked).
+    // The pill knob is drawn centered on the system knob in drawKnob.
 
     override func drawKnob(_ knobRect: NSRect) {
         let pill = NSRect(x: knobRect.midX - 4, y: knobRect.midY - 8, width: 8, height: 16)
@@ -1254,16 +1254,16 @@ final class PixelSliderCell: NSSliderCell {
     }
 }
 
-/// 색 슬라이더 트랙
+/// Color slider track
 enum TrackColors {
     static let temperature = [NSColor(red: 0.25, green: 0.55, blue: 1, alpha: 1), NSColor(white: 0.55, alpha: 1),
                               NSColor(red: 1, green: 0.78, blue: 0.2, alpha: 1)]
     static let tint = [NSColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 1), NSColor(white: 0.55, alpha: 1),
                        NSColor(red: 0.95, green: 0.3, blue: 0.75, alpha: 1)]
-    /// 어두운 쪽 → 그 색 (흑백 채널·채널 혼합)
+    /// dark → that color (B&W channels, channel mixer)
     static func tone(_ c: NSColor) -> [NSColor] { [NSColor(white: 0.25, alpha: 1), c] }
-    /// 색조 0~360°
-    /// 채도: 회색 → 빨강
+    /// hue 0–360°
+    /// saturation: gray → red
     static let saturation = [NSColor(white: 0.5, alpha: 1), NSColor(red: 0.95, green: 0.2, blue: 0.2, alpha: 1)]
     static let hue: [NSColor] = stride(from: 0.0, through: 1.0, by: 1.0 / 6).map {
         NSColor(hue: CGFloat($0.truncatingRemainder(dividingBy: 1)), saturation: 0.75, brightness: 0.95, alpha: 1)

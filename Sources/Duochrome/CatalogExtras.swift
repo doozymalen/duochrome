@@ -1,10 +1,10 @@
 import Foundation
 import ImageIO
 
-/// 사진 관리에 쓰는 카탈로그 확장: 채택·거부, 계층형 키워드, 스마트 앨범 규칙, 변형본, IPTC 메타데이터,
-/// 촬영 정보 색인(검색용), 이름 바꾸기·원본 다시 잇기.
+/// Catalog extensions for photo management: pick/reject, hierarchical keywords, smart album rules, variants, IPTC metadata,
+/// capture info index (for search), rename and relink.
 extension Catalog {
-    /// 예전 카탈로그에도 새 열·표를 더한다 (이미 있으면 그대로)
+    /// Adds new columns/tables to older catalogs too (no-op if present)
     func migrateExtras() throws {
         for sql in ["ALTER TABLE images ADD COLUMN flag INTEGER NOT NULL DEFAULT 0",
                     "ALTER TABLE images ADD COLUMN variant_of INTEGER",
@@ -14,7 +14,7 @@ extension Catalog {
                     "ALTER TABLE albums ADD COLUMN rule TEXT"] {
             _ = try? db.exec(sql)
         }
-        // 예전 이름의 가져오기 열·표시를 새 이름으로 (한 번만)
+        // Rename old import columns/flags to the new names (once)
         if meta("import.rename.v1") == nil {
             _ = try? db.exec("ALTER TABLE images RENAME COLUMN c1_thumb TO import_thumb")
             _ = try? db.exec("""
@@ -29,7 +29,7 @@ extension Catalog {
         CREATE TABLE IF NOT EXISTS image_keywords(image_id INTEGER, keyword_id INTEGER, PRIMARY KEY(image_id, keyword_id));
         CREATE TABLE IF NOT EXISTS image_meta(image_id INTEGER, key TEXT, value TEXT, PRIMARY KEY(image_id, key));
         """)
-        // 조정 표시를 한 번 채운다 (그 뒤로는 저장할 때마다)
+        // Fill the adjusted flag once (then on every save)
         if meta("edited.v1") == nil {
             let keys = adjustedKeys()
             var rows: [(Int64, String)] = []
@@ -43,7 +43,7 @@ extension Catalog {
         }
     }
 
-    /// 저장된 경로("…/a.CR3#v2") → 파일 URL (변형본은 조각을 붙인다)
+    /// Stored path ("…/a.CR3#v2") → file URL (variants append a fragment)
     static func url(forStoredPath p: String) -> URL {
         if let r = p.range(of: "#v", options: .backwards), Int(p[r.upperBound...]) != nil {
             var c = URLComponents(url: URL(fileURLWithPath: String(p[..<r.lowerBound])), resolvingAgainstBaseURL: false)!
@@ -57,20 +57,20 @@ extension Catalog {
         url.standardizedFileURL.path + (url.fragment.map { "#" + $0 } ?? "")
     }
 
-    /// 조정값이 있는 사진 (조정 표의 열쇠는 경로 해시라 SQL로는 못 거른다 → 열쇠 목록을 먼저 만든다)
+    /// Photos with adjustments (the adjustments table is keyed by path hash, so SQL can't filter → build the key list first)
     static var editedSQL: String { "id IN (SELECT image_id FROM image_meta WHERE key = '_edited' AND value = '1')" }
 
-    // MARK: - 채택·거부
+    // MARK: - Pick / reject
 
     func setFlag(_ ids: [Int64], _ flag: Int) throws {
         try db.transaction { for id in ids { try db.run("UPDATE images SET flag = ? WHERE id = ?", [flag, id]) } }
     }
 
-    // MARK: - 키워드 (계층: "장소>서울>종로")
+    // MARK: - Keywords (hierarchy: "Places>Seoul>Jongno")
 
     struct Keyword { let id: Int64; let name: String; let parent: Int64?; let count: Int }
 
-    /// "상위>하위" 경로의 키워드 번호 (없으면 만든다)
+    /// Keyword id for a "parent>child" path (created if missing)
     func keywordID(_ path: String) throws -> Int64 {
         var parent: Int64?
         var id: Int64 = 0
@@ -104,7 +104,7 @@ extension Catalog {
         return out
     }
 
-    /// 키워드 전체 경로 ("장소>서울")
+    /// Full keyword path ("Places>Seoul")
     func keywordPath(_ id: Int64, in all: [Keyword]? = nil) -> String {
         let list = all ?? allKeywords()
         let by = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -134,7 +134,7 @@ extension Catalog {
         }
     }
 
-    // MARK: - 메타데이터 (IPTC 핵심: 제목·설명·작성자·저작권·도시·나라·위치)
+    // MARK: - Metadata (IPTC core: title, description, creator, copyright, city, country, location)
 
     static let metaFields: [(key: String, title: String)] = [
         ("title", "제목"), ("caption", "설명"), ("creator", "작성자"), ("copyright", "저작권"),
@@ -157,26 +157,26 @@ extension Catalog {
         }
     }
 
-    /// 조정 여부 표시 (스마트 앨범·검색에서 쓴다)
+    /// Adjusted flag (used by smart albums and search)
     func markEdited(_ path: URL, _ on: Bool) {
         let p = Self.storedPath(path)
         guard let id = try? db.scalar("SELECT COALESCE(MAX(id), 0) FROM images WHERE path = ?", [p]), id != 0 else { return }
         try? setMetadata([id], "_edited", on ? "1" : nil)
     }
 
-    // MARK: - 스마트 앨범
+    // MARK: - Smart albums
 
     struct SmartRule: Codable, Equatable {
         var minRating = 0
-        var color = 0              // 0 상관없음
-        var flag = 0               // 1 채택만, -1 거부만, 2 거부 빼고
-        var keyword = ""           // 경로 일부
+        var color = 0              // 0 any
+        var flag = 0               // 1 picks only, -1 rejects only, 2 all but rejects
+        var keyword = ""           // part of the path
         var camera = ""
         var lens = ""
         var name = ""
         var editedOnly = false
         var isoMin: Double = 0, isoMax: Double = 0
-        var daysRecent = 0         // 최근 N일 안에 찍은 것
+        var daysRecent = 0         // shot within the last N days
 
         func sql() -> (String, [Any?]) {
             var w: [String] = [], a: [Any?] = []
@@ -220,9 +220,9 @@ extension Catalog {
         try db.run("UPDATE albums SET rule = ? WHERE id = ?", [json, album])
     }
 
-    // MARK: - 변형본
+    // MARK: - Variants
 
-    /// 같은 원본에 조정을 따로 두는 변형본을 만든다. 저장 경로는 "원본#v2".
+    /// Creates a variant with separate adjustments on the same source. Stored path is "source#v2".
     func addVariant(of id: Int64) throws -> URL? {
         var path: String?, folder: Int64 = 0, date: Double?, cam: String?, lens: String?
         try db.query("SELECT path, folder_id, capture_date, camera, lens FROM images WHERE id = ?", [id]) {
@@ -240,9 +240,9 @@ extension Catalog {
         return Self.url(forStoredPath: vp)
     }
 
-    // MARK: - 경로 바꾸기 (이름 바꾸기·원본 다시 잇기)
+    // MARK: - Path changes (rename · relink)
 
-    /// 사진 경로를 바꾸고 조정값·작업 내역 열쇠도 옮긴다. 변형본도 같이 옮긴다.
+    /// Changes a photo path and moves the adjustment/history keys too. Variants move along.
     func movePath(from old: URL, to new: URL) throws {
         let oldBase = old.standardizedFileURL.path, newBase = new.standardizedFileURL.path
         var rows: [(Int64, String)] = []
@@ -261,15 +261,15 @@ extension Catalog {
         }
     }
 
-    // MARK: - 촬영 정보 색인 (검색·스마트 앨범용)
+    // MARK: - Capture info index (for search and smart albums)
 
-    /// 아직 읽지 않은 사진의 카메라·렌즈·ISO·조리개·초점 거리·셔터·촬영 시각을 채운다 (오프라인은 건너뛴다)
-    /// 촬영 정보 한 장 (파일에서 읽은 값) — 뒤 스레드에서 읽는다
+    /// Fills camera, lens, ISO, aperture, focal length, shutter, and capture time for unread photos (skips offline)
+    /// Capture info for one photo (read from the file) — read on a background thread
     struct ExifRow { var id: Int64; var cam, lens: String?; var iso, ap, focal, sh, date: Double? }
 
     private static let exifDate: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy:MM:dd HH:mm:ss"; return f }()
 
-    /// 아직 색인하지 않은 사진 (주 스레드, DB)
+    /// Photos not indexed yet (main thread, DB)
     func exifTodo(limit: Int) -> [(Int64, String)] {
         var todo: [(Int64, String)] = []
         try? db.query("SELECT id, path FROM images WHERE exif_done = 0 AND offline = 0 AND path NOT LIKE '%#v%' LIMIT ?", [limit]) {
@@ -278,7 +278,7 @@ extension Catalog {
         return todo
     }
 
-    /// 파일에서 촬영 정보를 읽는다 (어느 스레드에서나)
+    /// Reads capture info from a file (any thread)
     static func readExif(_ id: Int64, _ path: String) -> ExifRow {
         var r = ExifRow(id: id)
         if let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
@@ -298,7 +298,7 @@ extension Catalog {
         return r
     }
 
-    /// 읽은 값을 DB에 (주 스레드)
+    /// Writes read values to the DB (main thread)
     func storeExif(_ rows: [ExifRow]) {
         for r in rows {
             _ = try? db.run("""
@@ -341,7 +341,7 @@ extension Catalog {
         return todo.count
     }
 
-    /// 검색 조건 (카메라:·렌즈:·키워드:·iso>·f<·mm>·채택·거부·조정·변형) → 맞는 사진 번호. 조건이 없으면 nil.
+    /// Search terms (camera:, lens:, keyword:, iso>, f<, mm>, pick, reject, adjusted, variant) → matching photo ids. nil if no terms.
     func searchIDs(_ tokens: [String]) -> Set<Int64>? {
         var w: [String] = [], a: [Any?] = []
         for t in tokens {
@@ -350,7 +350,7 @@ extension Catalog {
             if low.hasPrefix("카메라:") { w.append("camera LIKE ?"); a.append("%\(t.dropFirst(4))%") }
             else if low.hasPrefix("렌즈:") { w.append("lens LIKE ?"); a.append("%\(t.dropFirst(3))%") }
             else if low.hasPrefix("키워드:") {
-                // 상위 키워드로 찾으면 아래 키워드가 붙은 사진도 나온다
+                // Searching a parent keyword also finds photos with child keywords
                 w.append("""
                     id IN (SELECT image_id FROM image_keywords WHERE keyword_id IN (
                         WITH RECURSIVE sub(id) AS (SELECT id FROM keywords WHERE name LIKE ? UNION ALL
@@ -379,7 +379,7 @@ extension Catalog {
         return out
     }
 
-    /// 검색 조건으로 쓰이는 낱말인가 (이름 검색에서 뺀다)
+    /// Whether a word is a search term (excluded from name search)
     static func isSearchToken(_ t: String) -> Bool {
         let low = t.lowercased()
         return ["카메라:", "렌즈:", "키워드:", "iso>", "iso<", "f<", "f>", "mm>", "mm<"].contains { low.hasPrefix($0) }

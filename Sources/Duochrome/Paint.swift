@@ -2,33 +2,33 @@ import AppKit
 import CoreImage
 import simd
 
-/// 칠하기: 칠 레이어(kind "paint")에 붓질을 쌓는다. 붓질은 원본 좌표 벡터라 형태 보정을 따라가고,
-/// 그릴 때 붓 끝을 간격마다 찍는다 (브러시 엔진: 크기·경도·흐름·불투명도·압력·간격·모양 변화·산포·텍스처·
-/// 이중 브러시·색 변화). 연필(계단 있는 선), 픽셀 칠하기, 지우개, 혼합 브러시(아래 색을 묻혀 섞기)도 같은 틀이다.
+/// Painting: stacks strokes on a paint layer (kind "paint"). Strokes are source-coordinate vectors, so they follow geometry;
+/// when drawn, the brush tip is stamped at each spacing step (brush engine: size, hardness, flow, opacity, pressure, spacing, shape dynamics, scattering, texture,
+/// dual brush, color dynamics). Pencil (aliased lines), pixel painting, eraser, and mixer brush (picking up and blending the color below) share the framework.
 struct PaintBrush: Codable, Equatable {
-    /// 0 칠하기, 1 지우개(칠 레이어 안에서), 2 연필(안티앨리어싱 없음), 3 혼합 브러시, 4 픽셀 칠하기
+    /// 0 paint, 1 eraser (within the paint layer), 2 pencil (no antialiasing), 3 mixer brush, 4 pixel paint
     var mode = 0
     var color: [Float] = [0.9, 0.2, 0.2]
-    var size: Double = 40            // 지름 (원본 픽셀)
+    var size: Double = 40            // diameter (source pixels)
     var hardness: Double = 0.8
     var opacity: Double = 1
     var flow: Double = 1
-    var spacing: Double = 0.2        // 지름 비율
+    var spacing: Double = 0.2        // fraction of diameter
     var sizeJitter: Double = 0
-    var angleJitter: Double = 0      // 0~1 (한 바퀴)
-    var roundness: Double = 1        // 1 원, 작을수록 납작
-    var angle: Double = 0            // 도
-    var scatter: Double = 0          // 지름 비율
-    var count = 1                    // 한 자리에 찍는 수 (산포와 같이)
+    var angleJitter: Double = 0      // 0–1 (one full turn)
+    var roundness: Double = 1        // 1 is round, smaller is flatter
+    var angle: Double = 0            // degrees
+    var scatter: Double = 0          // fraction of diameter
+    var count = 1                    // stamps per position (with scattering)
     var hueJitter: Double = 0        // 0~1
     var brightnessJitter: Double = 0
     var pressureSize = true
     var pressureOpacity = false
-    var tip: String? = nil           // 가져온 브러시 끝 (프리셋 폴더)
-    var dualTip: String? = nil       // 이중 브러시: 두 번째 끝으로 가린다
-    var texture: String? = nil       // 텍스처(패턴) 파일: 붓질에 곱한다
+    var tip: String? = nil           // imported brush tip (preset folder)
+    var dualTip: String? = nil       // dual brush: masked by a second tip
+    var texture: String? = nil       // texture (pattern) file: multiplied into the stroke
     var textureDepth: Double = 0.5
-    var wet: Double = 0.5            // 혼합 브러시: 아래 색을 얼마나 묻힐지
+    var wet: Double = 0.5            // mixer brush: how much of the color below to pick up
 
     static var current: PaintBrush {
         get { (UserDefaults.standard.data(forKey: "paint.brush").flatMap { try? JSONDecoder().decode(PaintBrush.self, from: $0) }) ?? PaintBrush() }
@@ -38,10 +38,10 @@ struct PaintBrush: Codable, Equatable {
 
 struct PaintStroke: Equatable, Hashable, Codable {
     var brush: PaintBrush
-    /// x, y, 압력 반복 (원본 좌표)
+    /// x, y, pressure repeated (source coordinates)
     var points: [Double]
     var seed: UInt64 = UInt64.random(in: 0 ... UInt64(UInt32.max))
-    /// 혼합 브러시: 자리마다 묻힌 색 (r, g, b 반복, 붓 자리와 같은 수)
+    /// Mixer brush: picked-up color per position (r, g, b repeated, same count as positions)
     var mixed: [Float]? = nil
 
     static func == (a: PaintStroke, b: PaintStroke) -> Bool { a.points == b.points && a.seed == b.seed && a.brush == b.brush && a.mixed == b.mixed }
@@ -52,10 +52,10 @@ enum PaintRender {
     private static var cache: [String: CIImage] = [:]
     private static let lock = NSLock()
 
-    /// 결정적 난수 (붓질마다 같은 결과)
+    /// Deterministic random (same result per stroke)
     struct RNG { var s: UInt64; mutating func next() -> Double { s = s &* 6364136223846793005 &+ 1442695040888963407; return Double(s >> 11) / Double(1 << 53) } }
 
-    /// 둥근 붓 끝 (경도로 가장자리 부드러움)
+    /// Round brush tip (edge softness from hardness)
     static func roundTip(hardness: Double) -> CGImage {
         let n = 128
         var px = [UInt8](repeating: 0, count: n * n)
@@ -71,7 +71,7 @@ enum PaintRender {
         return ctx.makeImage()!
     }
 
-    /// 흑백(흰 곳이 칠해짐) → 알파 마스크 그림
+    /// Grayscale (white is painted) → alpha mask image
     static func maskFrom(_ gray: CGImage) -> CGImage? {
         CGImage(maskWidth: gray.width, height: gray.height, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: gray.width,
                 provider: gray.dataProvider!, decode: [1, 0], shouldInterpolate: true)
@@ -82,7 +82,7 @@ enum PaintRender {
         return CGImageSourceCreateImageAtIndex(src, 0, nil)
     }
 
-    /// 붓질들의 영역 (원본 좌표)
+    /// Bounds of the strokes (source coordinates)
     static func bounds(_ strokes: [PaintStroke], native: CGSize) -> CGRect {
         var r = CGRect.null
         for s in strokes {
@@ -92,7 +92,7 @@ enum PaintRender {
         return r.intersection(CGRect(origin: .zero, size: native))
     }
 
-    /// 칠 레이어 그림 (원본 좌표 × scale, 바깥은 투명)
+    /// Paint layer image (source coordinates × scale, transparent outside)
     static func image(_ strokes: [PaintStroke], native: CGSize, scale: CGFloat) -> CIImage {
         let full = CGRect(x: 0, y: 0, width: native.width * scale, height: native.height * scale).integral
         guard !strokes.isEmpty else { return CIImage(color: .clear).cropped(to: full) }
@@ -109,7 +109,7 @@ enum PaintRender {
             guard bw < 20000, bh < 20000,
                   let ctx = CGContext(data: nil, width: bw, height: bh, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return CIImage(color: .clear).cropped(to: full) }
-            // 원본 좌표 → 이 비트맵 좌표
+            // source coordinates → this bitmap's coordinates
             ctx.translateBy(x: -b.minX * rs + 1, y: -b.minY * rs + 1)
             ctx.scaleBy(x: rs, y: rs)
             for s in strokes { draw(s, into: ctx, rs: rs) }
@@ -125,7 +125,7 @@ enum PaintRender {
         return img.cropped(to: full).composited(over: CIImage(color: .clear).cropped(to: full))
     }
 
-    /// 붓질 하나를 찍는다 (ctx는 원본 좌표)
+    /// Stamps one stroke (ctx in source coordinates)
     static func draw(_ s: PaintStroke, into ctx: CGContext, rs: CGFloat) {
         let b = s.brush
         var rng = RNG(s: s.seed | 1)
@@ -139,7 +139,7 @@ enum PaintRender {
         ctx.setShouldAntialias(!pencil)
         ctx.interpolationQuality = pencil ? .none : .high
         if b.mode == 1 { ctx.setBlendMode(.destinationOut) }
-        // 붓질 전체를 한 층에 그리고(흐름으로 쌓임) 불투명도로 한 번에 얹는다
+        // Draw all strokes on one layer (accumulating by flow) and composite once with opacity
         ctx.beginTransparencyLayer(auxiliaryInfo: nil)
         var dabs: [(CGPoint, Double)] = [first]
         let step = max(b.size * max(b.spacing, 0.01), pixel ? 1 : 0.5)
@@ -196,10 +196,10 @@ enum PaintRender {
 }
 
 extension Layers {
-    /// 칠 레이어: 붓질을 그린 그림 → 형태 보정. 텍스처와 불투명도는 여기서.
+    /// Paint layer: stroke image → geometry corrections. Texture and opacity are applied here.
     static func painted(_ layer: AdjustLayer, scale: CGFloat, native: CGSize, shape: (CIImage, CGFloat) -> CIImage, frame: CGRect) -> CIImage {
         var img = PaintRender.image(layer.paint ?? [], native: native, scale: scale)
-        // 텍스처: 마지막 붓의 텍스처를 바둑판으로 곱한다
+        // Texture: tile and multiply the last brush's texture
         if let st = layer.paint?.last(where: { $0.brush.texture != nil }), let f = st.brush.texture, let tile = sourceImage(f) {
             let t = tile.transformed(by: .init(translationX: -tile.extent.minX, y: -tile.extent.minY)).transformed(by: .init(scaleX: scale, y: scale))
                 .applyingFilter("CIAffineTile", parameters: [kCIInputTransformKey: NSAffineTransform()]).cropped(to: img.extent)
@@ -215,7 +215,7 @@ extension Layers {
 }
 
 extension MainWindowController {
-    /// 칠하기 도구: 고른 칠 레이어(없으면 새로)에 붓질을 더한다. mode는 PaintBrush.mode
+    /// Paint tool: adds a stroke to the selected paint layer (new if none). mode is PaintBrush.mode
     func startPainting(mode: Int) {
         guard photo != nil else { NSSound.beep(); return }
         var b = PaintBrush.current
@@ -229,13 +229,13 @@ extension MainWindowController {
         o.onCancel = { [weak self] in self?.endPoints() }
     }
 
-    /// 칠 레이어에 붓질 하나. 지우개는 칠 레이어가 아니면 레이어 마스크를 지운다.
+    /// One stroke on a paint layer. Outside a paint layer, the eraser erases the layer mask.
     func paintStroke(_ pts: [CGPoint], pressures: [Double], erase: Bool) {
         guard let doc = photo, var s = photo?.settings else { return }
         var b = PaintBrush.current
         if erase { b.mode = 1 }
         let selected = layersTab.selectedID.flatMap { id in s.layers.firstIndex { $0.id == id } }
-        // 지우개: 칠 레이어가 아닌 레이어면 마스크를 지운다 (흰색에서 시작하는 브러시 마스크로)
+        // Eraser: on a non-paint layer it erases the mask (as a brush mask starting from white)
         if b.mode == 1, let i = selected, s.layers[i].kind != "paint" {
             if s.layers[i].mask.kind != .brush { s.layers[i].mask = LayerMask(kind: .brush); s.layers[i].mask.brushWhite = true }
             s.layers[i].mask.strokes.append(MaskStroke(points: pts.flatMap { [$0.x, $0.y] }, radius: b.size / 2, hardness: b.hardness, flow: b.flow, erase: true))
@@ -256,20 +256,20 @@ extension MainWindowController {
         for (k, p) in pts.enumerated() { flat += [Double(p.x), Double(p.y), k < pressures.count ? pressures[k] : 1] }
         var st = PaintStroke(brush: b, points: flat)
         if b.mode == 3 {
-            // 혼합 브러시: 자리마다 아래(지금 모습) 색을 묻혀 붓 색과 섞는다 (묻은 색은 다음 자리로 이어진다)
+            // Mixer brush: at each position pick up the color below (current look) and mix with the brush color (picked color carries to the next position)
             st.mixed = mixColors(pts, brush: b, doc: doc, layersBelow: Array(s.layers.prefix(i)))
         }
         s.layers[i].paint = (s.layers[i].paint ?? []) + [st]
         s.layers[i].opacity = s.layers[i].paint!.count == 1 ? Float(b.opacity) : s.layers[i].opacity
         replaceSettings(s, recordUndo: true, label: ["칠하기", "지우개", "연필", "혼합 브러시", "픽셀 칠하기"][b.mode])
-        // 새 레이어는 문서에 들어간 뒤에 고른다 (먼저 고르면 목록에 아직 없어 선택이 풀렸다)
+        // Select the new layer after it's in the document (selecting first dropped the selection since it wasn't in the list yet)
         if let created {
             layersTab.select(created)
             if mode == .studio { studioMode.layersPanel.reload() }
         }
     }
 
-    /// 붓 자리 수만큼 섞인 색 (혼합 브러시)
+    /// Mixed colors, one per brush position (mixer brush)
     func mixColors(_ pts: [CGPoint], brush b: PaintBrush, doc: RawDocument, layersBelow: [AdjustLayer]) -> [Float] {
         guard let base = rasterize(layersBelow, withPhoto: true) else { return [] }
         let k: CGFloat = 0.25
@@ -283,7 +283,7 @@ extension MainWindowController {
             let i = (y * w + x) * 4
             return SIMD3(px[i], px[i + 1], px[i + 2])
         }
-        // 붓 자리는 PaintRender.draw와 같은 간격
+        // Brush positions at the same spacing as PaintRender.draw
         var dabs: [CGPoint] = pts.isEmpty ? [] : [pts[0]]
         let step = max(b.size * max(b.spacing, 0.01), 0.5)
         var carry = 0.0
@@ -313,7 +313,7 @@ extension MainWindowController {
     @objc func pixelPaintMenu(_ sender: Any?) { startPainting(mode: 4) }
     @objc func eraserMenu(_ sender: Any?) { startPainting(mode: 1) }
 
-    // MARK: - 배경 지우개: 누른 자리 색과 비슷한 곳만 지운다 (레이어 마스크 그림에 굽는다)
+    // MARK: - Background eraser: erases only areas similar to the clicked color (baked into the layer mask image)
 
     func backgroundErase(_ pts: [CGPoint], tolerance: Float = 0.12) {
         guard let doc = photo, var s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }),
@@ -327,7 +327,7 @@ extension MainWindowController {
         let w = Int(rect.width), h = Int(rect.height)
         var px = [Float](repeating: 0, count: w * h * 4)
         Render.context.render(content.transformed(by: .init(scaleX: k, y: k)), toBitmap: &px, rowBytes: w * 16, bounds: rect, format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-        // 지금 마스크 (없으면 흰색)
+        // current mask (white if none)
         var mask = [Float](repeating: 1, count: w * h)
         if s.layers[i].mask.kind != .full {
             let m = Layers.maskImage(s.layers[i].mask, scale: k, native: n, shape: { img, _ in img }, base: content.transformed(by: .init(scaleX: k, y: k)))
@@ -364,9 +364,9 @@ extension MainWindowController {
         o.onCancel = { [weak self] in self?.endPoints() }
     }
 
-    // MARK: - 작업 내역 브러시
+    // MARK: - History brush
 
-    /// 고른 작업 내역 시점(또는 스냅샷)의 모습을 이미지 레이어로 두고 검은 브러시 마스크를 준다 → 칠한 곳만 그때로
+    /// Puts the look at the chosen history point (or snapshot) in an image layer with a black brush mask → painted areas revert to then
     @objc func historyBrush(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
         let entries = history.snapshots.map { ("스냅샷: " + $0.label, $0.settings) } + history.states.map { ($0.label, $0.settings) }
@@ -397,7 +397,7 @@ extension MainWindowController {
         enterTool(.mask)
     }
 
-    // MARK: - 적목 현상 제거
+    // MARK: - Red-eye removal
 
     @objc func redEyeTool(_ sender: Any?) {
         guard photo != nil else { NSSound.beep(); return }
@@ -407,7 +407,7 @@ extension MainWindowController {
         o.onCancel = { [weak self] in self?.endPoints() }
     }
 
-    /// 누른 자리 둘레에서 붉은 기가 센 픽셀을 찾아 채도를 빼고 어둡게 하는 레이어를 만든다
+    /// Finds strongly red pixels around the click and makes a layer that desaturates and darkens them
     func fixRedEye(at p: CGPoint, radius: Double? = nil) {
         guard let doc = photo, var s = photo?.settings, let base = rasterize(s.layers, withPhoto: true) else { return }
         let n = doc.nativeSize
@@ -417,7 +417,7 @@ extension MainWindowController {
         guard w > 2, h > 2 else { return }
         var px = [Float](repeating: 0, count: w * h * 4)
         Render.context.render(base, toBitmap: &px, rowBytes: w * 16, bounds: rect, format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-        // 전체 캔버스 마스크 중 이 네모만 채운다 (1/2 해상도)
+        // Fill only this rect of a whole-canvas mask (1/2 resolution)
         let k: CGFloat = 0.5
         let mw = Int(n.width * k), mh = Int(n.height * k)
         var gray = [UInt8](repeating: 0, count: mw * mh)
@@ -443,7 +443,7 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: "적목 현상 제거")
     }
 
-    // MARK: - 페인트 통: 누른 자리와 이어진 비슷한 색을 칠 레이어로
+    // MARK: - Paint bucket: similar colors connected to the click, as a fill layer
 
     func paintBucket(at p: CGPoint) {
         guard let eng = selectionEngine, var s = photo?.settings else { NSSound.beep(); return }

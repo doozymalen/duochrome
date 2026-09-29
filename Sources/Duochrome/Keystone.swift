@@ -1,16 +1,16 @@
 import CoreImage
 
-/// 키스톤 풀이: 세로여야 할 선·가로여야 할 선을 받아 세로·가로 키스톤과 미세 회전을 찾는다.
-/// 선은 틀 좌표(90° 회전 뒤, 미세 회전 전, 원본 픽셀)로 받는다.
+/// Keystone solver: takes lines that should be vertical/horizontal and finds vertical/horizontal keystone and fine rotation.
+/// Lines are in frame coordinates (after 90° rotation, before fine rotation, source pixels).
 extension Geometry {
     enum KeystoneMode: Int, CaseIterable {
         case vertical, horizontal, full
         var title: String { ["세로", "가로", "전체"][rawValue] }
-        /// 선 긋기로 받을 선 수 (전체는 세로 둘 + 가로 둘).
+        /// Number of lines to draw (total two vertical + two horizontal).
         var lineCount: Int { self == .full ? 4 : 2 }
     }
 
-    /// 화면 좌표 선 → 틀 좌표 선.
+    /// View-coordinate line → frame-coordinate line.
     static func framedLines(_ lines: [(CGPoint, CGPoint)], _ s: DevelopSettings, native: CGSize,
                             fullFrame: Bool) -> [(CGPoint, CGPoint)] {
         let (turn, _) = turnTransform(s, w: native.width, h: native.height)
@@ -20,8 +20,8 @@ extension Geometry {
         }
     }
 
-    /// 격자로 찾고 좁혀 간다. 선이 없는 쪽 키스톤은 지금 값을 둔다.
-    /// 자동 찾기의 선에는 엉뚱한 선이 섞이므로 한 선이 비용에 주는 몫을 (6°)²에서 자른다.
+    /// Grid search and refine. Keystone for an axis with no lines keeps its current value.
+    /// Auto-detected lines include strays, so each line's contribution to the cost is capped at (6°)².
     static func solveKeystone(vertical: [(CGPoint, CGPoint)], horizontal: [(CGPoint, CGPoint)],
                               _ s: DevelopSettings, native: CGSize, robust: Bool = false)
         -> (v: Float, h: Float, rotation: Float) {
@@ -34,13 +34,13 @@ extension Geometry {
             var c = 0.0
             for (a, b) in vertical {
                 let pa = hm.apply(a.applying(rot)), pb = hm.apply(b.applying(rot))
-                let ang = atan2(Double(pb.x - pa.x), Double(pb.y - pa.y))   // 세로에서 벗어난 각
+                let ang = atan2(Double(pb.x - pa.x), Double(pb.y - pa.y))   // deviation from vertical
                 let d = abs(ang) > .pi / 2 ? .pi - abs(ang) : ang
                 c += min(d * d, cap)
             }
             for (a, b) in horizontal {
                 let pa = hm.apply(a.applying(rot)), pb = hm.apply(b.applying(rot))
-                let ang = atan2(Double(pb.y - pa.y), Double(pb.x - pa.x))   // 가로에서 벗어난 각
+                let ang = atan2(Double(pb.y - pa.y), Double(pb.x - pa.x))   // deviation from horizontal
                 let d = abs(ang) > .pi / 2 ? .pi - abs(ang) : ang
                 c += min(d * d, cap)
             }
@@ -75,15 +75,15 @@ extension Geometry {
     }
 }
 
-/// 자동 키스톤용 직선 찾기: 기울기 방향을 아는 허프 변환.
+/// Line finding for auto keystone: a Hough transform that knows gradient direction.
 ///
-/// 소벨 기울기가 가리키는 방향 근처에만 표를 던진다 (방향 제한 허프). 세로 후보는 x = xc + t·(y − cy),
-/// 가로 후보는 y = yc + t·(x − cx) 꼴로 찾는다. |t| 한도가 세로 0.4(약 22°), 가로 0.25(약 14°)라
-/// 사진 속 먼 쪽으로 달아나는 선(투시가 센 가로선)은 대개 빠진다.
+/// Votes only near the direction the Sobel gradient points (direction-limited Hough). Vertical candidates are x = xc + t·(y − cy),
+/// horizontal ones y = yc + t·(x − cx). With |t| limits of 0.4 vertical (≈22°) and 0.25 horizontal (≈14°),
+/// lines receding into the scene (strongly foreshortened horizontals) are mostly excluded.
 enum LineDetector {
     struct Line { var a: CGPoint; var b: CGPoint; var score: Float }
 
-    /// `image`의 좌표(영역 원점 기준)로 선을 돌려준다.
+    /// Returns lines in `image` coordinates (relative to the extent origin).
     static func detect(_ image: CIImage, maxLines: Int = 6) -> (vertical: [Line], horizontal: [Line]) {
         let e = image.extent.integral
         let w = Int(e.width), h = Int(e.height)
@@ -91,7 +91,7 @@ enum LineDetector {
         var rgba = [Float](repeating: 0, count: w * h * 4)
         Render.context.render(image, toBitmap: &rgba, rowBytes: w * 16, bounds: e, format: .RGBAf,
                               colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
-        // 밝기 (행 0 = 위쪽 → 아래가 0이 되게 뒤집어 담는다)
+        // Luminance (row 0 = top → stored flipped so the bottom is 0)
         var lum = [Float](repeating: 0, count: w * h)
         for y in 0..<h {
             let src = (h - 1 - y) * w
@@ -100,7 +100,7 @@ enum LineDetector {
                 lum[y * w + x] = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]
             }
         }
-        // 소벨
+        // Sobel
         var gx = [Float](repeating: 0, count: w * h), gy = gx
         var mags: [Float] = []
         mags.reserveCapacity(w * h / 4)
@@ -114,7 +114,7 @@ enum LineDetector {
             }
         }
         mags.sort()
-        // 기울기 상위 12%만 표를 던진다.
+        // Only the top 12% of gradients vote.
         let thresh = max(mags.isEmpty ? 0.05 : mags[Int(Double(mags.count) * 0.88)], 0.02)
         let vertical = hough(w: w, h: h, gx: gx, gy: gy, thresh: thresh, transpose: false, tMax: 0.4, maxLines: maxLines)
         let horizontal = hough(w: w, h: h, gx: gx, gy: gy, thresh: thresh, transpose: true, tMax: 0.25, maxLines: maxLines)
@@ -123,10 +123,10 @@ enum LineDetector {
         return (vertical.map(place), horizontal.map(place))
     }
 
-    /// transpose가 false면 세로 선 (x = c + t·(y − 가운데)), true면 가로 선 (y = c + t·(x − 가운데)).
+    /// transpose false gives vertical lines (x = c + t·(y − center)), true gives horizontal lines (y = c + t·(x − center)).
     private static func hough(w: Int, h: Int, gx: [Float], gy: [Float], thresh: Float, transpose: Bool,
                               tMax: Float, maxLines: Int) -> [Line] {
-        // u: 선을 따라가는 축, v: 선을 가로지르는 축
+        // u: axis along the line, v: axis across it
         let lenU = transpose ? w : h, lenV = transpose ? h : w
         let cu = Float(lenU) / 2
         let tBins = 81, tStep = 2 * tMax / Float(tBins - 1)
@@ -137,10 +137,10 @@ enum LineDetector {
                 let a = gx[i], b = gy[i]
                 let m = hypot(a, b)
                 guard m > thresh else { continue }
-                // 선을 가로지르는 성분(gv)이 선을 따라가는 성분(gu)보다 충분히 커야 한다.
+                // The across component (gv) must be sufficiently larger than the along component (gu).
                 let gv = transpose ? b : a, gu = transpose ? a : b
                 guard abs(gv) > abs(gu) * 1.5 else { continue }
-                let tg = -gu / gv      // 선 방향 (t, 1)의 법선 (1, −t)이 기울기와 나란하면 t = −gu/gv
+                let tg = -gu / gv      // If the normal (1, −t) of line direction (t, 1) is parallel to the gradient, t = −gu/gv
                 guard abs(tg) <= tMax + tStep else { continue }
                 let u = Float(transpose ? x : y), v = Float(transpose ? y : x)
                 let tc = Int(((tg + tMax) / tStep).rounded())
@@ -152,7 +152,7 @@ enum LineDetector {
                 }
             }
         }
-        // 꼭대기 찾기: 가장 큰 칸부터, 이웃(±1.5% 폭, ±4칸 기울기)을 지우며.
+        // Peak finding: from the largest bin, suppressing neighbors (±1.5% width, ±4 slope bins).
         var lines: [Line] = []
         let rc = max(4, lenV / 60)
         var top: Float = 0
@@ -161,11 +161,11 @@ enum LineDetector {
             for (i, a) in acc.enumerated() where a > bv { bv = a; best = i }
             guard best >= 0 else { break }
             if top == 0 { top = bv }
-            // 선 길이 한 변의 20% 이상에 해당하는 기울기 합이 있어야 한다.
+            // Requires gradient mass equivalent to at least 20% of one side's length.
             guard bv > top * 0.25, bv > thresh * Float(lenU) * 0.2 else { break }
             let ti = best / lenV, c = best % lenV
             var t = -tMax + Float(ti) * tStep
-            // 칸 크기(약 0.6°)보다 정확하게: 선 둘레 3px 안의 가장자리 점으로 v = c + t·(u − cu)를 최소제곱으로 맞춘다.
+            // More precise than the bin size (~0.6°): least-squares fit v = c + t·(u − cu) to edge points within 3 px of the line.
             var cf = Float(c)
             for _ in 0..<2 {
                 var sw: Float = 0, su: Float = 0, sv: Float = 0, suu: Float = 0, suv: Float = 0

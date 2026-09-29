@@ -1,6 +1,6 @@
-// Duochrome 앱 아이콘 그리기 (macOS 27 리퀴드 글래스 양식): 1024 캔버스에 그려 iconset을 만든다.
-// 쓰는 법: swift scripts/make-icon.swift <출력 .iconset 폴더>
-// 모양: 연속 곡률 둥근 사각형(가장자리 여백 100) · 흑연색 바탕 · 호박색·청록색 반투명 유리 원판 두 장(겹친 곳은 밝게) · 위쪽 빛 반사 · 유리 테두리
+// Draws the Duochrome app icon (macOS 27 Liquid Glass style) on a 1024 canvas and writes an iconset.
+// Usage: swift scripts/make-icon.swift <output .iconset folder>
+// Shape: continuous-curvature rounded square (100 margin) · graphite background · two translucent amber/teal glass discs (brighter where they overlap) · top highlight · glass rim
 import AppKit
 import CoreGraphics
 
@@ -11,12 +11,12 @@ let space = CGColorSpace(name: CGColorSpace.displayP3)!
 func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
     CGColor(colorSpace: space, components: [r, g, b, a])!
 }
-/// 애플 시스템 색 (sRGB 16진수, 다크 모드 값)
+/// Apple system color (sRGB hex, dark-mode value)
 func apple(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
     CGColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255, blue: CGFloat(hex & 0xff) / 255, alpha: a)
 }
 
-/// 애플 아이콘 모양 (연속 곡률 사각형 근사: 모서리 반경 185/824)
+/// Apple icon shape (continuous-curvature approximation: corner radius 185/824)
 func squircle(_ r: CGRect) -> CGPath {
     let p = CGMutablePath()
     let k: CGFloat = r.width * 0.2237
@@ -33,44 +33,44 @@ func draw(size: Int) -> CGImage {
     let tile = CGRect(x: 100, y: 100, width: 824, height: 824)
     let shape = squircle(tile)
 
-    // 바닥 그림자 (아이콘이 떠 있게)
+    // Drop shadow (so the icon floats)
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: color(0, 0, 0, 0.35))
     ctx.addPath(shape); ctx.setFillColor(color(0.08, 0.08, 0.1)); ctx.fillPath()
     ctx.restoreGState()
 
-    // 바탕: 흑연색 세로 그라디언트
+    // Background: vertical graphite gradient
     ctx.saveGState()
     ctx.addPath(shape); ctx.clip()
     let bg = CGGradient(colorsSpace: space, colors: [apple(0x3A3A3C), apple(0x1C1C1E)] as CFArray, locations: [0, 1])!
     ctx.drawLinearGradient(bg, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
-    // 바탕 가운데 은은한 빛
+    // Soft glow in the middle of the background
     let glow = CGGradient(colorsSpace: space, colors: [color(1, 1, 1, 0.10), color(1, 1, 1, 0)] as CFArray, locations: [0, 1])!
     ctx.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 600), startRadius: 0, endCenter: CGPoint(x: 512, y: 600), endRadius: 460, options: [])
 
-    // 유리 원판 두 장
+    // Two glass discs
     func disc(center c: CGPoint, radius R: CGFloat, stops: [CGColor]) {
         let r = CGRect(x: c.x - R, y: c.y - R, width: R * 2, height: R * 2)
-        // 원판 아래 그림자
+        // Shadow under the disc
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -10), blur: 30, color: color(0, 0, 0, 0.45))
         ctx.addEllipse(in: r); ctx.setFillColor(color(0, 0, 0, 0.001)); ctx.fillPath()
         ctx.restoreGState()
-        // 몸체: 반투명 색 그라디언트 (화면 합성으로 겹친 곳이 밝아진다)
+        // Body: translucent color gradient (screen blending brightens the overlap)
         ctx.saveGState()
         ctx.setBlendMode(.screen)
         ctx.addEllipse(in: r); ctx.clip()
         let g = CGGradient(colorsSpace: space, colors: stops as CFArray, locations: nil)!
         ctx.drawLinearGradient(g, start: CGPoint(x: c.x, y: c.y + R), end: CGPoint(x: c.x, y: c.y - R), options: [])
         ctx.restoreGState()
-        // 위쪽 빛 반사 (유리)
+        // Top highlight (glass)
         ctx.saveGState()
         ctx.addEllipse(in: r); ctx.clip()
         let hi = CGGradient(colorsSpace: space, colors: [color(1, 1, 1, 0.55), color(1, 1, 1, 0)] as CFArray, locations: [0, 1])!
         ctx.drawRadialGradient(hi, startCenter: CGPoint(x: c.x - R * 0.25, y: c.y + R * 0.55), startRadius: 0,
                                endCenter: CGPoint(x: c.x - R * 0.25, y: c.y + R * 0.55), endRadius: R * 0.75, options: [])
         ctx.restoreGState()
-        // 테두리: 위는 밝고 아래는 옅은 유리 가장자리
+        // Rim: bright at the top, faint glass edge at the bottom
         ctx.saveGState()
         ctx.addEllipse(in: r.insetBy(dx: 3, dy: 3))
         ctx.setLineWidth(6)
@@ -80,18 +80,18 @@ func draw(size: Int) -> CGImage {
         ctx.restoreGState()
     }
     let R: CGFloat = 228
-    // 따뜻한 쪽: 시스템 노랑·주황·핑크 / 차가운 쪽: 시스템 청록·파랑·인디고
+    // Warm: system yellow/orange/pink / cool: system teal/blue/indigo
     disc(center: CGPoint(x: 412, y: 540), radius: R, stops: [apple(0xFFB340, 0.95), apple(0xFF9F0A, 0.95), apple(0xFF375F, 0.95)])
     disc(center: CGPoint(x: 612, y: 470), radius: R, stops: [apple(0x64D2FF, 0.92), apple(0x0A84FF, 0.92), apple(0x5E5CE6, 0.92)])
 
-    // 겹친 곳 가운데에 작은 조리개 빛점 (사진 앱임을)
+    // Small aperture sparkle in the middle of the overlap (it's a photo app)
     ctx.saveGState()
     let spark = CGGradient(colorsSpace: space, colors: [color(1, 1, 1, 0.9), color(1, 1, 1, 0)] as CFArray, locations: [0, 1])!
     ctx.drawRadialGradient(spark, startCenter: CGPoint(x: 512, y: 505), startRadius: 0, endCenter: CGPoint(x: 512, y: 505), endRadius: 70, options: [])
     ctx.restoreGState()
     ctx.restoreGState()
 
-    // 아이콘 전체 유리 테두리와 위쪽 반사
+    // Glass rim and top sheen over the whole icon
     ctx.saveGState()
     ctx.addPath(shape); ctx.clip()
     let sheen = CGGradient(colorsSpace: space, colors: [color(1, 1, 1, 0.18), color(1, 1, 1, 0)] as CFArray, locations: [0, 1])!

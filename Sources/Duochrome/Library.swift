@@ -3,43 +3,43 @@ import CryptoKit
 import ImageIO
 import UniformTypeIdentifiers
 
-/// 브라우저에 보이는 사진 한 장.
+/// One photo shown in the browser.
 final class PhotoItem {
-    /// 원본 파일. 변형본은 조각(#v2)이 붙는다 — 파일 경로(`url.path`)는 같고, 조정값 열쇠만 다르다.
+    /// Source file. Variants carry a fragment (#v2) — the file path (`url.path`) is the same, only the adjustment key differs.
     let url: URL
     var name: String { variant > 0 ? "\(url.lastPathComponent) (변형 \(variant))" : url.lastPathComponent }
-    /// 변형본 번호 (0이면 원본)
+    /// Variant number (0 = original)
     var variant: Int { url.fragment.flatMap { $0.hasPrefix("v") ? Int($0.dropFirst()) : nil } ?? 0 }
-    /// 채택 1, 거부 -1
+    /// pick 1, reject -1
     var flag = 0
-    /// 카탈로그 번호 (0이면 카탈로그 밖).
+    /// Catalog id (0 = outside the catalog).
     var id: Int64 = 0
-    /// 별점 0~5, 색 태그 0(없음)~7 (빨강·주황·노랑·초록·파랑·분홍·보라).
+    /// Rating 0–5, color tag 0 (none)–7 (red, orange, yellow, green, blue, pink, purple).
     var rating = 0
     var color = 0
-    /// 원본 파일이 지금 경로에 없다 (외부 카탈로그에서 가져왔는데 파일이 옮겨진 경우 등).
+    /// The source file isn't at its path (e.g. imported from an external catalog and the file was moved).
     var offline = false
-    /// 가져온 썸네일 캐시 (보정이 반영된 JPEG).
+    /// Imported thumbnail cache (JPEG with adjustments applied).
     var importThumb: String?
-    /// 조정값이 저장돼 있는지. 브라우저에 표시한다.
+    /// Whether adjustments are saved. Shown in the browser.
     var edited = false
     var thumbnail: NSImage?
 
     init(url: URL) { self.url = url }
 }
 
-/// 지금 보고 있는 사진 묶음과 조정값 저장. 사진 목록은 카탈로그(`Catalog`)에서 온다.
+/// The current photo collection and adjustment storage. The photo list comes from the catalog (`Catalog`).
 ///
-/// 조정값은 사진 폴더를 건드리지 않도록 `~/Library/Application Support/Duochrome/Adjustments`에
-/// 사진 경로의 해시 이름으로 둔다.
+/// Adjustments are kept in `~/Library/Application Support/Duochrome/Adjustments`, named by photo path hash,
+/// so photo folders are never touched.
 final class Library {
     let catalog: Catalog
     private(set) var folder: URL?
     private(set) var source: Catalog.Source = .all
     private(set) var items: [PhotoItem] = []
-    /// 검색 전 전체 목록
+    /// Full list before search
     private var allItems: [PhotoItem] = []
-    /// 검색어: 파일 이름·폴더 이름에 들어 있는 사진만. "★3"처럼 쓰면 별점 3개 이상.
+    /// Search query: only photos whose file or folder name contains it. "★3" means 3 stars or more.
     var query = "" { didSet { applyQuery() } }
 
     private func applyQuery() {
@@ -61,24 +61,24 @@ final class Library {
 
     init(catalog: Catalog) { self.catalog = catalog }
 
-    /// 여는 파일. RAW는 macOS RAW 해독기가 푸는 형식이고, 실제로 풀 수 있는지는 카메라 기종마다 macOS가 정한다.
+    /// Openable files. RAW formats are those the macOS RAW decoder handles; actual support per camera model is decided by macOS.
     static let supported: Set<String> = [
-        "cr3", "cr2", "crw",                // 캐논
-        "nef", "nrw",                       // 니콘
-        "arw", "srf", "sr2",                // 소니
-        "raf",                              // 후지필름
-        "orf",                              // OM 시스템·올림푸스
-        "rw2", "raw", "rwl",                // 파나소닉·라이카
-        "pef",                              // 펜탁스
-        "srw",                              // 삼성
-        "3fr", "fff",                       // 하셀블라드
-        "iiq",                              // 페이즈 원
-        "mos",                              // 리프
-        "erf", "mef", "mrw", "dcr", "kdc",  // 엡손·마미야·미놀타·코닥
+        "cr3", "cr2", "crw",                // Canon
+        "nef", "nrw",                       // Nikon
+        "arw", "srf", "sr2",                // Sony
+        "raf",                              // Fujifilm
+        "orf",                              // OM System · Olympus
+        "rw2", "raw", "rwl",                // Panasonic · Leica
+        "pef",                              // Pentax
+        "srw",                              // Samsung
+        "3fr", "fff",                       // Hasselblad
+        "iiq",                              // Phase One
+        "mos",                              // Leaf
+        "erf", "mef", "mrw", "dcr", "kdc",  // Epson · Mamiya · Minolta · Kodak
         "dng",
         "jpg", "jpeg", "tif", "tiff", "png", "heic", "psd", "psb"]
 
-    /// 예전 조정값 폴더 (JSON 파일). 이제는 카탈로그 DB에 저장하고, 이 폴더는 옮겨 올 때만 읽는다.
+    /// Old adjustments folder (JSON files). Now stored in the catalog DB; this folder is read only when migrating.
     static var legacyStore: URL {
         let env = ProcessInfo.processInfo.environment
         if let custom = env["DUOCHROME_ADJUSTMENTS"] { return URL(fileURLWithPath: custom) }
@@ -92,7 +92,7 @@ final class Library {
     private let thumbQueue = DispatchQueue(label: "duochrome.thumbs", qos: .userInitiated, attributes: .concurrent)
     private let thumbLimit = DispatchSemaphore(value: 4)
 
-    /// 폴더를 카탈로그에 등록하고 그 폴더를 보여 준다.
+    /// Registers a folder in the catalog and shows it.
     func open(folder: URL) {
         do {
             let fid = try catalog.addFolder(folder)
@@ -104,7 +104,7 @@ final class Library {
         }
     }
 
-    /// 카탈로그의 한 묶음을 보여 준다.
+    /// Shows one catalog collection.
     func show(_ source: Catalog.Source) {
         self.source = source
         if case .folder = source {} else { folder = nil }
@@ -126,26 +126,26 @@ final class Library {
         items.forEach { $0.color = c }
     }
 
-    // MARK: - 조정값 (카탈로그 DB에 저장. 예전에는 Application Support의 JSON 파일)
+    // MARK: - Adjustments (stored in the catalog DB; formerly JSON files in Application Support)
 
-    /// 사진 경로 해시 (예전 JSON 파일 이름과 같다 — 옮길 때 1:1로 맞는다)
+    /// Photo path hash (same as the old JSON file names — maps 1:1 when migrating)
     static func key(for photo: URL) -> String {
-        // 변형본(#v2)은 같은 파일이지만 조정값을 따로 둔다
+        // Variants (#v2) are the same file but keep separate adjustments
         let base = photo.standardizedFileURL.path + (photo.fragment.map { "#" + $0 } ?? "")
         return SHA256.hash(data: Data(base.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// 저장된 조정값 JSON 그대로
+    /// Saved adjustments JSON as is
     func rawSettings(for photo: URL) -> Data? { catalog.adjustment(Self.key(for: photo)).map { Data($0.utf8) } }
 
-    /// 저장된 값을 카메라 기록값 위에 덮는다. 나중에 도구가 늘어도 예전 파일이 그대로 읽힌다.
+    /// Overlays saved values on the as-shot values. Old files still read as tools are added.
     func loadSettings(for photo: URL, over base: DevelopSettings) -> DevelopSettings? {
         guard let saved = rawSettings(for: photo),
               let savedDict = try? JSONSerialization.jsonObject(with: saved) as? [String: Any],
               let baseData = try? JSONEncoder().encode(base),
               var dict = try? JSONSerialization.jsonObject(with: baseData) as? [String: Any] else { return nil }
         var patch = savedDict
-        // 레이어는 배열이라 통째로 바뀐다. 예전 파일에 없는 레이어 항목은 기본 레이어 값으로 채운다.
+        // Layers are an array, so replaced wholesale. Layer fields missing from old files are filled with layer defaults.
         if let layers = patch["layers"] as? [[String: Any]],
            let defData = try? JSONEncoder().encode(AdjustLayer(name: "")),
            let def = try? JSONSerialization.jsonObject(with: defData) as? [String: Any] {
@@ -155,13 +155,13 @@ final class Library {
                 return d
             }
         }
-        // 기본값에 없는 선택 항목(gammaBlend·layerComps·channels 등)도 살린다
+        // Also keep optional fields absent from the defaults (gammaBlend, layerComps, channels, etc.)
         Self.overlay(&dict, patch)
         guard let merged = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
         return try? JSONDecoder().decode(DevelopSettings.self, from: merged)
     }
 
-    /// merge와 같되, 기본값에 없는 키(비어 있는 선택 항목)도 넣는다.
+    /// Like merge, but also inserts keys absent from the defaults (empty optional fields).
     private static func overlay(_ into: inout [String: Any], _ from: [String: Any]) {
         for (k, v) in from {
             if var sub = into[k] as? [String: Any], let vs = v as? [String: Any] {
@@ -191,14 +191,14 @@ final class Library {
         catalog.adjustment(Self.key(for: photo)) != nil
     }
 
-    /// 다른 프로그램에서 옮겨 온 설정 조각을 그대로 적는다. 읽을 때 카메라 기록값 위에 덮인다.
+    /// Writes a settings fragment brought from another program as is. Overlaid on the as-shot values when read.
     func saveRawSettings(_ dict: [String: Any], for photo: URL) {
         guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
         catalog.setAdjustment(Self.key(for: photo), String(decoding: data, as: UTF8.self))
         catalog.markEdited(photo, true)
     }
 
-    /// 카메라 기록값과 같으면 파일을 지운다 ("조정 안 됨"으로 돌아간다).
+    /// Deletes the file if equal to the as-shot values (back to "not adjusted").
     func saveSettings(_ s: DevelopSettings, asShot: DevelopSettings, for photo: URL) {
         let key = Self.key(for: photo)
         let item = items.first { $0.url == photo }
@@ -215,11 +215,11 @@ final class Library {
         }
     }
 
-    // MARK: - 썸네일
+    // MARK: - Thumbnails
 
-    /// RAW 안에 든 미리보기를 쓴다. CR3는 JPEG 미리보기가 들어 있어 디코딩 없이 빠르다.
-    /// 외부 카탈로그에서 가져온 사진은 가져온 썸네일(보정 반영)을 먼저 쓴다. 오프라인 사진은 원본을 읽지 않는다
-    /// (구글 드라이브 같은 스트리밍 위치면 읽는 순간 파일 전체를 내려받는다).
+    /// Uses the preview embedded in the RAW. CR3 has a JPEG preview, so it's fast without decoding.
+    /// Photos imported from an external catalog use the imported thumbnail (with adjustments) first. Offline photos never read the source
+    /// (in a streaming location like Google Drive, reading downloads the whole file).
     func loadThumbnail(_ item: PhotoItem, size: Int = 320, done: @escaping (NSImage?) -> Void) {
         thumbQueue.async { [thumbLimit] in
             thumbLimit.wait()
@@ -247,12 +247,12 @@ final class Library {
         }
     }
 
-    /// 조정한 결과로 썸네일을 새로 만든다 (다른 사진으로 넘어갈 때).
+    /// Rebuilds the thumbnail from the adjusted result (when moving to another photo).
     func refreshThumbnail(_ item: PhotoItem, from doc: RawDocument) {
         if let t = Self.thumbnail(from: doc.image(scale: 1.0 / 8)) { item.thumbnail = t }
     }
 
-    /// 조정 결과 그림 → 긴 변 320px 썸네일 (어느 스레드에서나)
+    /// Adjusted result image → 320 px long side thumbnail (any thread)
     static func thumbnail(from image: CIImage) -> NSImage? {
         let longSide = max(image.extent.width, image.extent.height)
         guard longSide > 0 else { return nil }

@@ -1,9 +1,9 @@
 import CoreImage
 
-/// 필터 갤러리 47가지 (예술 효과 15, 브러시 획 8, 왜곡 3, 스케치 14, 스타일화 1, 텍스처 6)를
-/// 코어 이미지 조합으로 흉내 낸다. 모양은 근사치다. 이미 있던 수채화·목탄·텍스처화·유리·하프톤은 그대로 쓴다.
+/// 47 filter gallery filters (artistic 15, brush strokes 8, distort 3, sketch 14, stylize 1, texture 6)
+/// imitated with Core Image combinations. Looks are approximate. The existing watercolor, charcoal, texturizer, glass, and halftone are reused.
 extension Effects {
-    // MARK: 도움 함수
+    // MARK: Helpers
 
     static func noise(_ e: CGRect, scale: CGFloat, seed: CGFloat = 0, mono: Bool = true) -> CIImage {
         var n = CIFilter(name: "CIRandomGenerator")!.outputImage!.transformed(by: .init(translationX: seed * 97, y: seed * 53))
@@ -43,7 +43,7 @@ extension Effects {
     }
 
     static let galleryFilters: [EffectSpec] = [
-        // 예술 효과
+        // Artistic
         EffectSpec(kind: "g_coloredPencil", title: "색연필 (예술 효과)", category: .gallery, params: [P("width", "연필 굵기", 1...10, 3)], gamma: true) { i, v, _ in
             let g = gray(i), inv = g.applyingFilter("CIColorInvert").blurred(CGFloat(v("width")))
             let pencil = inv.applyingFilter("CIColorDodgeBlendMode", parameters: [kCIInputBackgroundImageKey: g]).cropped(to: i.extent)
@@ -101,7 +101,7 @@ extension Effects {
             let base = i.blurred(6 * s)
             return overlay(clouds(i.extent, scale: s * 0.08, seed: 3).applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 0.5]), mixImg(i, base, 0.6))
         },
-        // 브러시 획
+        // Brush strokes
         EffectSpec(kind: "g_accentedEdges", title: "강조된 가장자리 (브러시 획)", category: .gallery, params: [P("bright", "가장자리 밝기", 0...1, 0.5)], gamma: true) { i, v, s in
             let p = kuwa(i, 2, s)
             return mixImg(p, screen(edgesOf(p, 3), p), v("bright"))
@@ -138,7 +138,7 @@ extension Effects {
         EffectSpec(kind: "g_sumiE", title: "수묵화 (브러시 획)", category: .gallery, params: [], gamma: true) { i, _, s in
             gray(kuwa(i, 3, s)).applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 1.8, kCIInputBrightnessKey: 0.05]).blurred(1 * s)
         },
-        // 왜곡
+        // Distort
         EffectSpec(kind: "g_diffuseGlow", title: "확산 광선 (왜곡)", category: .gallery, params: [P("glow", "광선 양", 0...1, 0.5)], gamma: true) { i, v, s in
             let hi = gray(i).applyingFilter("CIColorThreshold", parameters: ["inputThreshold": 0.65]).clampedToExtent().blurred(12 * s).cropped(to: i.extent)
             let grain = overlay(noise(i.extent, scale: 1).applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 0.3]), i)
@@ -148,7 +148,7 @@ extension Effects {
             let tex = clouds(i.extent, scale: CGFloat(0.35 / max(v("size"), 1)), seed: 7)
             return i.clampedToExtent().applyingFilter("CIDisplacementDistortion", parameters: ["inputDisplacementImage": tex, kCIInputScaleKey: v("amount") * 2]).cropped(to: i.extent)
         },
-        // 스케치
+        // Sketch
         EffectSpec(kind: "g_basRelief", title: "저부조 (스케치)", category: .gallery, params: [P("detail", "세부", 0.5...4, 2)], gamma: true) { i, v, s in
             tint(embossGray(i.blurred(1.5 * s), v("detail")), dark: CIColor(red: 0.15, green: 0.13, blue: 0.12), light: CIColor(red: 0.95, green: 0.93, blue: 0.9))
         },
@@ -206,12 +206,12 @@ extension Effects {
             let fibers = motion(noise(i.extent, scale: max(s, 1)), 6 * Double(s), 80)
             return overlay(fibers.applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 0.6]), i.blurred(2 * s).applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0.8]))
         },
-        // 스타일화
+        // Stylize
         EffectSpec(kind: "g_glowingEdges", title: "가장자리 광선 (스타일화)", category: .gallery, params: [P("width", "가장자리 폭", 1...8, 2)], gamma: true) { i, v, _ in
             let e = i.applyingFilter("CIEdges", parameters: [kCIInputIntensityKey: v("width") * 2]).cropped(to: i.extent)
             return screen(e.clampedToExtent().blurred(2).cropped(to: i.extent), e)
         },
-        // 텍스처
+        // Texture
         EffectSpec(kind: "g_craquelure", title: "균열 (텍스처)", category: .gallery, params: [P("size", "조각 크기", 5...80, 25, px: true)], gamma: true) { i, v, _ in
             let cells = i.applyingFilter("CICrystallize", parameters: [kCIInputRadiusKey: v("size"), kCIInputCenterKey: CIVector(x: 0, y: 0)]).cropped(to: i.extent)
             let cracks = edgesOf(cells, 6).applyingFilter("CIColorInvert")

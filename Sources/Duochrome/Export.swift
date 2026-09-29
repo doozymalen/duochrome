@@ -3,7 +3,7 @@ import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 
-/// 내보내기 설정 (레시피 하나).
+/// Export settings (one recipe).
 struct ExportRecipe: Codable, Equatable {
     enum Format: String, Codable, CaseIterable {
         case tiff16, tiff8, jpeg, png, heic, tiff32
@@ -37,24 +37,24 @@ struct ExportRecipe: Codable, Equatable {
     var format: Format = .jpeg
     var quality: Double = 0.9
     var space: Space = .sRGB
-    /// 긴 변 픽셀. 0이면 원본 크기.
+    /// Long side in pixels. 0 means original size.
     var longSide: Int = 0
-    /// 출력 샤프닝 0 없음 ~ 3 강하게 (화면·인쇄 크기에 맞춰 줄인 뒤에 건다).
+    /// Output sharpening 0 none – 3 strong (applied after resizing for screen/print).
     var sharpen: Int = 1
     var folder: String = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/Duochrome/Export").path
     var suffix: String = ""
     var keepMetadata = true
-    /// 워터마크 글자 (비었으면 없음), 크기(긴 변의 %), 불투명도, 자리(0 왼아래, 1 오른아래, 2 왼위, 3 오른위, 4 가운데)
+    /// Watermark text (empty = none), size (% of long side), opacity, position (0 bottom-left, 1 bottom-right, 2 top-left, 3 top-right, 4 center)
     var watermark = ""
     var watermarkSize: Double = 2.5
     var watermarkOpacity: Double = 0.7
     var watermarkCorner = 1
-    /// 레시피 이름 (저장한 레시피 목록), 이름 규칙({이름} {날짜} {번호} …, 비었으면 원래 이름), 폴더 아래 하위 폴더
+    /// Recipe name (saved recipe list), naming rule ({이름} {날짜} {번호} …; empty keeps the original name), subfolder under the folder
     var name: String? = nil
     var namePattern: String? = nil
     var subfolder: String? = nil
 
-    /// 저장한 레시피들 (여러 벌)
+    /// Saved recipes (several)
     static var library: [ExportRecipe] {
         get { (UserDefaults.standard.data(forKey: "exportRecipes").flatMap { try? JSONDecoder().decode([ExportRecipe].self, from: $0) }) ?? [] }
         set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "exportRecipes") }
@@ -69,7 +69,7 @@ struct ExportRecipe: Codable, Equatable {
 enum Exporter {
     struct Failure: LocalizedError { let message: String; var errorDescription: String? { message } }
 
-    /// 워터마크: 흰 글자를 긴 변의 몇 % 크기로, 가장자리에서 조금 띄워 놓는다 (그림자를 옅게 깔아 밝은 곳에서도 보이게).
+    /// Watermark: white text at a % of the long side, inset slightly from the edge (with a faint shadow so it shows on bright areas).
     static func watermarked(_ img: CIImage, _ r: ExportRecipe) -> CIImage {
         let e = img.extent
         let px = max(CGFloat(r.watermarkSize) / 100 * max(e.width, e.height), 10)
@@ -104,7 +104,7 @@ enum Exporter {
         return mark.composited(over: img).cropped(to: e)
     }
 
-    /// 문서 하나를 레시피대로 파일로 쓴다. 결과 경로를 돌려준다. (백그라운드에서 불러도 된다: 문서를 이 스레드만 쓴다고 가정)
+    /// Writes one document to a file per the recipe. Returns the result path. (Safe in the background, assuming only this thread uses the document)
     static func export(_ doc: RawDocument, recipe r: ExportRecipe, name: String) throws -> URL {
         try BackgroundGate.during { try doc.withFullResolution { try exportNow(doc, recipe: r, name: name) } }
     }
@@ -117,7 +117,7 @@ enum Exporter {
         doc.settleForExport()
         var img = doc.image(scale: 1)
         let size = img.extent.size
-        // 크기: 레시피의 긴 변이 먼저, 없으면 문서의 이미지 크기 (리샘플링 방식은 문서 설정)
+        // Size: the recipe's long side first, else the document's image size (resampling per document settings)
         var k: CGFloat = 1
         if r.longSide > 0, max(size.width, size.height) > CGFloat(r.longSide) {
             k = CGFloat(r.longSide) / max(size.width, size.height)
@@ -127,27 +127,27 @@ enum Exporter {
         if abs(k - 1) > 1e-4 { img = resample(img, k, method: doc.settings.resample ?? 0) }
         let rect = img.extent.integral
         img = img.cropped(to: rect).transformed(by: .init(translationX: -rect.minX, y: -rect.minY))
-        // 출력 샤프닝: 결과 크기에 맞춘 작은 반경의 언샤프 마스크.
+        // Output sharpening: small-radius unsharp mask matched to the output size.
         if r.sharpen > 0 {
             let amount = [0, 0.3, 0.55, 0.85][min(r.sharpen, 3)]
             img = img.applyingFilter("CIUnsharpMask", parameters: [kCIInputRadiusKey: 0.8, kCIInputIntensityKey: amount])
                 .cropped(to: img.extent)
         }
         if !r.watermark.isEmpty { img = watermarked(img, r) }
-        // 배경 제거한 사진: 투명을 못 담는 형식(JPEG)은 흰 바탕에 얹는다
+        // Background-removed photo: formats without transparency (JPEG) are placed on white
         let keepAlpha = doc.settings.cutout != nil && r.format != .jpeg
         if doc.settings.cutout != nil && !keepAlpha {
             img = img.composited(over: CIImage(color: .white).cropped(to: img.extent))
         }
         let format: CIFormat = r.format == .tiff32 ? .RGBAf : (r.format.sixteenBit ? .RGBA16 : .RGBA8)
-        // 32비트: 1.0 넘는 밝기를 자르지 않게 선형 확장 공간으로
+        // 32-bit: extended linear space so brightness above 1.0 isn't clipped
         let space = r.format == .tiff32 ? (CGColorSpaceCreateExtendedLinearized(r.space.cg) ?? r.space.cg) : r.space.cg
         guard let withAlpha = Render.exportContext.createCGImage(img, from: img.extent, format: format, colorSpace: space) else {
             throw Failure(message: "\(name): 그리기 실패")
         }
-        // 사진에는 투명도가 없다. 알파 채널을 "건너뛰기"로 바꿔 RGB만 쓴다 (TIFF 16비트가 335MB → 약 3/4).
+        // Photos have no transparency. Mark alpha as "skip" and write RGB only (16-bit TIFF 335 MB → about 3/4).
         var cg = r.format == .tiff32 || keepAlpha ? withAlpha : (dropAlpha(withAlpha) ?? withAlpha)
-        // 문서 모드: 회색조·CMYK·Lab으로 쓴다
+        // Document mode: write as grayscale / CMYK / Lab
         if let m = doc.settings.docMode.flatMap(DocMode.init), m != .rgb, r.format != .tiff32 {
             cg = ColorModes.convertForExport(cg, mode: m, format: r.format)
         }
@@ -176,12 +176,12 @@ enum Exporter {
                 props[kCGImagePropertyTIFFDictionary] = tiff
             }
         }
-        // 이미 방향을 돌려 놓았으므로 방향은 1(그대로).
+        // Orientation already applied, so orientation is 1 (as is).
         props[kCGImagePropertyOrientation] = 1
         if r.format == .jpeg || r.format == .heic { props[kCGImageDestinationLossyCompressionQuality] = r.quality }
         if r.format == .tiff16 || r.format == .tiff8 || r.format == .tiff32 {
             props[kCGImagePropertyTIFFDictionary] = (props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:])
-                .merging([kCGImagePropertyTIFFCompression: 8], uniquingKeysWith: { $1 })   // ZIP(Deflate) — 16비트 사진은 LZW가 오히려 커졌다 (306MB > 무압축 268MB)
+                .merging([kCGImagePropertyTIFFCompression: 8], uniquingKeysWith: { $1 })   // ZIP (Deflate) — for 16-bit photos LZW actually grew the file (306 MB > 268 MB uncompressed)
         }
         CGImageDestinationAddImage(dest, cg, props as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { throw Failure(message: "\(out.lastPathComponent): 쓰기 실패") }
@@ -191,7 +191,7 @@ enum Exporter {
 }
 
 extension Exporter {
-    /// 리샘플링: 0 란초스, 1 바이큐빅, 2 세부 유지(란초스 + 작은 반경 언샤프), 3 최근접
+    /// Resampling: 0 Lanczos, 1 bicubic, 2 preserve details (Lanczos + small-radius unsharp), 3 nearest neighbor
     static func resample(_ img: CIImage, _ k: CGFloat, method: Int) -> CIImage {
         let e = img.extent
         switch method {
@@ -207,7 +207,7 @@ extension Exporter {
         }
     }
 
-    /// 같은 픽셀 데이터를 "알파 없음(마지막 채널 건너뛰기)"으로 다시 읽는다. 알파가 전부 1이라 값은 그대로다.
+    /// Re-reads the same pixel data as "no alpha (skip last channel)". Alpha is all 1, so values are unchanged.
     static func dropAlpha(_ img: CGImage) -> CGImage? {
         guard let provider = img.dataProvider, let space = img.colorSpace else { return nil }
         let order = img.bitmapInfo.intersection(.byteOrderMask)
@@ -219,7 +219,7 @@ extension Exporter {
     }
 }
 
-/// 내보내기 창 (시트). 형식·색 공간·크기·샤프닝·폴더를 고르고, 여러 장이면 차례로 쓴다.
+/// Export sheet. Choose format, color space, size, sharpening, folder; multiple photos are written in turn.
 final class ExportSheet: NSWindowController {
     private var recipe = ExportRecipe.saved
     private let format = NSPopUpButton()
@@ -262,7 +262,7 @@ final class ExportSheet: NSWindowController {
     }
 
     private func build(count: Int) {
-        if let f = ProcessInfo.processInfo.environment["DUOCHROME_EXPORT_FOLDER"] { recipe.folder = f }   // 시험용
+        if let f = ProcessInfo.processInfo.environment["DUOCHROME_EXPORT_FOLDER"] { recipe.folder = f }   // for tests
         for f in ExportRecipe.Format.allCases { format.addItem(withTitle: f.title) }
         format.selectItem(at: ExportRecipe.Format.allCases.firstIndex(of: recipe.format) ?? 0)
         for s in ExportRecipe.Space.allCases { space.addItem(withTitle: s.title) }
@@ -427,7 +427,7 @@ final class ExportSheet: NSWindowController {
 
     @objc func start() {
         readRecipe()
-        // 지금 설정 + 함께 쓰기로 고른 레시피들을 차례로 (여러 형식을 한 번에)
+        // Current settings + recipes chosen to write along, in turn (several formats at once)
         var queue = [recipe] + ExportRecipe.library.filter { also.contains($0.name ?? "") && $0 != recipe }
         var all: [URL] = []
         func next() {
@@ -450,7 +450,7 @@ final class ExportSheet: NSWindowController {
     private var done: [URL] = []
     @objc private func reveal() { NSWorkspace.shared.activateFileViewerSelecting(done) }
 
-    /// 백그라운드에서 차례로 내보낸다. 이미 열린 문서는 그대로 쓰고, 아니면 열어서 저장된 조정값을 붙인다.
+    /// Exports in turn in the background. Already-open documents are used as is; others are opened with their saved adjustments.
     func run(_ r: ExportRecipe, completion: @escaping ([URL]) -> Void) {
         let jobs = self.jobs, lib = library
         JobCenter.shared.add("export", title: "내보내기", count: jobs.count)
@@ -478,7 +478,7 @@ final class ExportSheet: NSWindowController {
                         name = MainWindowController.renamed(p, item: item, index: i + 1, date: date, camera: doc.info.camera) + "." + item.url.pathExtension
                     }
                     let run = { urls.append(try Exporter.export(doc, recipe: r, name: name)) }
-                    // 열린 문서는 화면과 같이 쓰므로 주 스레드에서 쓴다 (캐시를 함께 건드린다).
+                    // The open document is shared with the view, so write it on the main thread (it touches the caches too).
                     if open != nil { try DispatchQueue.main.sync(execute: run) } else { try run() }
                 } catch {
                     errors.append(error.localizedDescription)

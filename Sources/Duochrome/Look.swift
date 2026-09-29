@@ -2,24 +2,24 @@ import CoreImage
 import Metal
 import Foundation
 
-/// 기본 모습: RAW를 푼 바로 뒤(사용자 조정 전)에 거는 3D 보정표.
+/// Base look: a 3D look table applied right after RAW decoding (before user adjustments).
 ///
-/// "카메라 맞춤"은 기준 결과물 수백 장과 화소 단위로 맞춘 보정표다. 카메라마다 따로 맞추므로 보정표가 있는 카메라에만 걸린다.
+/// "Camera-fitted" is a table matched pixel by pixel to hundreds of reference renders. Fitted per camera, so it only applies to cameras with a table.
 ///
-/// 보정표는 감마 2.2로 부호화한 0~1 값에서 동작한다. 1.0을 넘는 밝은 부분은 보정표 밖으로 넘친 만큼 그대로 더해
-/// 하이라이트 복구 여유를 지킨다.
+/// The table operates on 0–1 values encoded in gamma 2.2. Bright values above 1.0 add back whatever overflowed the table,
+/// keeping highlight recovery headroom.
 enum Look {
     static let titles = ["Apple 기본", "카메라 맞춤"]
 
-    /// 카메라 이름 → 보정표 파일 이름. Looks 폴더에 `이름.lut`로 넣으면 그 카메라에 걸린다 (대소문자 무시).
-    /// 예: "Canon EOS R5m2" → CanonEOSR5m2, "NIKON CORPORATION NIKON Z 8" → NIKONZ8, "SONY ILCE-7M4" → SONYILCE7M4
+    /// Camera name → look table file name. Put `name.lut` in the Looks folder to apply it to that camera (case-insensitive).
+    /// e.g. "Canon EOS R5m2" → CanonEOSR5m2, "NIKON CORPORATION NIKON Z 8" → NIKONZ8, "SONY ILCE-7M4" → SONYILCE7M4
     static func file(for camera: String) -> String? {
         let key = fileKey(camera)
         guard !key.isEmpty else { return nil }
         return lutNames().first { $0.lowercased() == key.lowercased() }
     }
 
-    /// 회사 이름의 군더더기(CORPORATION 등)와 겹친 회사 이름을 빼고, 글자와 숫자만 남긴다
+    /// Drops corporate suffixes (CORPORATION etc.) and repeated vendor names, keeping letters and digits only
     static func fileKey(_ camera: String) -> String {
         let noise: Set<String> = ["corporation", "corp", "corp.", "co.,ltd.", "co.,ltd", "co.", "ltd", "ltd.", "imaging", "inc", "inc."]
         var words: [String] = []
@@ -32,7 +32,7 @@ enum Look {
 
     private static var names: [String]?
 
-    /// 앱 번들과 저장소의 Looks 폴더에 있는 보정표 이름 (확장자 뺀 것)
+    /// Look table names in the app bundle's and the repo's Looks folders (without extension)
     private static func lutNames() -> [String] {
         lock.lock(); defer { lock.unlock() }
         if let names { return names }
@@ -58,13 +58,13 @@ enum Look {
 
     static func available(for camera: String) -> Bool { file(for: camera).flatMap(cube) != nil }
 
-    /// 보정표가 하나라도 있는가 (없으면 "카메라 맞춤" 선택지를 보이지 않는다)
+    /// Whether any look table exists (if none, the "Camera-fitted" option is hidden)
     static var anyAvailable: Bool { !lutNames().isEmpty }
 
     private static var cache: [String: (n: Int, data: Data)?] = [:]
     private static let lock = NSLock()
 
-    /// 앱 번들의 Resources/Looks, 개발 중에는 저장소의 Resources/Looks에서 읽는다.
+    /// Reads from Resources/Looks in the app bundle, or the repo's Resources/Looks during development.
     static func cube(_ name: String) -> (n: Int, data: Data)? {
         lock.lock(); defer { lock.unlock() }
         if let hit = cache[name] { return hit }
@@ -86,8 +86,8 @@ enum Look {
         guard look >= 0.5, let name = file(for: camera), let (n, data) = cube(name), !img.extent.isInfinite,
               let tex = texture(name, n: n, data: data) else { return img }
         let e = img.extent
-        // 부호화 → 3D 보정표 → 복원을 커널 하나로 한다. 중간에 Core Image 색 입방체를 끼우면
-        // 사진이 들어 있는 구역을 그릴 때 바탕까지 색 변환이 한 번 더 걸려 여백이 검게 번졌다.
+        // Encode → 3D table → restore in one kernel. With a Core Image color cube in between,
+        // rendering the photo region applied the color conversion to the background again and margins bled black.
         do {
             return try LookOp.apply(withExtent: e, inputs: [img], arguments: ["lut": tex, "extent": e]).cropped(to: e)
         } catch {
@@ -98,7 +98,7 @@ enum Look {
 
     private static var textures: [String: MTLTexture] = [:]
 
-    /// 보정표를 3D 텍스처로 (한 번만 만든다).
+    /// Look table as a 3D texture (built once).
     static func texture(_ name: String, n: Int, data: Data) -> MTLTexture? {
         lock.lock(); defer { lock.unlock() }
         if let t = textures[name] { return t }
@@ -119,7 +119,7 @@ enum Look {
     static let kernelSource = """
     #include <metal_stdlib>
     using namespace metal;
-    // 선형 → 0~1로 잘라 감마 2.2 → 3D 보정표(삼선형) → 감마 풀기 + 1.0 넘친 만큼 더하기
+    // linear → clamp to 0–1, gamma 2.2 → 3D table (trilinear) → decode gamma + add back overflow above 1.0
     kernel void look_apply(texture2d<half, access::read> src [[texture(0)]],
                            texture3d<float, access::sample> lut [[texture(1)]],
                            texture2d<half, access::write> dst [[texture(2)]],

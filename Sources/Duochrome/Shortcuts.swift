@@ -1,6 +1,6 @@
 import AppKit
 
-/// 단축키 한눈에 보기 (도움말 > 단축키 보기, ⌘/).
+/// Shortcut overview (Help > Keyboard Shortcuts, ⌘/).
 enum ShortcutsWindow {
     static let groups: [(String, [(String, String)])] = [
         ("모드", [("G", "라이브러리 (대량 처리)"), ("E", "편집 (심화 보정)"), ("T", "테더링")]),

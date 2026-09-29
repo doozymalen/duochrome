@@ -1,10 +1,10 @@
 import AppKit
 
-/// 레벨: 히스토그램 아래 입력 삼각 손잡이 셋(검정·중간·흰색), 그 아래 출력 막대와 손잡이 둘.
-/// 값: [입력 검정, 입력 흰색, 감마, 출력 검정, 출력 흰색]. 중간 손잡이 자리 = 검정 + (흰색 − 검정) × 0.5^감마.
+/// Levels: three input triangle handles below the histogram (black, mid, white), and below them an output bar with two handles.
+/// Values: [input black, input white, gamma, output black, output white]. Mid handle position = black + (white − black) × 0.5^gamma.
 final class LevelsView: NSView {
     var histogram: HistogramData? { didSet { needsDisplay = true } }
-    /// 0 RGB(밝기), 1 빨강, 2 초록, 3 파랑
+    /// 0 RGB (luminance), 1 red, 2 green, 3 blue
     var channel = 0 { didSet { needsDisplay = true } }
     var values: [Float] = [0, 1, 1, 0, 1] { didSet { needsDisplay = true } }
     var onChange: (([Float], Bool) -> Void)?
@@ -24,7 +24,7 @@ final class LevelsView: NSView {
         let p = plot
         NSColor.black.withAlphaComponent(0.22).setFill()
         NSBezierPath(roundedRect: p, xRadius: 5, yRadius: 5).fill()
-        // 4등분 눈금
+        // quarter ticks
         NSColor.white.withAlphaComponent(0.08).setStroke()
         for i in 1...3 {
             let gx = p.minX + p.width * CGFloat(i) / 4
@@ -52,19 +52,19 @@ final class LevelsView: NSView {
             }
             NSGraphicsContext.current?.compositingOperation = .sourceOver
         }
-        // 입력 손잡이 (히스토그램 바로 아래)
+        // input handles (right below the histogram)
         let hy = p.minY - 12
         triangle(x(values[0], in: p), hy, fill: NSColor(white: 0.1, alpha: 1))
         triangle(x(midValue, in: p), hy, fill: NSColor(white: 0.5, alpha: 1))
         triangle(x(values[1], in: p), hy, fill: .white)
-        // 출력 막대와 손잡이
+        // output bar and handles
         let ob = outBar
         NSGradient(starting: .black, ending: .white)?.draw(in: NSBezierPath(roundedRect: ob, xRadius: 3, yRadius: 3), angle: 0)
         triangle(x(values[3], in: ob), ob.minY - 12, fill: NSColor(white: 0.1, alpha: 1))
         triangle(x(values[4], in: ob), ob.minY - 12, fill: .white)
     }
 
-    /// 위를 가리키는 오각 손잡이
+    /// Pentagon handle pointing up
     private func triangle(_ cx: CGFloat, _ y: CGFloat, fill: NSColor) {
         let w: CGFloat = 12, h: CGFloat = 12
         let p = NSBezierPath()
@@ -89,7 +89,7 @@ final class LevelsView: NSView {
             grab = cands.min { abs($0.1 - q.x) < abs($1.1 - q.x) }?.0
         }
         if event.clickCount == 2 {
-            // 두 번 누르면 그 손잡이를 기본값으로
+            // double-click resets that handle
             switch grab {
             case .inBlack: values[0] = 0
             case .inWhite: values[1] = 1

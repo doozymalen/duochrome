@@ -1,21 +1,21 @@
 import AppKit
 
-/// 세 가지 작업 모드. 같은 카탈로그·같은 사진 선택을 함께 쓴다.
-/// 세 모드: ① 대량 보정(격자 보기 포함) ② 심화 보정(레이어) ③ 테더링.
-/// 번호는 저장된 설정과 맞추려고 그대로 둔다 (library = 대량 보정의 격자 보기).
+/// Three work modes sharing the same catalog and photo selection.
+/// Three modes: ① batch edit (including grid view) ② layer edit (layers) ③ tethering.
+/// Numbers are kept to match saved settings (library = batch edit's grid view).
 enum AppMode: Int, CaseIterable {
     case library, edit, tether, studio
     var title: String { ["격자 보기", "대량 보정", "테더링", "심화 보정"][rawValue] }
     var symbol: String { ["square.grid.3x3", "slider.horizontal.below.rectangle", "camera", "paintbrush.pointed"][rawValue] }
-    /// 모드 전환 키 (한 글자)
+    /// Mode switch key (single letter)
     var key: String { ["g", "e", "t", "p"][rawValue] }
-    /// 모드 단추의 칸: 대량 보정(격자 포함) · 심화 보정 · 테더링
+    /// Mode button segments: batch edit (with grid) · layer edit · tethering
     var segment: Int { [0, 0, 2, 1][rawValue] }
     static let segments: [AppMode] = [.edit, .studio, .tether]
 }
 
 extension MainWindowController {
-    // MARK: - 모드
+    // MARK: - Modes
 
     func setupModes() {
         libraryMode.grid.library = library
@@ -25,14 +25,14 @@ extension MainWindowController {
         tetherMode.strip.library = library
         libraryTab.sources.catalog = library.catalog
 
-        // 사진 묶음 고르기 (라이브러리 모드 왼쪽, 편집 모드 라이브러리 탭 — 둘은 같은 목록)
+        // Collection picker (library mode left, edit mode library tab — the same list)
         for list in [libraryMode.sources, libraryTab.sources] {
             list.onSelect = { [weak self] source, title in self?.selectSource(source, title: title) }
             list.onAlbumsChanged = { [weak self] in self?.reloadSources() }
         }
         libraryTab.onImportCatalog = { [weak self] in self?.importExternalCatalog(nil) }
 
-        // 라이브러리 격자
+        // library grid
         let grid = libraryMode.grid
         grid.onSelectionChange = { [weak self] items in
             guard let self else { return }
@@ -65,11 +65,11 @@ extension MainWindowController {
         panel.onMeta = { [weak self] k, v in self?.setMetadata(k, v) }
         panel.onCommand = { [weak self] sel in _ = self?.perform(sel, with: nil) }
         BrowserCollectionView.onFlag = { [weak self] f in self?.flag(f) }
-        // 촬영 정보 색인 (검색·스마트 앨범): 뒤에서 조금씩
-        // (DB 연결은 주 스레드에서만 쓴다 → 주 스레드에서 조금씩)
+        // Capture info index (search, smart albums): a little at a time in the background
+        // (the DB connection is used only on the main thread → a little at a time there)
         let cat = library.catalog
         if ProcessInfo.processInfo.environment["DUOCHROME_UITEST"] == nil {
-            // 파일 읽기는 뒤에서, DB 쓰기만 주 스레드에서 (예전에는 파일 읽기까지 주 스레드라 새 카탈로그 첫 1~2분에 화면이 끊겼다)
+            // File reads in the background, only DB writes on the main thread (file reads used to run on main too, so the UI stuttered for the first 1–2 minutes of a new catalog)
             func next() {
                 let todo = cat.exifTodo(limit: 40)
                 guard !todo.isEmpty else { return }
@@ -92,23 +92,23 @@ extension MainWindowController {
         setMode(start)
     }
 
-    /// 대표 사진: 라이브러리에서 고르기만 하고 아직 열지 않은 것.
+    /// Primary photo: selected in the library but not opened yet.
     var pendingItem: PhotoItem? {
         get { objc_getAssociatedObject(self, &pendingKey) as? PhotoItem }
         set { objc_setAssociatedObject(self, &pendingKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    /// 격자 보기 ↔ 대량 보정 (오른쪽 사진 패널의 격자 단추, G 키와 같다)
+    /// Grid view ↔ batch edit (grid button on the right photo panel, same as the G key)
     @objc func toggleGridView(_ sender: Any?) { setMode(mode == .library ? .edit : .library) }
 
     func setMode(_ m: AppMode) {
         guard let window else { return }
         let frame = window.frame
-        // 떠나는 모드의 왼쪽·오른쪽 패널 폭 (새 모드가 이어받아 패널이 튀지 않게)
+        // Left/right panel widths of the mode being left (the new mode inherits them so panels don't jump)
         let widths = sideWidths(mode)
         let leaving = mode
         mode = m
-        // 심화 보정만 원본 크기, 나머지 모드는 미리보기만 (캔버스는 아래에서 다시 그린다)
+        // Only layer edit uses full size; other modes use previews only (the canvas redraws below)
         if let d = photo, d.previewOnly != (m != .studio) {
             d.previewOnly = m != .studio
             canvas.needsDisplay = true
@@ -116,7 +116,7 @@ extension MainWindowController {
         }
         if leaving == .studio && m != .studio { leaveStudio() }
         UserDefaults.standard.set(m.rawValue, forKey: "mode")
-        // 창 막대는 세 모드 공통 하나 (바꾸지 않는다). 모드마다 다른 것은 캔버스 위 모드별 막대에 있다.
+        // One toolbar shared by all modes (not swapped). Mode-specific items are in per-mode bars over the canvas.
         if let bar = bulkToolbar, window.toolbar !== bar { window.toolbar = bar }
         let vc: NSViewController = switch m {
         case .library: libraryMode
@@ -125,8 +125,8 @@ extension MainWindowController {
         case .studio: studioMode
         }
         if window.contentViewController !== vc {
-            // 내용을 바꾸면 창이 새 뷰의 크기로 줄어든다 (처음 만든 뷰는 0×0이라 창이 사라졌다).
-            // 새 뷰에 지금 크기를 먼저 주고 바꾼 뒤, 창 틀도 되돌린다.
+            // Swapping content shrinks the window to the new view's size (the first view was 0×0, so the window vanished).
+            // Give the new view the current size before swapping, then restore the window frame.
             let content = window.contentLayoutRect.size
             vc.view.frame = NSRect(origin: .zero, size: content.width > 100 ? content : NSSize(width: 1560, height: 960))
             window.contentViewController = vc
@@ -145,7 +145,7 @@ extension MainWindowController {
         }
         switch m {
         case .library:
-            // 목록은 화면이 처음 만들어지기 전에 채우려 하면 건너뛴다 → 들어올 때 채운다 (대량 보정에서 넘어오면 비어 있었다)
+            // Filling the list before the UI is first built is skipped → fill on entry (it was empty coming from batch edit)
             libraryMode.sources.reload(select: library.source)
             libraryMode.grid.reload()
             if let item = photoItem { libraryMode.grid.mirror(item) }
@@ -153,7 +153,7 @@ extension MainWindowController {
             window.makeFirstResponder(nil)
             libraryMode.grid.focus()
         case .edit:
-            // 라이브러리에서 고른 사진이 있으면 그걸 연다.
+            // Open the photo selected in the library, if any.
             if let p = pendingItem, p !== photoItem { show(p) }
             pendingItem = nil
             browser.reload()
@@ -165,10 +165,10 @@ extension MainWindowController {
             enterStudio()
         }
         applySideWidths(widths, to: m)
-        // 라이브러리(격자)에는 캔버스가 없어 확대 조절을 끈다
+        // The library (grid) has no canvas, so disable the zoom control
         studioZoomSlider?.isEnabled = m != .library
         if m == .library { studioZoomLabel?.stringValue = "" } else { activeCanvas.reportZoom() }
-        // 마지막으로 창 틀을 처음 그대로 (모드마다 패널 최소 폭이 달라 밀리는 것까지 되돌린다)
+        // Finally restore the original window frame (also undoing shifts from different minimum panel widths per mode)
         if frame.width > 400 && frame.height > 300, window.frame != frame { window.setFrame(frame, display: true) }
     }
 
@@ -201,7 +201,7 @@ extension MainWindowController {
         setMode(.edit)
     }
 
-    // MARK: - 사진 묶음
+    // MARK: - Collections
 
     func selectSource(_ source: Catalog.Source, title: String) {
         leaveCurrentPhoto()
@@ -209,7 +209,7 @@ extension MainWindowController {
         sourceChanged(title: title)
     }
 
-    /// 묶음이 바뀌면 세 모드의 브라우저를 다시 채운다.
+    /// When the collection changes, refill the browsers of all three modes.
     func sourceChanged(title: String) {
         window?.title = title
         window?.subtitle = "\(library.items.count)장"
@@ -228,7 +228,7 @@ extension MainWindowController {
         libraryTab.sources.reload(select: library.source)
     }
 
-    /// 한 모드에서 고른 사진을 다른 모드 브라우저에도 표시한다.
+    /// Mirrors a photo selected in one mode in the other modes' browsers.
     func mirrorSelection(_ item: PhotoItem) {
         browser.mirror(item)
         libraryMode.grid.mirror(item)
@@ -243,9 +243,9 @@ extension MainWindowController {
         tetherMode.strip.refresh(item)
     }
 
-    // MARK: - 별점·색 태그
+    // MARK: - Ratings · color tags
 
-    /// 지금 모드에서 대상이 되는 사진들: 라이브러리는 고른 것 전부, 나머지는 지금 사진.
+    /// Photos targeted in the current mode: all selected in the library, the current photo elsewhere.
     var targetItems: [PhotoItem] {
         if mode == .library { return libraryMode.grid.selectedItems }
         return photoItem.map { [$0] } ?? []
@@ -270,9 +270,9 @@ extension MainWindowController {
     @objc func rateFromMenu(_ sender: NSMenuItem) { rate(sender.tag) }
     @objc func colorFromMenu(_ sender: NSMenuItem) { tagColor(sender.tag) }
 
-    // MARK: - 여러 장 조정
+    // MARK: - Multi-photo adjustments
 
-    /// 사진마다 다른 것(리터칭 점·레이어·크롭)은 여러 장에 붙이지 않는다.
+    /// Per-photo things (retouch spots, layers, crop) aren't pasted to many photos.
     static let batchExcluded: Set<String> = ["spots", "layers", "crop", "cropAspect"]
 
     func settingsDict(_ s: DevelopSettings) -> [String: Any] {
@@ -297,13 +297,13 @@ extension MainWindowController {
         libraryMode.panel.show(libraryMode.grid.selectedItems, clipboard: batchClipboardName)
     }
 
-    /// 편집 모드의 "조정 복사"도 여러 장 붙이기에 쓰이게 같이 담는다.
+    /// Also stored so edit mode's "Copy Adjustments" works for multi-photo paste.
     func rememberForBatch(_ s: DevelopSettings, name: String) {
         batchClipboard = settingsDict(s)
         batchClipboardName = name
     }
 
-    /// 붙일 갈래를 고르고 고른 사진 모두에 적용한다.
+    /// Pick groups to paste and apply to all selected photos.
     func applyClipboardToSelection() {
         guard let window, batchClipboard != nil else { NSSound.beep(); return }
         let sheet = PasteGroupsSheet(title: "고른 사진 \(libraryMode.grid.selectedItems.count)장에 조정 적용", source: batchClipboardName)
@@ -357,13 +357,13 @@ extension MainWindowController {
         }
     }
 
-    /// 조정을 바꾼 사진들의 썸네일을 차례로 새로 만든다 (원본이 있는 것만).
+    /// Rebuilds thumbnails of photos whose adjustments changed, in turn (only those with sources).
     func refreshThumbnails(_ items: [PhotoItem]) {
         let online = items.filter { !$0.offline && $0 !== photoItem }
         guard !online.isEmpty else { return }
         JobCenter.shared.add("thumbs", title: "썸네일 새로 만들기", count: online.count)
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            // 두 장씩 함께 (RAW 해독은 안에서 한 줄로 서지만, 보정·그리기는 겹쳐 돈다)
+            // Two at a time (RAW decoding serializes internally, but adjusting and rendering overlap)
             DispatchQueue.concurrentPerform(iterations: 2) { lane in
                 for (n, item) in online.enumerated() where n % 2 == lane {
                     let tq = CACurrentMediaTime()
@@ -372,12 +372,12 @@ extension MainWindowController {
                     let ti = CACurrentMediaTime()
                     guard let self, let doc = try? RawDocument(url: item.url) else { continue }
                     let tl = CACurrentMediaTime()
-                    doc.quickDecode = true   // 썸네일(320px)이라 빠른 해독으로 충분하다
-                    doc.approximateFromPreview = true   // 미리보기가 있으면 RAW를 풀지 않는다
+                    doc.quickDecode = true   // Thumbnails (320 px) are fine with the fast decode
+                    doc.approximateFromPreview = true   // If a preview exists, don't decode the RAW
                     if let s = DispatchQueue.main.sync(execute: { self.library.loadSettings(for: item.url, over: doc.asShot) }) { doc.settings = s }
-                    // 썸네일 크기 그대로 푼다 (예전엔 1/8 = 긴 변 1024로 보정 전체를 돌린 뒤 줄여 한 장에 2초)
+                    // Decode at thumbnail size (it used to run the whole develop at 1/8 = 1024 long side and then shrink, 2 s per photo)
                     let scale = min(1.0 / 8, 360 / max(doc.nativeSize.width, doc.nativeSize.height, 1))
-                    // 그리기는 이 스레드에서 (이 문서는 여기만 쓴다). 주 스레드에서 그리면 한 장에 1초씩 화면이 멈췄다
+                    // Render on this thread (only this thread uses this document). Rendering on main froze the UI for a second per photo
                     let ts = CACurrentMediaTime()
                     var tg = ts
                     let thumb = autoreleasepool { () -> NSImage? in
@@ -397,7 +397,7 @@ extension MainWindowController {
         }
     }
 
-    // MARK: - 앨범
+    // MARK: - Albums
 
     func addSelection(toAlbum id: Int64) {
         let ids = libraryMode.grid.selectedItems.map(\.id)
@@ -423,7 +423,7 @@ extension MainWindowController {
         selectSource(library.source, title: window?.title ?? "")
     }
 
-    // MARK: - 내보내기
+    // MARK: - Export
 
     @objc func exportPhotos(_ sender: Any?) {
         guard let window else { return }
@@ -441,7 +441,7 @@ extension MainWindowController {
         set { objc_setAssociatedObject(self, &exportKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    // MARK: - 외부 카탈로그
+    // MARK: - External catalogs
 
     @objc func importExternalCatalog(_ sender: Any?) {
         let panel = NSOpenPanel()
@@ -493,7 +493,7 @@ extension MainWindowController {
         }
     }
 
-    // MARK: - 테더링
+    // MARK: - Tethering
 
     var sessionFolder: URL {
         get {
@@ -533,7 +533,7 @@ extension MainWindowController {
     func startTether() {
         let folder = sessionFolder
         if gphoto == nil, tetherCamera == nil, ProcessInfo.processInfo.environment["DUOCHROME_NO_CAMERA"] == nil {
-            // 기본: libgphoto2 (설정 변경·라이브 뷰·초점). 쓸 수 없으면 macOS 기본 방식으로
+            // Default: libgphoto2 (settings, live view, focus). Falls back to the macOS built-in path if unavailable
             let g = GPhotoCamera(folder: folder)
             g.onStatus = { [weak self] s in self?.tetherMode.setStatus(s) }
             g.onConnected = { [weak self] on in
@@ -558,7 +558,7 @@ extension MainWindowController {
         showSession()
     }
 
-    /// macOS 기본 ImageCaptureCore 테더링 (촬영·내려받기만)
+    /// macOS built-in ImageCaptureCore tethering (capture and download only)
     func startBasicTether(_ folder: URL) {
         if tetherCamera == nil {
             let cam = TetherCamera(folder: folder)
@@ -586,7 +586,7 @@ extension MainWindowController {
         }
     }
 
-    /// 세션 폴더를 카탈로그에 등록하고 보여 준다.
+    /// Registers the session folder in the catalog and shows it.
     func showSession() {
         let folder = sessionFolder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -594,7 +594,7 @@ extension MainWindowController {
         tetherMode.setFolder(folder, count: library.items.count)
     }
 
-    /// 새로 찍혀 들어온 사진: 카탈로그에 넣고, 다음 촬영 조정을 붙이고, 바로 보여 준다.
+    /// Newly captured photo: add to the catalog, apply next-capture adjustments, and show it right away.
     func captured(_ url: URL) {
         let previous = photo?.settings
         let previousName = photoItem?.name
@@ -606,7 +606,7 @@ extension MainWindowController {
         case 1:
             if let p = previous {
                 var d = settingsDict(p); for k in Self.batchExcluded { d[k] = nil }
-                d["temperature"] = nil; d["tint"] = nil   // 화이트 밸런스는 사진마다 카메라 값 그대로
+                d["temperature"] = nil; d["tint"] = nil   // White balance stays the camera value per photo
                 library.saveRawSettings(d, for: url)
             }
         case 2:
@@ -628,12 +628,12 @@ private var pendingKey: UInt8 = 0
 private var exportKey: UInt8 = 0
 private var pasteKey: UInt8 = 0
 
-// MARK: - 모드를 옮겨도 패널 폭 그대로
+// MARK: - Panel widths persist across modes
 
 extension MainWindowController {
-    /// 모드의 (왼쪽, 오른쪽) 패널 폭. 대량 보정·테더링은 분할 칸 폭, 심화 보정은 레이어 패널 + 여백(분할 칸과 같은 셈).
-    /// 오른쪽은 사진 목록끼리(대량 보정·테더링)만 잇는다. 심화 보정 오른쪽은 다른 패널이라 따로 둔다.
-    /// 모드의 (왼쪽, 오른쪽) 패널 폭 (유리 패널 자체 폭). 접혀 있으면 nil.
+    /// A mode's (left, right) panel widths. Batch edit and tethering use split pane widths; layer edit uses layers panel + margin (same accounting as split panes).
+    /// Right side links only the photo lists (batch edit, tethering). Layer edit's right side is a different panel, kept separate.
+    /// A mode's (left, right) panel widths (glass panel widths). nil when collapsed.
     func sideWidths(_ m: AppMode) -> (left: CGFloat?, right: CGFloat?) {
         func of(_ g: GlassLayoutController) -> (CGFloat?, CGFloat?) {
             (g.showsLeft ? g.leftWidth : nil, g.showsRight ? g.rightWidth : nil)
@@ -647,8 +647,8 @@ extension MainWindowController {
         }
     }
 
-    /// 세 모드가 같은 패널 폭을 쓴다: 저장된 공통 폭을 들어가는 모드에 건다.
-    /// (대량 보정·테더링은 같은 키로 저장하므로 끌어 바꾼 폭이 곧 공통 폭이다)
+    /// All three modes share panel widths: apply the saved shared width to the mode being entered.
+    /// (batch edit and tethering save under the same key, so a dragged width becomes the shared width)
     func applySideWidths(_ w: (left: CGFloat?, right: CGFloat?), to m: AppMode) {
         let l = GlassLayoutController.sharedLeft, r = GlassLayoutController.sharedRight
         switch m {

@@ -2,15 +2,15 @@ import CoreImage
 import simd
 import Foundation
 
-/// 레이어 효과 (레이어에 차례로 쌓는 필터).
-/// 조정 레이어면 아래까지 합친 결과에, 이미지·칠 레이어면 그 레이어 내용에 건다.
-/// 반경·거리 값은 원본 픽셀 기준이고 미리보기 배율만큼 줄여 건다 (확대해도 같은 모습).
+/// Layer effects (filters stacked on a layer in order).
+/// For adjustment layers they apply to the composite below; for image/fill layers, to that layer's content.
+/// Radius and distance values are in source pixels and scaled down by the preview scale (same look when zoomed).
 struct LayerEffect: Equatable, Codable, Identifiable {
     var id = UUID().uuidString
     var kind: String
     var enabled = true
     var params: [String: Double] = [:]
-    /// 글자 값 (사용자 정의 필터의 계수, 참고 그림 파일 등)
+    /// Text values (custom filter coefficients, reference image files, etc.)
     var text: String = ""
 
     init(kind: String) {
@@ -42,7 +42,7 @@ struct EffectParam {
     let title: String
     let range: ClosedRange<Double>
     let def: Double
-    /// 원본 픽셀 거리 (미리보기 배율을 곱한다)
+    /// Distance in source pixels (multiplied by the preview scale)
     var pixels = false
     var unit = ""
 }
@@ -52,9 +52,9 @@ struct EffectSpec {
     let title: String
     let category: EffectCategory
     let params: [EffectParam]
-    /// 화면 감마(2.2)에서 거는가 (색·모양 필터는 대개 화면 값 기준이다)
+    /// Whether it applies in display gamma (2.2) (most color and shape filters work on display values)
     var gamma = false
-    /// (그림, 값 읽기, 배율) → 결과. 결과는 원래 영역으로 자른다.
+    /// (image, value reader, scale) → result. Cropped to the original extent.
     let apply: (CIImage, (String) -> Double, CGFloat) -> CIImage
 
     var defaults: [String: Double] { Dictionary(uniqueKeysWithValues: params.map { ($0.key, $0.def) }) }
@@ -64,7 +64,7 @@ enum Effects {
     static func spec(_ kind: String) -> EffectSpec? { byKind[kind] }
     static let byKind: [String: EffectSpec] = Dictionary(uniqueKeysWithValues: all.map { ($0.kind, $0) })
 
-    /// 효과를 차례로 건다
+    /// Applies effects in order
     static func apply(_ effects: [LayerEffect], _ img: CIImage, scale: CGFloat) -> CIImage {
         var o = img
         let e = img.extent
@@ -87,7 +87,7 @@ enum Effects {
         return o.cropped(to: e)
     }
 
-    /// 지금 거는 효과의 글 값 (깊이 맵 파일 등). 효과를 거는 동안만 이 스레드에 둔다
+    /// Text value of the effect being applied (depth map file etc.). Kept on this thread only while applying
     static var currentText: String { (Thread.current.threadDictionary["duochrome.fxText"] as? String) ?? "" }
 
     static let depthK = CIColorKernel(source: """
@@ -106,7 +106,7 @@ enum Effects {
     }
     static func fromGamma(_ i: CIImage) -> CIImage { i.applyingFilter("CIGammaAdjust", parameters: ["inputPower": 2.2]) }
 
-    // MARK: - 커널 (Core Image 커널 언어; 런타임에 컴파일)
+    // MARK: - Kernels (Core Image Kernel Language; compiled at runtime)
 
     static let twirlK = CIWarpKernel(source: """
         kernel vec2 k(vec2 c, float radius, float angle) {
@@ -132,7 +132,7 @@ enum Effects {
             return destCoord() + d / r * f;
         }
         """)
-    /// 극좌표: 직교 → 극 (mode 0) / 극 → 직교 (mode 1)
+    /// Polar coordinates: rectangular → polar (mode 0) / polar → rectangular (mode 1)
     static let polarK = CIWarpKernel(source: """
         kernel vec2 k(vec4 box, float mode) {
             vec2 p = destCoord() - box.xy; vec2 sz = box.zw; vec2 c = sz * 0.5;
@@ -146,7 +146,7 @@ enum Effects {
             }
         }
         """)
-    /// 확산: 주변 무작위 자리에서 가져온다
+    /// Diffuse: sample from random nearby positions
     static let diffuseK = CIWarpKernel(source: """
         kernel vec2 k(float amount) {
             vec2 p = destCoord();
@@ -155,7 +155,7 @@ enum Effects {
             return p + (vec2(n1, n2) - 0.5) * 2.0 * amount;
         }
         """)
-    /// 회전 흐림: 가운데를 도는 호를 따라 평균
+    /// Spin blur: average along arcs around the center
     static let spinK = CIKernel(source: """
         kernel vec4 k(sampler s, vec2 c, float angle) {
             vec2 d = destCoord() - c; vec4 acc = vec4(0.0); float n = 0.0;
@@ -167,7 +167,7 @@ enum Effects {
             return acc / n;
         }
         """)
-    /// 쿠와하라 (유화): 네 사분면 중 분산이 가장 작은 쪽의 평균
+    /// Kuwahara (oil paint): mean of the quadrant with the smallest variance
     static let kuwaharaK = CIKernel(source: """
         kernel vec4 k(sampler s, float r) {
             vec2 p = destCoord(); float R = clamp(floor(r), 1.0, 6.0);
@@ -195,7 +195,7 @@ enum Effects {
             return vec4(outc, sample(s, samplerCoord(s)).a);
         }
         """)
-    /// 표면 흐림 (양방향 필터): 가까우면서 색이 비슷한 픽셀만 평균
+    /// Surface blur (bilateral filter): average only nearby, similar-colored pixels
     static let bilateralK = CIKernel(source: """
         kernel vec4 k(sampler s, float radius, float threshold) {
             vec2 p = destCoord(); vec4 c0 = sample(s, samplerCoord(s));
@@ -210,7 +210,7 @@ enum Effects {
             return acc / max(wsum, 1e-5);
         }
         """)
-    /// 선택 색상: 색 무리별(빨강·노랑·초록·녹청·파랑·자홍·흰·중간·검정) 청록·자홍·노랑·검정 가감 (상대 방식)
+    /// Selective color: add/subtract cyan/magenta/yellow/black per color family (reds, yellows, greens, cyans, blues, magentas, whites, neutrals, blacks) (relative)
     static let selectiveK = CIColorKernel(source: """
         kernel vec4 k(__sample s, vec4 red, vec4 yellow, vec4 green, vec4 cyan, vec4 blue, vec4 magenta, vec4 whites, vec4 neutrals, vec4 blacks) {
             vec3 c = clamp(s.rgb, 0.0, 1.0);
@@ -241,7 +241,7 @@ enum Effects {
             return vec4(outc, s.a);
         }
         """)
-    /// 먼지와 스크래치: 중간값과 차이가 한계값보다 큰 픽셀만 바꾼다
+    /// Dust & scratches: replace only pixels differing from the median by more than the threshold
     static let thresholdMixK = CIColorKernel(source: """
         kernel vec4 k(__sample orig, __sample med, float t) {
             return length(orig.rgb - med.rgb) > t ? med : orig;
@@ -253,16 +253,16 @@ enum Effects {
     static let multiplyK = CIColorKernel(source: """
         kernel vec4 k(__sample a, __sample b) { return vec4(a.rgb * b.rgb, a.a); }
         """)
-    /// 바람: 밝은 가장자리를 한쪽으로 끈다 (이동 흐림한 가장자리를 원본에 밝게 합친다)
+    /// Wind: drag bright edges to one side (motion-blurred edges composited brighter onto the source)
     static let lightenK = CIColorKernel(source: """
         kernel vec4 k(__sample a, __sample b, float amt) { return vec4(max(a.rgb, mix(a.rgb, b.rgb, amt)), a.a); }
         """)
-    /// 메조틴트: 무작위 문턱으로 점을 찍는다
+    /// Mezzotint: dots from a random threshold
     static let mezzoK = CIColorKernel(source: """
         kernel vec4 k(__sample s, __sample n) { return vec4(step(n.rgb, s.rgb), s.a); }
         """)
 
-    // MARK: - 도움 함수
+    // MARK: - Helpers
 
     static func center(_ img: CIImage, _ v: (String) -> Double) -> CIVector {
         let e = img.extent
@@ -283,7 +283,7 @@ enum Effects {
 
     static func gray(_ i: CIImage) -> CIImage { i.applyingFilter("CIPhotoEffectMono") }
 
-    /// 구름 (프랙탈 잡음): 무작위 잡음을 여러 크기로 흐려 더한다
+    /// Clouds (fractal noise): random noise blurred at several scales and summed
     static func clouds(_ e: CGRect, scale: CGFloat, seed: Double) -> CIImage {
         var acc: CIImage?
         var amp: CGFloat = 0.5
@@ -305,7 +305,7 @@ enum Effects {
         return (acc ?? CIImage(color: .gray)).cropped(to: e)
     }
 
-    /// 흐림 강도 마스크로 흐린다 (흐림 갤러리)
+    /// Blur by a blur-strength mask (blur gallery)
     static func variableBlur(_ img: CIImage, mask: CIImage, radius: CGFloat) -> CIImage {
         img.clampedToExtent().applyingFilter("CIMaskedVariableBlur", parameters: [
             "inputMask": mask.clampedToExtent(), kCIInputRadiusKey: max(radius, 0.1),
@@ -316,7 +316,7 @@ enum Effects {
         CIImage(color: CIColor(red: v, green: v, blue: v)).cropped(to: e)
     }
 
-    // MARK: - 효과 목록
+    // MARK: - Effect list
 
     static let all: [EffectSpec] = blurs + gallery + sharpens + noises + distorts + stylizes + renders + pixelates + others + adjusts + artistic + galleryFilters
 
@@ -372,13 +372,13 @@ enum Effects {
             var mask: CIImage
             let text = Effects.currentText
             if v("source") >= 0.5, text.hasPrefix("depth:"), let d = Layers.sourceImage(String(text.dropFirst(6))), d.extent.width > 0 {
-                // 깊이 맵(0 가까움 ~ 1 멂)을 이 그림에 맞춰 늘리고, 초점 깊이에서 멀수록 1
+                // Stretch the depth map (0 near – 1 far) to this image; 1 the farther from the focal depth
                 let fit = d.transformed(by: .init(scaleX: e.width / d.extent.width, y: e.height / d.extent.height))
                     .transformed(by: .init(translationX: e.minX - d.extent.minX * e.width / d.extent.width, y: e.minY - d.extent.minY * e.height / d.extent.height))
                     .clampedToExtent().cropped(to: e)
                 mask = depthK?.apply(extent: e, arguments: [fit, Float(v("focus")), Float(v("depth"))]) ?? fit
             } else {
-                // 깊이 맵이 없으면 세로 위치 (아래가 가깝다)
+                // Without a depth map, vertical position (bottom is near)
                 let f = e.minY + e.height * CGFloat(1 - v("focus")), d = e.height * CGFloat(v("depth"))
                 let up = CIFilter(name: "CILinearGradient", parameters: [
                     "inputPoint0": CIVector(x: 0, y: f), "inputColor0": CIColor.black,
@@ -388,7 +388,7 @@ enum Effects {
                     "inputPoint1": CIVector(x: 0, y: f - d), "inputColor1": CIColor.white])!.outputImage!.cropped(to: e)
                 mask = up.applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: down])
             }
-            // 흐림 세 단계를 깊이 차이로 섞는다 (먼 곳일수록 반경이 커진다)
+            // Blend three blur levels by depth difference (larger radius farther away)
             let r = max(v("radius"), 0.1)
             func bokeh(_ k: Double) -> CIImage {
                 i.clampedToExtent().applyingFilter("CIBokehBlur", parameters: [
@@ -436,7 +436,7 @@ enum Effects {
                    params: [EffectParam(key: "distance", title: "거리", range: 1...400, def: 40, pixels: true, unit: "px"),
                             EffectParam(key: "angle", title: "처음 방향", range: -180...180, def: 0, unit: "°"),
                             EffectParam(key: "curve", title: "휘는 정도", range: -90...90, def: 20, unit: "°")]) { i, v, _ in
-            // 두 방향 동작 흐림을 위아래로 섞어 휘는 경로를 근사한다
+            // Blend two directional motion blurs top-to-bottom to approximate a curved path
             let e = i.extent
             let a0 = v("angle") * .pi / 180, a1 = (v("angle") + v("curve")) * .pi / 180
             let m0 = i.clampedToExtent().applyingFilter("CIMotionBlur", parameters: [kCIInputRadiusKey: max(v("distance"), 0.5), kCIInputAngleKey: a0]).cropped(to: e)
@@ -475,7 +475,7 @@ enum Effects {
                    params: [EffectParam(key: "amount", title: "양", range: 0...500, def: 150, unit: "%"),
                             EffectParam(key: "radius", title: "반경", range: 0.1...20, def: 1, pixels: true, unit: "px"),
                             EffectParam(key: "noise", title: "노이즈 줄이기", range: 0...100, def: 10, unit: "%")]) { i, v, _ in
-            // 밝기만 선명하게 (색 가장자리 번짐이 없다), 먼저 잔 노이즈를 누른다
+            // Sharpen luminance only (no color fringing), suppressing fine noise first
             var o = i
             if v("noise") > 0 { o = o.applyingFilter("CINoiseReduction", parameters: ["inputNoiseLevel": v("noise") / 1000, "inputSharpness": 0.4]) }
             return o.clampedToExtent().applyingFilter("CISharpenLuminance", parameters: [
@@ -485,7 +485,7 @@ enum Effects {
                    params: [EffectParam(key: "length", title: "흔들린 거리", range: 1...60, def: 8, pixels: true, unit: "px"),
                             EffectParam(key: "angle", title: "흔들린 방향", range: -90...90, def: 0, unit: "°"),
                             EffectParam(key: "iterations", title: "반복", range: 1...20, def: 8)]) { i, v, _ in
-            // 리처드슨-루시 역합성곱: 흔들림을 직선 동작 흐림으로 보고 되풀이해 되돌린다
+            // Richardson–Lucy deconvolution: model shake as a linear motion blur and iteratively undo it
             guard let dk = divideK, let mk = multiplyK else { return i }
             let e = i.extent
             func psf(_ x: CIImage) -> CIImage {
@@ -625,7 +625,7 @@ enum Effects {
         },
         EffectSpec(kind: "oilPaint", title: "유화", category: .stylize,
                    params: [EffectParam(key: "radius", title: "붓 크기", range: 1...6, def: 4)], gamma: true) { i, v, s in
-            // 커널 반경은 픽셀 고정(최대 6)이라, 크게 칠하려면 줄여서 걸고 다시 키운다
+            // The kernel radius is fixed in pixels (max 6), so for large amounts apply downscaled and upscale again
             let k = max(min(s * 1.0, 1), 0.25)
             let small = i.transformed(by: .init(scaleX: k, y: k))
             let painted = general(kuwaharaK, small, pad: 7, [v("radius")])
@@ -683,7 +683,7 @@ enum Effects {
                 kCIInputCenterKey: c, "inputSunRadius": v("size") * 0.4, "inputMaxStriationRadius": 2.6,
                 "inputStriationStrength": v("strength"), "inputStriationContrast": 1.2, "inputTime": 0.3,
                 kCIInputColorKey: CIColor(red: 1, green: 0.92, blue: 0.8)])!.outputImage!.cropped(to: e)
-            // 가운데를 지나 반대쪽으로 늘어서는 고리들
+            // Rings lining up through the center to the opposite side
             var o = i.applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: sun])
             let dx = e.midX - c.x, dy = e.midY - c.y
             for (t, r, a) in [(0.6, 0.35, 0.18), (1.2, 0.6, 0.12), (1.6, 0.25, 0.2), (2.0, 0.9, 0.08)] {
@@ -765,7 +765,7 @@ enum Effects {
                             EffectParam(key: "dehaze", title: "디헤이즈", range: 0...100, def: 0),
                             EffectParam(key: "saturation", title: "채도", range: -100...100, def: 0),
                             EffectParam(key: "vibrance", title: "활기", range: -100...100, def: 0)]) { i, v, s in
-            // 대량 보정 현상 도구를 이 레이어에 그대로 (가이드는 같은 그림)
+            // Batch-edit develop tools applied to this layer as-is (guide is the same image)
             var a = LocalAdjust()
             a.exposure = Float(v("exposure")); a.contrast = Float(v("contrast")); a.highlight = Float(v("highlight"))
             a.shadow = Float(v("shadow")); a.clarity = Float(v("clarity")); a.dehaze = Float(v("dehaze"))
@@ -845,7 +845,7 @@ enum Effects {
         },
         EffectSpec(kind: "sketch", title: "스케치 (연필)", category: .gallery,
                    params: [EffectParam(key: "radius", title: "선 굵기", range: 1...10, def: 3)], gamma: true) { i, v, _ in
-            // 흑백 반전을 흐려 색상 닷지로 합치면 연필 스케치
+            // Blur the inverted grayscale and color-dodge it for a pencil sketch
             let g = gray(i), inv = g.applyingFilter("CIColorInvert").blurred(CGFloat(v("radius")))
             return inv.applyingFilter("CIColorDodgeBlendMode", parameters: [kCIInputBackgroundImageKey: g])
         },
@@ -877,9 +877,9 @@ enum Effects {
         },
     ]
 
-    // MARK: - 계산이 필요한 조정
+    // MARK: - Adjustments that need measurement
 
-    /// 균일화: 밝기 누적 분포로 톤 곡선을 만든다 (화면 값에서)
+    /// Equalize: build a tone curve from the cumulative luminance distribution (on display values)
     static func equalize(_ i: CIImage) -> CIImage {
         let e = i.extent
         let small = i.transformed(by: .init(scaleX: 256 / max(e.width, 1), y: 256 / max(e.height, 1)))
@@ -895,7 +895,7 @@ enum Effects {
         }
         var cdf = [Double](repeating: 0, count: 64), acc = 0.0
         for k in 0..<64 { acc += hist[k]; cdf[k] = acc / Double(w * h) }
-        // 64칸 곡선 → 16³ 색 큐브 (밝기 비율을 곱해 색은 유지)
+        // 64-bin curve → 16³ color cube (multiplies by the luminance ratio to keep color)
         let n = 16
         var cube = [Float](repeating: 0, count: n * n * n * 4)
         for b in 0..<n { for g in 0..<n { for rr in 0..<n {
@@ -911,7 +911,7 @@ enum Effects {
         return i.applyingFilter("CIColorCube", parameters: ["inputCubeDimension": n, "inputCubeData": data])
     }
 
-    /// 색상 일치 (한 장 방식): 평균 색을 회색으로 중화하고 밝기·채도를 곱한다
+    /// Match color (single image): neutralize the mean color to gray and scale brightness/saturation
     static func matchColor(_ i: CIImage, luminance: Double, intensity: Double, fade: Double, neutralize: Bool) -> CIImage {
         let avg = i.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: i.extent)])
         var px = [Float](repeating: 0, count: 4)

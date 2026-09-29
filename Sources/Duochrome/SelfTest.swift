@@ -2,8 +2,8 @@ import UniformTypeIdentifiers
 import CoreImage
 import QuartzCore
 
-/// 개발용 자체 검사 (DUOCHROME_SELFTEST=1). 결과를 로그로 남기고 종료한다.
-/// 좌표 변환처럼 그림으로 보기 어려운 것을 숫자로 확인한다.
+/// Development self test (DUOCHROME_SELFTEST=1). Logs results and quits.
+/// Checks things hard to judge visually, like coordinate mappings, with numbers.
 enum SelfTest {
     static func run() {
         var failures = 0
@@ -18,7 +18,7 @@ enum SelfTest {
         s.keystoneV = 35; s.keystoneH = -20; s.keystoneAspect = 10
         s.crop = CropRect(CGRect(x: 0.1, y: 0.15, width: 0.7, height: 0.6))
 
-        // 1. 되돌리기: 화면 → 원본 → 화면이 제자리로 오는가
+        // 1. Round trip: view → source → view returns to the same place
         var worst = 0.0
         for i in 0..<200 {
             let p = CGPoint(x: Double((i * 7919) % 4000) + 200, y: Double((i * 104729) % 3000) + 300)
@@ -28,7 +28,7 @@ enum SelfTest {
         }
         check("좌표 되돌리기", worst < 0.01, String(format: "최대 오차 %.5f px", worst))
 
-        // 2. 그림과 좌표가 같은 자리를 가리키는가: 원본의 점 하나를 그려서 찾는다
+        // 2. Image and coordinates point to the same place: render one source point and find it
         let dot = CGPoint(x: 3100, y: 2200)
         let img = CIImage(color: .white).cropped(to: CGRect(x: dot.x - 3, y: dot.y - 3, width: 6, height: 6))
             .composited(over: CIImage(color: .black).cropped(to: CGRect(origin: .zero, size: native)))
@@ -54,12 +54,12 @@ enum SelfTest {
             check("그림 위치 = 계산 위치", false, "점을 찾지 못함 (예상 \(predicted))")
         }
 
-        // 3. 선 긋기 키스톤: 알려진 답(세로 40, 회전 2°)을 되찾는가
+        // 3. Line-drawn keystone: recovers the known answer (vertical 40, rotation 2°)
         var target = DevelopSettings()
         target.keystoneV = 40; target.rotation = 2
         let current = DevelopSettings()
         let lines: [(CGPoint, CGPoint)] = [(1500, 800, 1500, 4600), (6400, 700, 6400, 4800)].map { l in
-            // 목표 설정에서 세로인 선을, 지금 설정(보정 없음) 화면 좌표로 옮긴다.
+            // Map lines vertical under the target settings to view coordinates under the current (uncorrected) settings.
             let a = Geometry.fromDisplay(CGPoint(x: l.0, y: l.1), target, native: native, fullFrame: true)
             let b = Geometry.fromDisplay(CGPoint(x: l.2, y: l.3), target, native: native, fullFrame: true)
             return (Geometry.toDisplay(a, current, native: native, fullFrame: true),
@@ -69,7 +69,7 @@ enum SelfTest {
         check("선 긋기 키스톤", abs(solved.keystoneV - 40) < 1.5 && abs(solved.rotation - 2) < 0.2,
               String(format: "세로 %.2f (40), 회전 %.2f° (2)", solved.keystoneV, solved.rotation))
 
-        // 6. 사용자 GPU 커널이 입력을 제자리에서 읽는가 (위아래만 변하는 그림을 그대로 통과시킨다)
+        // 6. Custom GPU kernels read input in place (an image varying only vertically passes through unchanged)
         do {
             let box = CGRect(x: 0, y: 0, width: 200, height: 200)
             let vgrad = CIFilter(name: "CISmoothLinearGradient", parameters: [
@@ -90,11 +90,11 @@ enum SelfTest {
                          a[0], b[0], a[a.count - 4], b[b.count - 4]))
         }
 
-        // 8. 컬러 에디터·스킨 톤 (LUT 변환 함수를 바로 확인)
+        // 8. Color editor / skin tone (checks the LUT conversion function directly)
         do {
             var k = ColorLUT.Key()
-            k.editor[5].dSat = -100            // 파랑 채도 없애기
-            k.editor[0].dHue = 30              // 빨강 색조 +30°
+            k.editor[5].dSat = -100            // desaturate blue
+            k.editor[0].dHue = 30              // red hue +30°
             let blue = ColorLUT.transform(k, SIMD3(0.1, 0.2, 0.9))
             let green = ColorLUT.transform(k, SIMD3(0.1, 0.8, 0.2))
             let gray = ColorLUT.transform(k, SIMD3(0.5, 0.5, 0.5))
@@ -113,10 +113,10 @@ enum SelfTest {
                   String(format: "피부1 %.0f°/%.2f, 피부2 %.0f°/%.2f (가까워져야), 하늘 %.0f° 그대로", skin1.0, skin1.1, skin2.0, skin2.1, far.0))
         }
 
-        // 9. 단일 픽셀 제거·밝기 커브·채널 레벨
+        // 9. Single-pixel removal, luma curve, channel levels
         do {
             let rect = CGRect(x: 0, y: 0, width: 64, height: 64)
-            // 왼쪽 어둡고 오른쪽 밝은 경계 + 어두운 쪽 가운데 밝은 점 하나
+            // Dark left / bright right edge + one bright dot in the middle of the dark side
             let dark = CIImage(color: CIColor(red: 0.1, green: 0.1, blue: 0.1)).cropped(to: rect)
             let edge = CIImage(color: CIColor(red: 0.8, green: 0.8, blue: 0.8)).cropped(to: CGRect(x: 32, y: 0, width: 32, height: 64))
             let dot = CIImage(color: CIColor(red: 1, green: 1, blue: 1)).cropped(to: CGRect(x: 12, y: 30, width: 1, height: 1))
@@ -142,7 +142,7 @@ enum SelfTest {
                   String(format: "밝아짐 G %.2f → %.2f, 빨강/파랑 비율 %.2f → %.2f", c0.y, c1.y, ratio0, ratio1))
 
             var sl = DevelopSettings()
-            sl.levelsRGB[0] = [0, 1, 1, 0, 0.8]     // 빨강 출력 흰색 0.8
+            sl.levelsRGB[0] = [0, 1, 1, 0, 0.8]     // red output white 0.8
             let data = Develop.toneCurve(sl)!
             let arr = data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
             let top = Array(arr.suffix(3))
@@ -150,7 +150,7 @@ enum SelfTest {
                   String(format: "흰색 → R %.2f G %.2f B %.2f", top[0], top[1], top[2]))
         }
 
-        // 10. 손 렌즈 보정: 점이 반경 방향으로 맞는 쪽에 옮겨지는가 (y 뒤집힘·영역 원점까지)
+        // 10. Manual lens correction: points move radially in the correct direction (including y flip and extent origin)
         do {
             let rect = CGRect(x: 100, y: 50, width: 400, height: 300)
             let bg = CIImage(color: CIColor(red: 0.1, green: 0.1, blue: 0.1)).cropped(to: rect)
@@ -163,7 +163,7 @@ enum SelfTest {
                 Render.context.render(i, toBitmap: &buf, rowBytes: w * 16, bounds: rect, format: .RGBAf, colorSpace: nil)
                 var best = 0, bv: Float = -1
                 for j in 0..<(w * h) where buf[j * 4 + channel] > bv { bv = buf[j * 4 + channel]; best = j }
-                // 비트맵 행 0은 위쪽
+                // bitmap row 0 is the top
                 return CGPoint(x: rect.minX + CGFloat(best % w), y: rect.maxY - 1 - CGFloat(best / w))
             }
             let p0 = brightest(src, channel: 1)
@@ -193,14 +193,14 @@ enum SelfTest {
                   String(format: "가운데 %.4f, 모서리 %.4f (원래 %.4f)", mid, corner, base))
         }
 
-        // 11. 자동 키스톤: 알고 있는 값으로 비튼 건물 격자를 선 찾기로 되돌리는가
+        // 11. Auto keystone: recovers a building grid distorted by known values via line finding
         do {
             let W = 1200, H = 800
             let native = CGSize(width: W, height: H)
             let truth = (v: Float(30), h: Float(-20), r: Float(3))
             let rot = Geometry.rotationTransform(truth.r, w: native.width, h: native.height)
             let hm = Geometry.keystoneHomography(v: truth.v, h: truth.h, aspect: 0, w: native.width, h: native.height)
-            // 곧은 격자(보정 뒤 모습)를 거꾸로 옮겨 "찍힌 사진"을 만든다.
+            // Build a "captured photo" by warping a straight grid (the corrected look) backward.
             func shot(_ p: CGPoint) -> CGPoint { hm.inverse.apply(p).applying(rot.inverted()) }
             let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -224,7 +224,7 @@ enum SelfTest {
                          v.count, hz.count, full.v, full.h, full.rotation, onlyV.v, onlyV.rotation))
         }
 
-        // 12. 이미지 레이어·칠 불투명도·그룹, 그룹 옮기기 규칙
+        // 12. Image layers, fill opacity, groups, group move rules
         do {
             let native = CGSize(width: 1200, height: 800)
             let rect = CGRect(origin: .zero, size: native)
@@ -260,7 +260,7 @@ enum SelfTest {
                   String(format: "가운데 빨강 %.2f (바깥 %.2f), 칠 50%% %.2f, 그룹 불투명도 50%% %.2f, 그룹 끔 %.2f",
                          full.0, full.1, filled.0, grouped.0, hidden.0))
 
-            // 순서 규칙: [A, B, C]에서 B를 묶고 → 위로(그룹 밖) → 아래로(그룹 안 맨 위) → 그룹째 아래로
+            // Order rules: in [A, B, C] group B → up (out of group) → down (top of group) → group down
             var t = ["A", "B", "C"].map { AdjustLayer(name: $0) }
             let g = LayerTree.groupLayer(&t, 1, name: "G")
             func names() -> String { t.map { $0.name + ($0.group == g ? "*" : "") }.joined(separator: " ") }
@@ -275,10 +275,10 @@ enum SelfTest {
                   "\(s0) → 위로 \(s1) → 아래로 \(s2) → 그룹째 아래로 \(s3)")
         }
 
-        // 13. 패치: 올가미 안의 얼룩을 옆 자리 결로 채우고, 둘레 밝기에 맞추는가
+        // 13. Patch: fills a blotch inside the lasso with neighboring texture and matches the surrounding brightness
         do {
             let rect = CGRect(x: 0, y: 0, width: 400, height: 300)
-            // 왼쪽→오른쪽으로 밝아지는 바탕 + 가운데 어두운 얼룩
+            // Background brightening left → right + a dark blotch in the middle
             let ramp = CIFilter(name: "CILinearGradient", parameters: [
                 "inputPoint0": CIVector(x: 0, y: 0), "inputPoint1": CIVector(x: 400, y: 0),
                 "inputColor0": CIColor(red: 0.3, green: 0.3, blue: 0.3), "inputColor1": CIColor(red: 0.7, green: 0.7, blue: 0.7),
@@ -287,7 +287,7 @@ enum SelfTest {
             let cg = Render.context.createCGImage(blob.composited(over: ramp), from: rect, format: .RGBAh, colorSpace: Render.workingSpace)!
             let src = CIImage(cgImage: cg)
             let poly: [Double] = [170, 120, 230, 120, 230, 180, 170, 180]
-            // 원본 자리는 위쪽 (같은 밝기 줄)
+            // source is above (same brightness row)
             let spot = RetouchSpot(kind: .heal, targetX: 170, targetY: 120, sourceX: 170, sourceY: 200, radius: 8,
                                    feather: 0.3, path: poly, patch: true)
             let out = Retouch.apply([spot], to: src, scale: 1)
@@ -301,7 +301,7 @@ enum SelfTest {
                   String(format: "얼룩 %.3f → %.3f (둘레 %.3f), 먼 곳 변화 %.5f", before, after, expect, far))
         }
 
-        // 14. 기본 모습 보정표 (카메라 맞춤): 읽기, 1.0 넘는 밝기 보존, Apple 기본이면 그대로
+        // 14. Base look table (camera-fitted): reading, preserving brightness above 1.0, unchanged for Apple default
         do {
             let cam = "Canon EOS R5m2"
             let rect = CGRect(x: 0, y: 0, width: 4, height: 1)
@@ -322,7 +322,7 @@ enum SelfTest {
             let mid = pix(on, 0), hi = pix(on, 1), mid0 = pix(off, 0)
             let one = pix(Look.apply(CIImage(cgImage: Render.context.createCGImage(patch(1.0, 0), from: CGRect(x: 0, y: 0, width: 1, height: 1),
                                                                                     format: .RGBAh, colorSpace: Render.workingSpace)!), look: 1, camera: cam), 0)
-            // 보정표가 없는 맥(공개 빌드)에서는 카메라 맞춤을 골라도 Apple 기본 그대로여야 한다
+            // On Macs without look tables (public build), choosing camera-fitted must stay Apple default
             let pass = loaded
                 ? abs(mid0.y - 0.18) < 0.002 && mid.y > 0.05 && mid.y < 0.5 && abs((hi.y - one.y) - 1.0) < 0.02
                     && Look.available(for: cam) && !Look.available(for: "Sony ILCE-7M5")
@@ -332,8 +332,8 @@ enum SelfTest {
                          mid.y, mid0.y, hi.y, one.y))
         }
 
-        // 14-2. 슬라이더 정의 (docs/SLIDERS.md): 밝기는 중간 회색을 스톱 단위로, 대비는 중간 회색 고정,
-        //       하이라이트·섀도는 정해진 밝기 구간만 스톱 단위로
+        // 14-2. Slider definitions (docs/SLIDERS.md): brightness moves middle gray in stops, contrast keeps middle gray fixed,
+        //       highlights/shadows move only their defined brightness ranges in stops
         do {
             func gray(_ v: CGFloat, _ edit: (inout DevelopSettings) -> Void) -> Float {
                 var st = DevelopSettings()
@@ -350,8 +350,8 @@ enum SelfTest {
             let brightCon = gray(0.36) { $0.brightness = 0; $0.contrast = 0 }
             let hlMid = gray(0.18) { $0.highlightTone = -100 }, hlTop = gray(0.699) { $0.highlightTone = -100 }
             let hlUp = gray(0.669) { $0.highlightTone = 100 }, hlUpMid = gray(0.18) { $0.highlightTone = 100 }
-            let hlOld = gray(0.699) { $0.highlight = 100 }   // 예전 파일 값(0~100 되살림)은 -100과 같다
-            // 국소 하이라이트: 밝은 구역의 줄무늬(선형 0.3·0.6)는 눌러도 명암 비율이 그대로여야 한다
+            let hlOld = gray(0.699) { $0.highlight = 100 }   // An old-file value (0–100 recovery) equals -100
+            // Local highlights: stripes in a bright region (linear 0.3/0.6) must keep their contrast ratio when pushed down
             let stripes = CIFilter(name: "CIStripesGenerator", parameters: [
                 "inputColor0": CIColor(red: 0.3, green: 0.3, blue: 0.3, alpha: 1, colorSpace: Render.workingSpace)!,
                 "inputColor1": CIColor(red: 0.6, green: 0.6, blue: 0.6, alpha: 1, colorSpace: Render.workingSpace)!,
@@ -369,7 +369,7 @@ enum SelfTest {
             var hs = DevelopSettings(); hs.highlightTone = -100
             let r0 = ratio(stripes), rLocal = ratio(Develop.base(hs, to: stripes, guide: nil, scale: 1, haze: 0.9).0),
                 rGlobal = ratio(Develop.tone(hs, stripes, scale: 1))
-            // 섀도 -100도 어두운 구역의 줄무늬(선형 0.01·0.04) 명암 비율을 지켜야 한다 (한 픽셀씩이면 뭉개지며 대비가 커진다)
+            // Shadows -100 must keep the contrast ratio of stripes in a dark region (linear 0.01/0.04) too (per pixel it would smear and add contrast)
             let darkStripes = CIFilter(name: "CIStripesGenerator", parameters: [
                 "inputColor0": CIColor(red: 0.01, green: 0.01, blue: 0.01, alpha: 1, colorSpace: Render.workingSpace)!,
                 "inputColor1": CIColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1, colorSpace: Render.workingSpace)!,
@@ -395,7 +395,7 @@ enum SelfTest {
                 bright, brightWhite, conMid, conLo, conHi, hlMid, hlTop, hlUp, r0, rLocal, rGlobal, shMid, shLow, shDeep, shDeepMid, d0, dLocal, dGlobal))
         }
 
-        // 15. 색 조정·필터·선택 마스크
+        // 15. Color adjustments, filters, selection masks
         do {
             let rect = CGRect(x: 0, y: 0, width: 200, height: 100)
             func solid(_ v: CGFloat) -> CIImage {
@@ -407,7 +407,7 @@ enum SelfTest {
                                       colorSpace: Render.workingSpace)
                 return SIMD3(p[0], p[1], p[2])
             }
-            let mid = solid(0.2140)   // 화면 값 0.5 근처
+            let mid = solid(0.2140)   // around display value 0.5
             var a = LocalAdjust(); a.invert = 1
             let inv = px(Layers.colorAdjust(a, mid), 10, 10).y
             a = LocalAdjust(); a.threshold = 128
@@ -420,7 +420,7 @@ enum SelfTest {
             check("색 조정 (반전·한계값·포토 필터·채널 혼합)", adjustOK,
                   String(format: "반전 %.3f, 한계값 %.2f/%.2f, 포토 필터 R/B %.2f, 채널 혼합 R %.2f B %.2f", inv, thLo, thHi, warm.x / warm.z, swapped.x, swapped.z))
 
-            // 흐림: 경계가 퍼진다. 하이 패스: 평평한 곳은 0.5
+            // Blur: edges spread. High pass: flat areas are 0.5
             let edge = solid(0).composited(over: solid(1).cropped(to: CGRect(x: 100, y: 0, width: 100, height: 100)))
             let edgeImg = CIImage(cgImage: Render.context.createCGImage(solid(1).cropped(to: CGRect(x: 100, y: 0, width: 100, height: 100))
                 .composited(over: solid(0)), from: rect, format: .RGBAh, colorSpace: Render.workingSpace)!)
@@ -432,7 +432,7 @@ enum SelfTest {
             check("필터 (흐림·하이 패스)", bl > 0.1 && bl < 0.5 && abs(flat - 0.5) < 0.01,
                   String(format: "경계 옆 %.2f (원래 0), 하이 패스 평평한 곳 %.3f", bl, flat))
 
-            // 선택 마스크: 안은 흰색, 밖은 검정
+            // Selection mask: white inside, black outside
             let native = CGSize(width: 200, height: 100)
             var m = LayerMask(); m.kind = .rect; m.box = [20, 20, 80, 60]
             let r1 = Layers.maskImage(m, scale: 1, native: native, shape: { i, _ in i }, base: mid)
@@ -447,7 +447,7 @@ enum SelfTest {
                          px(r1, 50, 40).x, px(r1, 90, 40).x, px(e1, 150, 50).x, px(e1, 102, 5).x, px(p1, 100, 30).x, px(p1, 20, 80).x))
         }
 
-        // 16. 교정쇄·색역 경고, 워터마크
+        // 16. Soft proof, gamut warning, watermark
         do {
             let r = CGRect(x: 0, y: 0, width: 20, height: 10)
             func px(_ i: CIImage) -> SIMD3<Float> {
@@ -456,7 +456,7 @@ enum SelfTest {
                                       colorSpace: Render.workingSpace)
                 return SIMD3(p[0], p[1], p[2])
             }
-            // Rec.2020의 순수 초록은 sRGB 밖, 중간 회색은 안
+            // Pure Rec.2020 green is outside sRGB, middle gray is inside
             let wide = CIImage(color: CIColor(red: 0, green: 0.6, blue: 0, alpha: 1, colorSpace: Render.workingSpace)!).cropped(to: r)
             let gray = CIImage(color: CIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1, colorSpace: Render.workingSpace)!).cropped(to: r)
             let w1 = px(Render.softProof(wide, warn: true)), g1 = px(Render.softProof(gray, warn: true)), p1 = px(Render.softProof(wide, warn: false))
@@ -471,7 +471,7 @@ enum SelfTest {
             let marked = Exporter.watermarked(black, rec)
             var buf = [Float](repeating: 0, count: 800 * 500 * 4)
             Render.context.render(marked, toBitmap: &buf, rowBytes: 800 * 16, bounds: black.extent, format: .RGBAf, colorSpace: nil)
-            // 비트맵 행 0은 위쪽: 오른쪽 아래 1/4에만 밝은 화소가 있어야 한다
+            // Bitmap row 0 is the top: only the bottom-right quarter should have bright pixels
             var br: Float = 0, tl: Float = 0
             for y in 0..<500 { for x in 0..<800 {
                 let v = buf[(y * 800 + x) * 4]
@@ -480,7 +480,7 @@ enum SelfTest {
             check("내보내기 워터마크 (오른쪽 아래)", br > 0.3 && tl < 0.01, String(format: "오른쪽 아래 %.2f, 왼쪽 위 %.2f", br, tl))
         }
 
-        // 17. 캔버스 합성: GPU 커널을 거친 그림을 줄여 바탕 위에 놓아도 여백은 바탕색이어야 한다 (검게 번지던 문제)
+        // 17. Canvas compositing: downscaling a GPU-kernel image onto a background must leave margins in the background color (the black bleed bug)
         do {
             let src = CIImage(color: CIColor(red: 0.3, green: 0.3, blue: 0.3)).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 300))
             let processed = Look.apply(src, look: 1, camera: "Canon EOS R5m2")
@@ -493,7 +493,7 @@ enum SelfTest {
             Render.context.render(bg, toBitmap: &p, rowBytes: 16, bounds: CGRect(x: 10, y: 10, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
             let bgv = p[0]
             Render.context.render(out, toBitmap: &p, rowBytes: 16, bounds: CGRect(x: 200, y: 200, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
-            // 사진이 포함된 넓은 구역을 한 번에 그릴 때도 (이때만 틀렸다). 뒤에 톤 곡선(화면 색 공간)까지 붙여 본다.
+            // Also when drawing a wide region containing the photo at once (the only case that failed). Also chains a tone curve (display color space) after it.
             var ts = DevelopSettings(); ts.contrast = 20
             for (label, img2) in [("커널만", processed), ("커널+톤", Develop.tone(ts, processed, scale: 1))] {
                 let o2 = img2.transformed(by: t).composited(over: bg)
@@ -505,8 +505,8 @@ enum SelfTest {
             check("캔버스 여백 (GPU 커널 뒤)", abs(margin - bgv) < 0.005, String(format: "여백 %.3f (바탕 %.3f), 사진 %.3f", margin, bgv, p[0]))
         }
 
-        // 18. 리터칭 점: 큰 그림을 먼저 그린 뒤 점 둘레만 다시 그려도 같아야 한다
-        //     (Core Image가 미리 계산한 더 큰 입력을 넘겨 커널이 엉뚱한 화소를 읽던 문제 — 점이 검게 칠해졌다)
+        // 18. Retouch spots: redrawing only around a spot after drawing a large image must match
+        //     (Core Image passing a larger precomputed input made the kernel read wrong pixels — spots were painted black)
         do {
             let rect = CGRect(x: 0, y: 0, width: 600, height: 400)
             let ramp = CIFilter(name: "CILinearGradient", parameters: [
@@ -526,11 +526,11 @@ enum SelfTest {
                   String(format: "전체 %.3f, 부분 %.3f", f, part[0]))
         }
 
-        // 7. 조정 레이어: 마스크 종류마다 효과가 맞는 자리에만 나는가
+        // 7. Adjustment layers: the effect appears only where it should for each mask type
         do {
             let nat = CGSize(width: 1200, height: 800)
             let rect = CGRect(origin: .zero, size: nat)
-            // 왼쪽 절반은 어둡고(0.05) 오른쪽 절반은 밝은(0.5) 판
+            // board with a dark (0.05) left half and a bright (0.5) right half
             let img = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5)).cropped(to: CGRect(x: 600, y: 0, width: 600, height: 800))
                 .composited(over: CIImage(color: CIColor(red: 0.05, green: 0.05, blue: 0.05)).cropped(to: rect))
             func px(_ i: CIImage, _ p: CGPoint) -> Float {
@@ -544,9 +544,9 @@ enum SelfTest {
                 return Layers.apply([layer], to: shaped, guide: shaped, scale: 1, guideScale: 1, native: nat,
                                     shape: { m, sc in Geometry.crop(geo, Geometry.transform(geo, m, scale: sc)) })
             }
-            // 기준값은 입력 그림에서 잰다 (CIColor는 sRGB라 선형 값과 다르다).
+            // Reference values are measured on the input image (CIColor is sRGB, so it differs from linear values).
             let hi = px(img, CGPoint(x: 900, y: 400)), lo = px(img, CGPoint(x: 300, y: 400))
-            // ① 선형: 위(y=800)가 100%, 아래(y=0)가 0%. 노출 +1 = 선형 값 2배.
+            // ① Linear: top (y=800) is 100%, bottom (y=0) is 0%. Exposure +1 = linear value doubled.
             var lin = AdjustLayer(name: "선형")
             lin.adjust.exposure = 1
             lin.mask.kind = .linear
@@ -556,7 +556,7 @@ enum SelfTest {
             check("레이어: 선형 그라디언트", abs(top - 2) < 0.05 && abs(bottom - 1) < 0.02,
                   String(format: "위 %.2f배 (2), 아래 %.2f배 (1)", top, bottom))
 
-            // ② 브러시 + 형태 보정: 원본 (900, 300)에 칠한 점이 회전·키스톤 뒤 제자리에 있는가
+            // ② Brush + geometry: does a dot painted at source (900, 300) stay in place after rotation/keystone
             var geo = DevelopSettings()
             geo.rotation = 6; geo.keystoneV = 30
             var br = AdjustLayer(name: "브러시")
@@ -570,16 +570,16 @@ enum SelfTest {
             check("레이어: 브러시 마스크가 형태 보정을 따라감", abs(hit - 2) < 0.1 && abs(miss - 1) < 0.02,
                   String(format: "칠한 곳 %.2f배 (2), 먼 곳 %.2f배 (1)", hit, miss))
 
-            // ③ 루마 레인지: 밝은 쪽(오른쪽)만
+            // ③ Luma range: bright side (right) only
             var lr = AdjustLayer(name: "루마")
             lr.adjust.exposure = -1
-            lr.mask.lumaMin = 0.3; lr.mask.lumaSoft = 0.05   // 밝은 쪽 체감 밝기 0.50, 어두운 쪽 0.08
+            lr.mask.lumaMin = 0.3; lr.mask.lumaSoft = 0.05   // perceived brightness 0.50 on the bright side, 0.08 on the dark side
             let r = run(lr)
             let bright = px(r, CGPoint(x: 900, y: 400)) / hi, dark = px(r, CGPoint(x: 300, y: 400)) / lo
             check("레이어: 루마 레인지", abs(bright - 0.5) < 0.05 && abs(dark - 1) < 0.02,
                   String(format: "밝은 쪽 %.2f배 (0.5), 어두운 쪽 %.2f배 (1)", bright, dark))
 
-            // ④ 불투명도 50% + 반전 원형
+            // ④ opacity 50% + inverted radial
             var rad = AdjustLayer(name: "원형")
             rad.adjust.exposure = 1
             rad.opacity = 0.5
@@ -589,7 +589,7 @@ enum SelfTest {
             rad.mask.invert = true
             let c = run(rad)
             let inside = px(c, CGPoint(x: 900, y: 400)) / hi, outside = px(c, CGPoint(x: 1150, y: 400)) / hi
-            // ⑤ 클리핑: 전체 레이어를 원형 레이어에 클리핑하면 원 안에서만
+            // ⑤ Clipping: a full layer clipped to a radial layer affects only inside the circle
             var base0 = AdjustLayer(name: "원형 0")
             base0.mask.kind = .radial
             base0.mask.radial = [900, 400, 100, 100]
@@ -604,7 +604,7 @@ enum SelfTest {
             check("레이어: 클리핑 마스크", abs(cin - 2) < 0.05 && abs(cout - 1) < 0.02,
                   String(format: "아래 레이어 원 안 %.2f배 (2), 밖 %.2f배 (1)", cin, cout))
 
-            // ⑥ 디졸브 50%: 바뀐 픽셀이 절반쯤, 바뀐 픽셀은 100% 효과
+            // ⑥ Dissolve 50%: about half the pixels change, and changed pixels have 100% effect
             var dis = AdjustLayer(name: "디졸브")
             dis.adjust.exposure = 1
             dis.blend = "dissolve"
@@ -622,7 +622,7 @@ enum SelfTest {
             check("레이어: 디졸브", abs(frac - 0.5) < 0.05 && full == changed,
                   String(format: "바뀐 픽셀 %.1f%% (50%%), 그중 100%% 효과 %d/%d", frac * 100, full, changed))
 
-            // ⑦ 하드 혼합: 결과는 0 또는 1뿐
+            // ⑦ Hard mix: result is only 0 or 1
             var hm = AdjustLayer(name: "하드 혼합")
             hm.blend = "hardMix"
             let h = run(hm)
@@ -630,7 +630,7 @@ enum SelfTest {
             check("레이어: 하드 혼합", hv.allSatisfy { abs($0) < 0.001 || abs($0 - 1) < 0.001 },
                   String(format: "밝은 쪽 %.2f, 어두운 쪽 %.2f (0 또는 1)", hv[0], hv[1]))
 
-            // ⑧ Lab: 흰색 L100 a0 b0, P3 순수 빨강은 a가 크게 양수
+            // ⑧ Lab: white is L100 a0 b0, pure P3 red has a strongly positive a
             let white = InspectorViewController.lab([255, 255, 255]), redLab = InspectorViewController.lab([255, 0, 0])
             check("색 측정기 Lab", abs(white.0 - 100) < 0.5 && abs(white.1) < 0.5 && abs(white.2) < 0.5 && redLab.1 > 70,
                   String(format: "흰색 L %.1f a %.1f b %.1f · 빨강 a %.0f", white.0, white.1, white.2, redLab.1))
@@ -639,14 +639,14 @@ enum SelfTest {
                   String(format: "원 안 %.2f배 (1), 원 밖 %.2f배 (1.5)", inside, outside))
         }
 
-        // 5. 복구 브러시: 결 있는 기울기 위의 어두운 얼룩을 지우면 얼룩 없는 원래 그림에 가까워지는가
+        // 5. Healing brush: erasing a dark blotch on a textured gradient gets close to the blotch-free original
         do {
             let size = CGRect(x: 0, y: 0, width: 600, height: 600)
             let grad = CIFilter(name: "CISmoothLinearGradient", parameters: [
                 "inputPoint0": CIVector(x: 0, y: 0), "inputPoint1": CIVector(x: 600, y: 600),
                 "inputColor0": CIColor(red: 0.15, green: 0.12, blue: 0.1), "inputColor1": CIColor(red: 0.6, green: 0.55, blue: 0.5),
             ])!.outputImage!.cropped(to: size)
-            // 결: 0.85~1.15 배율의 난수를 곱한다 (알파 1 유지). 더하기 합성은 알파까지 더해져서 쓰지 않는다.
+            // Texture: multiply by random 0.85–1.15 (alpha stays 1). Addition compositing adds alpha too, so it isn't used.
             let texture = CIFilter(name: "CIRandomGenerator")!.outputImage!.cropped(to: size)
                 .applyingFilter("CIColorMatrix", parameters: [
                     "inputRVector": CIVector(x: 0.3, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0.3, y: 0, z: 0, w: 0),
@@ -658,7 +658,7 @@ enum SelfTest {
                 "inputCenter": CIVector(x: 300, y: 300), "inputRadius0": 14, "inputRadius1": 20,
                 "inputColor0": CIColor(red: 0, green: 0, blue: 0, alpha: 0.85), "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 0),
             ])!.outputImage!.cropped(to: size)
-            // 난수 생성 필터는 사용자 GPU 커널을 거칠 때마다 다른 무늬가 나온다. 픽셀로 굳혀 둔다.
+            // Random generator filters produce a different pattern each pass through custom GPU kernels. Freeze to pixels.
             func bake(_ i: CIImage) -> CIImage {
                 let cg = Render.context.createCGImage(i, from: size, format: .RGBAh, colorSpace: Render.workingSpace)!
                 return CIImage(cgImage: cg)
@@ -674,13 +674,13 @@ enum SelfTest {
                 for i in stride(from: 0, to: pa.count, by: 4) { for c in 0..<3 { sum += Double(abs(pa[i + c] - pb[i + c])) } }
                 return sum / Double(w * h * 3)
             }
-            // 결은 원본 자리마다 다르므로 픽셀 단위 비교는 뜻이 없다. 살짝 흐려서 얼룩과 밝기만 비교하고,
-            // 결이 살아 있는지는 표준편차로 따로 본다.
+            // Texture differs per source position, so per-pixel comparison is meaningless. Blur slightly to compare blotch and brightness only,
+            // and check separately via standard deviation that texture survives.
             let spotBox = CGRect(x: 280, y: 280, width: 40, height: 40)
             func low(_ i: CIImage) -> CIImage { i.blurred(3) }
             func grainStd(_ i: CIImage) -> Double {
                 let w = 40, h = 40
-                // 고주파 = 원본 − 흐림
+                // high frequency = source − blur
                 var a = [Float](repeating: 0, count: w * h * 4), b = a
                 Render.context.render(i, toBitmap: &a, rowBytes: w * 16, bounds: spotBox, format: .RGBAf, colorSpace: nil)
                 Render.context.render(low(i), toBitmap: &b, rowBytes: w * 16, bounds: spotBox, format: .RGBAf, colorSpace: nil)
@@ -696,10 +696,10 @@ enum SelfTest {
             heal.kind = .clone
             let cloned = Retouch.apply([heal], to: dirty, scale: 1)
             let afterClone = meanDiff(low(cloned), low(clean), spotBox)
-            // 멀리 떨어진 곳은 그대로여야 한다.
+            // Distant areas must stay unchanged.
             let untouched = meanDiff(healed, dirty, CGRect(x: 20, y: 20, width: 60, height: 60))
             let tClean = grainStd(clean), tHealed = grainStd(healed)
-            // 진단: 불투명도 0 복제는 원래 그림과 같아야 한다.
+            // Diagnostic: clone at opacity 0 must equal the original.
             var zero = heal; zero.opacity = 0
             let ident = Retouch.apply([zero], to: dirty, scale: 1)
             print(String(format: "진단: 불투명도 0 복제 변화 %.6f", meanDiff(ident, dirty, CGRect(x: 250, y: 250, width: 100, height: 100))))
@@ -726,7 +726,7 @@ enum SelfTest {
                          before, after, afterClone, tClean, tHealed, src.x, src.y, untouched))
         }
 
-        // 4. 진단: 실제 사진에서 뽑은 선 (DUOCHROME_DIAG_LINES)
+        // 4. Diagnostic: lines extracted from a real photo (DUOCHROME_DIAG_LINES)
         if let spec = ProcessInfo.processInfo.environment["DUOCHROME_DIAG_LINES"] {
             let real = spec.split(separator: ";").map { l -> (CGPoint, CGPoint) in
                 let v = l.split(separator: ",").compactMap { Double($0) }
@@ -745,7 +745,7 @@ enum SelfTest {
             }
         }
 
-        // 19. 레이어 효과 전부: 영역이 그대로, 값이 유한, 대부분은 그림을 바꾼다 (Effects.swift)
+        // 19. All layer effects: extent unchanged, values finite, most change the image (Effects.swift)
         do {
             let e = CGRect(x: 0, y: 0, width: 200, height: 150)
             let base = CIFilter(name: "CILinearGradient", parameters: [
@@ -756,7 +756,7 @@ enum SelfTest {
             let spot = CIFilter(name: "CIRadialGradient", parameters: [
                 kCIInputCenterKey: CIVector(x: 70, y: 80), "inputRadius0": 10, "inputRadius1": 30,
                 "inputColor0": CIColor(red: 1, green: 1, blue: 1), "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 0)])!.outputImage!.cropped(to: e)
-            // 결이 있어야 흐림·선명·중간값이 티가 난다: 잡음과 딱딱한 줄무늬를 섞는다
+            // Blur, sharpen, and median only show with texture: mix noise with hard stripes
             let noise = CIFilter(name: "CIRandomGenerator")!.outputImage!.applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": CIVector(x: 0.25, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: 0.25, z: 0, w: 0),
                 "inputBVector": CIVector(x: 0, y: 0, z: 0.25, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)]).cropped(to: e)
@@ -785,7 +785,7 @@ enum SelfTest {
                 let diff = zip(p, p0).reduce(Float(0)) { $0 + abs($1.0 - $1.1) } / Float(p.count)
                 if diff < 0.0005 { same.append(spec.title) }
             }
-            // 기본값이 "아무것도 안 함"인 것 (선택 색상·사용자 정의는 값을 줘야 바뀐다)
+            // Effects whose default is "do nothing" (selective color and custom need values to change anything)
             let allowedSame: Set<String> = ["선택 색상", "카메라 로우 필터"]
             let kernels: [(String, Any?)] = [("twirl", Effects.twirlK), ("ripple", Effects.rippleK), ("zigzag", Effects.zigzagK),
                 ("polar", Effects.polarK), ("diffuse", Effects.diffuseK), ("spin", Effects.spinK), ("kuwahara", Effects.kuwaharaK),
@@ -798,7 +798,7 @@ enum SelfTest {
                   "망가짐 \(bad), 안 바뀜 \(realSame), 느림 \(slow)")
         }
 
-        // 20. 레이어 스타일 10가지: 네모 하나에 하나씩 켜고, 바깥에 생기는 것(그림자·광선·바깥 획)과 안에서 바뀌는 것을 확인
+        // 20. Ten layer styles: enable each on a square and check what appears outside (shadow, glow, outer stroke) and what changes inside
         do {
             let e = CGRect(x: 0, y: 0, width: 200, height: 200)
             let square = CIImage(color: CIColor(red: 0.2, green: 0.5, blue: 0.3)).cropped(to: CGRect(x: 60, y: 60, width: 80, height: 80))
@@ -818,7 +818,7 @@ enum SelfTest {
                 if out.extent != e || o.contains(where: { !$0.isFinite }) { fails.append("\(name) 망가짐"); return }
                 if far[3] > 0.01 { fails.append("\(name) 먼 곳에 번짐") }
                 if outside {
-                    // 네모 바로 바깥(오른쪽 아래, 그림자 방향)에 뭔가 생겨야
+                    // Something must appear right outside the square (bottom right, the shadow direction)
                     let edge = px(out, 150, 52)
                     if edge[3] < 0.02 { fails.append("\(name) 바깥 없음") }
                 } else {
@@ -856,7 +856,7 @@ enum SelfTest {
             check("레이어 스타일", fails.isEmpty, fails.isEmpty ? "10가지 (패턴 4종)" : "\(fails)")
         }
 
-        // 21. PSD 가져오기: 파일을 우리 방식으로 다시 그려 파일에 든 합친 그림과 비교한다
+        // 21. PSD import: re-render the file our way and compare with the merged image stored in the file
         do {
             let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
                 .appendingPathComponent("Tests/Fixtures/psd")
@@ -886,7 +886,7 @@ enum SelfTest {
                 var sum: Float = 0
                 for y in 0 ..< h { for x in 0 ..< w {
                     let i = y * w + x
-                    // 그림은 아래 줄부터가 아니라 위 줄부터 (render는 위가 0인 비트맵)
+                    // Images from the top row, not the bottom (render is a top-0 bitmap)
                     for c in 0 ..< 3 { sum += abs(Float(ours[i * 4 + c]) - Float(m[c][i * bps])) }
                 } }
                 return (sum / Float(w * h * 3), res.layers.count, res.notes)
@@ -906,7 +906,7 @@ enum SelfTest {
             }
         }
 
-        // 22. PSD 쓰기: 가져온 문서를 다시 PSD·16비트·PSB로 쓰고 우리 해독기로 읽어 합친 그림·레이어를 본다
+        // 22. PSD write: write the imported document again as PSD / 16-bit / PSB and read it with our decoder to check the merged image and layers
         do {
             let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
                 .appendingPathComponent("Tests/Fixtures")
@@ -930,14 +930,14 @@ enum SelfTest {
                         let names = back.layers.map(\.unicodeName)
                         let groups = back.layers.filter { $0.section != nil }.count
                         let adj = back.layers.filter { $0.block("hue2") != nil }.count
-                        // 레이어 하나씩 다시 읽어 합쳐도 되는가 (배경 + 픽셀 레이어)
+                        // Rereading and compositing layer by layer must work (background + pixel layers)
                         let pixelOK = back.layers.filter { $0.width > 0 }.allSatisfy { PSDImport.layerImage($0, back) != nil }
                         check("PSD 쓰기 \(name)", e < 3 && back.layers.count == 9 && groups == 2 && adj == 1 && pixelOK && back.depth == depth && back.isPSB == psb,
                               String(format: "레이어 %d개 (그룹 표시 %d, 조정 %d), 합친 그림 차이 %.2f/255 %@", back.layers.count, groups, adj, e, names.joined(separator: "·")))
                     } catch { check("PSD 쓰기 \(name)", false, "\(error)") }
                 }
 
-                // 23. LUT 내보내기: 조정 없으면 그대로, 노출 +1이면 가운데가 밝아진다
+                // 23. LUT export: unchanged without adjustments; exposure +1 brightens the middle
                 st.layers = []
                 doc.settings = st
                 func lutValue(_ text: String, _ r: Int, _ g: Int, _ b: Int, n: Int = 33) -> [Float] {
@@ -953,7 +953,7 @@ enum SelfTest {
                     doc.settings = st
                 }
 
-                // 24. DNG 저장: 다시 열어 (맥 RAW 해독기) 평균 색이 비슷한가
+                // 24. DNG save: reopened (macOS RAW decoder), is the mean color similar
                 let dng = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-test.dng")
                 do {
                     try DNGWriter.write(doc, to: dng)
@@ -973,7 +973,7 @@ enum SelfTest {
                 } catch { check("DNG 저장", false, "\(error)") }
             }
 
-            // 25. 세션 사이드카·스타일 (sidecar 폴더의 .cos 하나)
+            // 25. Session sidecars and styles (one .cos in the sidecar folder)
             let cosFile = (try? FileManager.default.contentsOfDirectory(at: fixtures.appendingPathComponent("sidecar"), includingPropertiesForKeys: nil))?
                 .first { $0.pathExtension == "cos" }
             if let cosFile, let d = try? Data(contentsOf: cosFile) {
@@ -991,7 +991,7 @@ enum SelfTest {
                       "\(p.name ?? "?"): \(dict.keys.sorted())")
             }
 
-            // 26. 프리셋 파일 (DUOCHROME_PRESET_DIR 폴더의 파일로)
+            // 26. Preset files (from files in DUOCHROME_PRESET_DIR)
             if let presetDir = ProcessInfo.processInfo.environment["DUOCHROME_PRESET_DIR"] {
                 let presets = URL(fileURLWithPath: presetDir)
                 let aco = (try? PresetFiles.readACO(Data(contentsOf: presets.appendingPathComponent("Web Hues.aco")))) ?? []
@@ -1009,21 +1009,21 @@ enum SelfTest {
             }
         }
 
-        // 27~33. 사진 관리 (임시 카탈로그·임시 폴더)
+        // 27–33. Photo management (temp catalog, temp folder)
         do {
             let fm = FileManager.default
             let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-b-\(UUID().uuidString)")
             let src = root.appendingPathComponent("card"), other = root.appendingPathComponent("moved")
             try? fm.createDirectory(at: src, withIntermediateDirectories: true)
             try? fm.createDirectory(at: other, withIntermediateDirectories: true)
-            // 작은 JPEG 네 장 (색이 다르게)
+            // four small JPEGs (different colors)
             for (i, c) in [(0.8, 0.2, 0.2), (0.2, 0.7, 0.3), (0.3, 0.3, 0.8), (0.5, 0.5, 0.5)].enumerated() {
                 let img = CIImage(color: CIColor(red: c.0, green: c.1, blue: c.2)).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 48))
                 try? Render.context.writeJPEGRepresentation(of: img, to: src.appendingPathComponent("IMG_\(i + 1).jpg"), colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
             }
             if let cat = try? Catalog(url: root.appendingPathComponent("t.duochromecatalog")) {
                 let lib = Library(catalog: cat)
-                // 불러오기: 복사 + 이름 규칙 + 날짜 폴더 + 백업
+                // Import: copy + naming rule + date folders + backup
                 var o = PhotoImporter.Options(source: src)
                 o.mode = .copy; o.destination = root.appendingPathComponent("lib"); o.backup = root.appendingPathComponent("backup")
                 o.namePattern = "사진_{번호}"; o.dateFolders = true
@@ -1034,7 +1034,7 @@ enum SelfTest {
                       && lib.items.allSatisfy { $0.name.hasPrefix("사진_00") } && res.imported.allSatisfy { $0.deletingLastPathComponent().lastPathComponent.contains("-") },
                       "불러옴 \(res.imported.count), 목록 \(lib.items.map(\.name)), 백업 \(backups.count), 폴더 \(res.imported.first?.deletingLastPathComponent().lastPathComponent ?? "")")
                 let items = lib.items
-                // 채택·거부, 키워드 계층, 메타데이터
+                // pick/reject, keyword hierarchy, metadata
                 try? cat.setFlag([items[0].id, items[1].id], 1)
                 try? cat.setFlag([items[3].id], -1)
                 lib.setRating([items[0], items[2]], 4)
@@ -1046,16 +1046,16 @@ enum SelfTest {
                 check("채택·거부·키워드 계층", (try? cat.count(.flag(1))) == 2 && (try? cat.count(.flag(-1))) == 1 && nPlace == 3
                       && cat.keywords(of: items[0].id).map(\.1).contains("장소>서울>종로"),
                       "채택 \((try? cat.count(.flag(1))) ?? -1), 거부 \((try? cat.count(.flag(-1))) ?? -1), 장소 아래 \(nPlace)장, \(cat.keywords(of: items[0].id).map(\.1))")
-                // 스마트 앨범
+                // smart albums
                 var rule = Catalog.SmartRule(); rule.minRating = 4; rule.keyword = "종로"; rule.flag = 2
                 let sa = (try? cat.addSmartAlbum("시험", rule: rule)) ?? 0
                 let smartIDs = ((try? cat.items(.album(sa))) ?? []).map(\.id)
-                // 검색
+                // search
                 let s1 = cat.searchIDs(["키워드:서울", "채택"]) ?? []
                 let s2 = cat.searchIDs(["제목:시험"]) ?? []
                 check("스마트 앨범·검색", Set(smartIDs) == [items[0].id, items[2].id] && s1 == [items[0].id] && s2 == [items[0].id],
                       "스마트 \(smartIDs.count)장, 키워드+채택 \(s1.count)장, 제목 \(s2.count)장")
-                // 변형본: 같은 파일, 다른 조정 열쇠
+                // Variants: same file, different adjustment key
                 let v = try? cat.addVariant(of: items[0].id)
                 lib.saveRawSettings(["exposure": 1.0], for: items[0].url)
                 if let v { lib.saveRawSettings(["exposure": -1.0], for: v) }
@@ -1065,7 +1065,7 @@ enum SelfTest {
                 lib.show(.all)
                 check("변형본", v?.fragment == "v2" && vdoc != nil && e0 == 1 && e1 == -1 && lib.items.count == 5 && lib.items.contains { $0.variant == 2 },
                       "조각 \(v?.fragment ?? "-"), 열기 \(vdoc != nil), 노출 \(e0)/\(e1), 목록 \(lib.items.count)장")
-                // 이름 바꾸기 규칙 + 경로 옮기기 (조정값·변형본이 따라온다)
+                // Rename rule + path move (adjustments and variants follow)
                 let newName = MainWindowController.renamed("{날짜}_{이름}_{번호4}", item: items[0], index: 7, date: Date(timeIntervalSince1970: 0), camera: "EOS R5")
                 let oldURL = URL(fileURLWithPath: items[0].url.path)
                 let newURL = other.appendingPathComponent(newName + ".jpg")
@@ -1077,7 +1077,7 @@ enum SelfTest {
                 check("이름 바꾸기·경로 옮기기", newName.hasSuffix("_0007") && moved != nil && mv != nil
                       && lib.loadSettings(for: newURL, over: DevelopSettings())?.exposure == 1 && mv.flatMap { lib.loadSettings(for: $0.url, over: DevelopSettings())?.exposure } == -1,
                       "\(newName), 원본 \(moved != nil), 변형 \(mv != nil)")
-                // 다시 잇기: 파일을 치우고 오프라인 표시 → 다른 폴더에서 이름으로 찾기
+                // Relink: remove the file and mark offline → find by name in another folder
                 let lost = URL(fileURLWithPath: items[1].url.path)
                 let hide = root.appendingPathComponent("elsewhere/deep")
                 try? fm.createDirectory(at: hide, withIntermediateDirectories: true)
@@ -1089,7 +1089,7 @@ enum SelfTest {
                 }
                 if let found { try? cat.movePath(from: lost, to: found) }
                 check("원본 다시 잇기", (try? cat.count(.offline)) == 0 && found != nil, "오프라인 \((try? cat.count(.offline)) ?? -1)")
-                // XMP 쓰기·읽기 (다른 카탈로그로 읽어 값이 같은가)
+                // XMP write/read (read into another catalog, values match)
                 lib.show(.all)
                 if let it = lib.items.first(where: { $0.id == items[0].id }) {
                     it.flag = 1; it.color = 3
@@ -1110,7 +1110,7 @@ enum SelfTest {
                     }
                 }
             }
-            // 룩 맞추기: 같은 통계면 그대로, 다른 기준이면 평균이 기준 쪽으로
+            // Match look: unchanged with the same statistics; with another reference, the mean moves toward it
             let warm = CIImage(color: CIColor(red: 0.7, green: 0.5, blue: 0.3)).cropped(to: CGRect(x: 0, y: 0, width: 300, height: 200))
             let cool = CIImage(color: CIColor(red: 0.3, green: 0.45, blue: 0.7)).cropped(to: CGRect(x: 0, y: 0, width: 300, height: 200))
             let sw = MainWindowController.labStats(warm), sc = MainWindowController.labStats(cool)
@@ -1119,7 +1119,7 @@ enum SelfTest {
             let wv = SIMD3<Float>(Float(0.7), 0.5, 0.3)
             let m = moved(PSDAdjust.fromLab(PSDAdjust.toLab(wv)))
             check("룩 맞추기", abs(same.x - 0.4) < 0.01 && abs(same.z - 0.6) < 0.01 && m.z > m.x, String(format: "그대로 %.3f %.3f %.3f, 따뜻한 색 → %.2f %.2f %.2f", same.x, same.y, same.z, m.x, m.y, m.z))
-            // 교정쇄 프로파일 (CMYK)
+            // proof profile (CMYK)
             let cmyk = ProofProfile.available().first { $0.lastPathComponent.lowercased().contains("cmyk") }
             if let cmyk {
                 ProofProfile.current = cmyk
@@ -1134,20 +1134,20 @@ enum SelfTest {
                           String(format: "순초록 색역 밖, 회색 %.2f", p[gray]))
                 } else { check("교정쇄 프로파일", false, "LUT를 못 만듦") }
             }
-            // 웹용 인코딩
+            // web encoding
             let tex = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 256, height: 256)).applyingFilter("CIRandomGenerator").cropped(to: CGRect(x: 0, y: 0, width: 256, height: 256))
             if let cg = Render.context.createCGImage(CIFilter(name: "CIRandomGenerator")!.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: 256, height: 256)), from: CGRect(x: 0, y: 0, width: 256, height: 256)) {
                 let lo = WebExportWindow.encode(cg, type: .jpeg, quality: 0.3)?.count ?? 0, hi = WebExportWindow.encode(cg, type: .jpeg, quality: 0.95)?.count ?? 0
                 check("웹용 내보내기 인코딩", lo > 0 && hi > lo * 2, "품질 30: \(lo)B, 95: \(hi)B, 형식 \(WebExportWindow.formats.map(\.title))")
             }
             _ = tex
-            // 스타일 브러시 변환
+            // style brush conversion
             let la = MainWindowController.localAdjust(fromStyle: ["exposure": 0.5, "contrast": 20, "temperature": 6000], current: DevelopSettings())
             check("스타일 브러시 변환", la.exposure == 0.5 && la.contrast == 20 && la.temperature == 20, "노출 \(la.exposure) 대비 \(la.contrast) 색온도 \(la.temperature)")
             try? fm.removeItem(at: root)
         }
 
-        // 34~39. 합치기: 실제 CR3 한 장으로 만든 가짜 묶음 (노출 차이·어긋남·가림·흐림·겹친 조각)
+        // 34–39. Merge: a fake set built from one real CR3 (exposure differences, misalignment, occlusion, blur, overlapping tiles)
         let rawSample = URL(fileURLWithPath: ProcessInfo.processInfo.environment["DUOCHROME_SAMPLE_RAW"] ?? "")
         if FileManager.default.fileExists(atPath: rawSample.path), let fr = try? Merge.load(rawSample, scale: 0.25) {
             let base = fr.image
@@ -1170,9 +1170,9 @@ enum SelfTest {
             func clip(_ i: CIImage, _ gain: Double) -> CIImage {
                 i.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: log2(gain)]).applyingFilter("CIColorClamp").cropped(to: e)
             }
-            // 34. HDR: −2·0·+2 EV (각각 1에서 잘림) → 원래 선형 값
+            // 34. HDR: −2 / 0 / +2 EV (each clipped at 1) → original linear values
             let exps = [0.25, 1.0, 4.0]
-            let scene = base.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: 3]).cropped(to: e)   // 1을 넘는 곳이 많은 장면
+            let scene = base.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: 3]).cropped(to: e)   // a scene with many values above 1
             let brackets = exps.map { clip(scene, $0) }
             if let h = Merge.hdr(brackets, exposures: exps, reference: 1) {
                 let dark = scene.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -4]).cropped(to: e)
@@ -1180,13 +1180,13 @@ enum SelfTest {
                 let eh = stats(hd, dark), e0 = stats(brackets[1].applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -4]), dark)
                 check("HDR 합치기", eh < 0.004 && eh < e0, String(format: "원래 값과 차이 %.4f (0 EV 한 장 %.4f)", eh, e0))
             }
-            // 35. 맞추기: 37, −21 옮긴 그림
+            // 35. Alignment: image shifted by 37, −21
             let shifted = base.transformed(by: .init(translationX: 37, y: -21))
             if let hm = Merge.align(shifted, to: base, homographic: true) {
                 let p = Merge.apply(hm, CGPoint(x: e.midX + 37, y: e.midY - 21))
                 check("자동 정렬 (Vision)", abs(p.x - e.midX) < 2 && abs(p.y - e.midY) < 2, String(format: "옮긴 가운데 → (%.1f, %.1f), 기대 (%.1f, %.1f)", p.x, p.y, e.midX, e.midY))
             } else { check("자동 정렬 (Vision)", false, "맞추지 못함") }
-            // 36. 중앙값: 장마다 다른 자리에 가림
+            // 36. Median: occluded in a different place per frame
             let occl = (0 ..< 3).map { i -> CIImage in
                 let box = CIImage(color: CIColor(red: 1, green: 0, blue: 1)).cropped(to: CGRect(x: e.minX + CGFloat(i) * e.width / 3 + 20, y: e.midY - 60, width: 120, height: 120))
                 return box.composited(over: base).cropped(to: e)
@@ -1195,7 +1195,7 @@ enum SelfTest {
                 let em = stats(md, base), ea = stats(mn, base), e1 = stats(occl[0], base)
                 check("이미지 스택 (중앙값·평균)", em < 0.001 && ea > em && e1 > em, String(format: "중앙값 %.5f, 평균 %.5f, 한 장 %.5f", em, ea, e1))
             }
-            // 37. 초점 스태킹: 왼쪽 흐린 장 + 오른쪽 흐린 장
+            // 37. Focus stacking: left-blurred frame + right-blurred frame
             let blurred = base.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 6]).cropped(to: e)
             let left = CGRect(x: e.minX, y: e.minY, width: e.width / 2, height: e.height)
             let a = blurred.cropped(to: left).composited(over: base).cropped(to: e)
@@ -1204,7 +1204,7 @@ enum SelfTest {
                 let ef = stats(fs, base), ea2 = stats(a, base)
                 check("초점 스태킹", ef < ea2 * 0.45, String(format: "합친 결과 %.4f, 한 장 %.4f", ef, ea2))
             }
-            // 38. 파노라마 (직선): 겹친 조각 셋 → 원래 사진
+            // 38. Panorama (rectilinear): three overlapping tiles → the original photo
             let w3 = e.width * 0.45
             let pieces = (0 ..< 3).map { i -> Merge.Frame in
                 let r = CGRect(x: e.minX + CGFloat(i) * e.width * 0.275, y: e.minY, width: w3, height: e.height).integral
@@ -1223,7 +1223,7 @@ enum SelfTest {
                 check("파노라마 (원통·잘라내기)", cyl.extent.width > w3 * 1.8 && cyl.extent.height < e.height * 1.2 && cropped.extent.height > e.height * 0.7 && cropped.extent.width > w3,
                       "원통 \(Int(cyl.extent.width))×\(Int(cyl.extent.height)) → 잘라 \(Int(cropped.extent.width))×\(Int(cropped.extent.height))")
             } catch { check("파노라마", false, "\(error)") }
-            // 39. HDR DNG: 1을 넘는 값을 기준 노출로 적고 다시 열기
+            // 39. HDR DNG: write values above 1 via baseline exposure and reopen
             let hdrURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-hdr.dng")
             let bright = base.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: 5]).cropped(to: e)
             do {
@@ -1234,7 +1234,7 @@ enum SelfTest {
             } catch { check("HDR DNG 쓰기", false, "\(error)") }
         }
 
-        // 40. LCC: 가장자리가 어둡고 푸른 지도로 나누면 평평해진다
+        // 40. LCC: dividing by a map darker and bluer at the edges flattens it
         do {
             let r = CGRect(x: 0, y: 0, width: 200, height: 100)
             let vig = CIFilter(name: "CIRadialGradient", parameters: [kCIInputCenterKey: CIVector(x: 100, y: 50), "inputRadius0": 20, "inputRadius1": 120,
@@ -1253,18 +1253,18 @@ enum SelfTest {
             }
         }
 
-        // 41~47. 변형
+        // 41–47. Transforms
         do {
             var im = LayerImage(file: "x", cx: 500, cy: 400, width: 300, rotation: 20)
             let asp = 0.5
-            // 자유 변형 모서리 = 기본 자리의 모서리면 같은 자리
+            // Free transform corners equal to the default corners mean the same position
             im.quad = Warp.corners(im, aspect: asp).flatMap { [$0.x, $0.y] }
             let a1 = Warp.map(im, aspect: asp, 0.3, 0.7), b1 = Warp.basePoint(im, aspect: asp, 0.3, 0.7)
             im.quad = nil
             im.mesh = Warp.identityMesh(im, aspect: asp)
             let a2 = Warp.map(im, aspect: asp, 0.8, 0.2), b2 = Warp.basePoint(im, aspect: asp, 0.8, 0.2)
             im.mesh = nil
-            im.pins = [100, 100, 150, 120, 900, 100, 950, 120]   // 두 핀을 같이 옮기면 평행 이동
+            im.pins = [100, 100, 150, 120, 900, 100, 950, 120]   // Moving two pins together is a translation
             let a3 = Warp.map(im, aspect: asp, 0.5, 0.5), b3 = Warp.basePoint(im, aspect: asp, 0.5, 0.5)
             check("자유 변형·뒤틀기·퍼펫 (좌표)", hypot(a1.x - b1.x, a1.y - b1.y) < 0.01 && hypot(a2.x - b2.x, a2.y - b2.y) < 0.01
                   && abs(a3.x - b3.x - 50) < 0.5 && abs(a3.y - b3.y - 20) < 0.5,
@@ -1291,7 +1291,7 @@ enum SelfTest {
                 let out = wr.composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600)))
                 try? Render.context.writePNGRepresentation(of: out.cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600)), to: URL(fileURLWithPath: dir + "/warp.png"), format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
             }
-            // 원근 자르기 + 캔버스 여백: 좌표 되돌리기와 크기
+            // Perspective crop + canvas margin: coordinate round trip and size
             var g = DevelopSettings()
             g.perspective = [100, 50, 3900, 300, 3800, 2900, 200, 2600]
             g.crop = CropRect(CGRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8))
@@ -1304,7 +1304,7 @@ enum SelfTest {
                 worst = max(worst, hypot(q.x - p.x, q.y - p.y))
             }
             let fs = Geometry.frameSize(g, native: nat), cs = Geometry.croppedSize(g, native: nat)
-            // 그림과 좌표가 같은 곳을 가리키나: 원본의 한 점을 그려서 찾는다
+            // Image and coordinates point to the same place: render one source point and find it
             let dot = CGPoint(x: 1900, y: 1500)
             let dimg = CIImage(color: .white).cropped(to: CGRect(x: dot.x - 4, y: dot.y - 4, width: 8, height: 8))
                 .composited(over: CIImage(color: .black).cropped(to: CGRect(origin: .zero, size: nat)))
@@ -1319,7 +1319,7 @@ enum SelfTest {
             check("원근 자르기·캔버스 크기", worst < 0.01 && abs(shaped.extent.width - cs.width) < 2 && hypot(found.x - pred.x, found.y - pred.y) < 2,
                   String(format: "되돌리기 %.4f, 틀 %.0f×%.0f, 결과 %.0f×%.0f (계산 %.0f×%.0f), 점 어긋남 %.2f", worst, fs.width, fs.height,
                          shaped.extent.width, shaped.extent.height, cs.width, cs.height, hypot(found.x - pred.x, found.y - pred.y)))
-            // 유동화: 부풀리기는 가운데 근처만 바꾼다
+            // Liquify: bloat changes only near the center
             let checker = CIFilter(name: "CICheckerboardGenerator", parameters: ["inputWidth": 20, "inputColor0": CIColor.white, "inputColor1": CIColor.black])!
                 .outputImage!.cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
             let lq = Warp.liquify(checker, strokes: [LiquifyStroke(tool: 1, points: [400, 300], radius: 120, strength: 1)], native: CGSize(width: 800, height: 600), scale: 1)
@@ -1331,7 +1331,7 @@ enum SelfTest {
             }
             let dNear = diff(CGRect(x: 350, y: 250, width: 100, height: 100)), dFar = diff(CGRect(x: 20, y: 20, width: 100, height: 100))
             check("픽셀 유동화", dNear > 0.05 && dFar < 0.001, String(format: "가운데 변화 %.3f, 먼 곳 %.5f", dNear, dFar))
-            // 내용 인식 비율: 검은 바탕의 흰 띠 둘은 남고 빈 곳이 줄어든다
+            // Content-aware scale: two white bands on black survive and the empty space shrinks
             let bars = CIImage(color: .white).cropped(to: CGRect(x: 150, y: 0, width: 40, height: 400))
                 .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 600, y: 0, width: 40, height: 400)))
                 .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 800, height: 400)))
@@ -1342,14 +1342,14 @@ enum SelfTest {
                 let white = stride(from: 0, to: row.count, by: 4).filter { row[$0] > 0.5 }.count
                 check("내용 인식 비율", abs(w - 480) <= 2 && white >= 70 && white <= 90, "폭 \(w) (480), 흰 띠 \(white)px (80 기대 — 빈 곳만 줄어듦)")
             }
-            // 적응형 광각: k=40으로 곧은 선을 k=0 자리로 굽혀 놓고 찾기
+            // Adaptive wide angle: bend straight lines with k=40 to their k=0 positions and find them
             let nat2 = CGSize(width: 6000, height: 4000)
             let straight = (0 ..< 20).map { CGPoint(x: 300 + Double($0) * 270, y: 3500) }
             let bent = straight.map { MainWindowController.undistort($0, from: 40, to: 0, native: nat2) }
             var sd = DevelopSettings(); sd.lensDistortion = 0
             let k = MainWindowController.solveDistortion([bent], sd, native: nat2)
             check("적응형 광각", abs(k - 40) < 3, String(format: "찾은 왜곡 %.1f (40 기대)", k))
-            // 리샘플링 네 방식
+            // four resampling methods
             let sizes = (0 ..< 4).map { Exporter.resample(checker, 0.5, method: $0).extent.integral.width }
             check("이미지 크기·리샘플링", sizes.allSatisfy { abs($0 - 400) <= 4 }, "\(sizes) (바이큐빅은 가장자리를 몇 px 더 그린다)")
         }
@@ -1390,7 +1390,7 @@ enum SelfTest {
                 print("보정", T0 + dT, t0 + dt, "mired", 1e6 / Double(T0 + dT) - 1e6 / Double(T0), "ln(R/B)", log(b.x / b.z) - log(a.x / a.z), "ln(G²/RB)", log(b.y * b.y / (b.x * b.z)) - log(a.y * a.y / (a.x * a.z)))
             }
         }
-        // 48. 렌즈 흐림 깊이 맵: 왼쪽 가까움(초점)·오른쪽 멂 → 오른쪽만 흐려진다
+        // 48. Lens blur depth map: left near (in focus), right far → only the right blurs
         do {
             let r = CGRect(x: 0, y: 0, width: 400, height: 200)
             let depth = CIImage(color: .white).cropped(to: CGRect(x: 200, y: 0, width: 200, height: 200)).composited(over: CIImage(color: .black).cropped(to: r))
@@ -1411,7 +1411,7 @@ enum SelfTest {
             }
         }
 
-        // 49~51. 칠하기: 브러시 엔진
+        // 49–51. Painting: brush engine
         do {
             let nat = CGSize(width: 400, height: 300)
             func render(_ st: [PaintStroke]) -> [Float] {
@@ -1426,22 +1426,22 @@ enum SelfTest {
             let a = render([PaintStroke(brush: b, points: line, seed: 7)])
             var soft = b; soft.hardness = 0.1
             let sa = render([PaintStroke(brush: soft, points: line, seed: 7)])
-            // 연필: 반투명 가장자리가 없다
+            // Pencil: no semi-transparent edges
             var pen = b; pen.mode = 2
             let pa = render([PaintStroke(brush: pen, points: line, seed: 7)])
             let partial = stride(from: 3, to: pa.count, by: 4).filter { pa[$0] > 0.05 && pa[$0] < 0.95 }.count
-            // 지우개: 가운데를 지운다
+            // Eraser: erases the center
             var er = b; er.mode = 1; er.size = 60
             let ea = render([PaintStroke(brush: b, points: line, seed: 7), PaintStroke(brush: er, points: [200, 150, 1], seed: 3)])
             check("기본 브러시·연필·지우개", alpha(a, 200, 150) > 0.95 && alpha(a, 200, 180) < 0.01 && alpha(sa, 200, 162) < alpha(a, 200, 162)
                   && partial < 40 && alpha(ea, 200, 150) < 0.05 && alpha(ea, 100, 150) > 0.9,
                   String(format: "가운데 %.2f, 부드러운 가장자리 %.2f < %.2f, 연필 반투명 %d, 지운 곳 %.2f", alpha(a, 200, 150), alpha(sa, 200, 162), alpha(a, 200, 162), partial, alpha(ea, 200, 150)))
-            // 브러시 엔진: 흔들림·산포는 같은 씨앗이면 같고, 다른 씨앗이면 다르다
+            // Brush engine: jitter/scatter match with the same seed and differ with another
             var j = b; j.sizeJitter = 0.8; j.scatter = 1; j.spacing = 0.5; j.hueJitter = 0.5
             let j1 = render([PaintStroke(brush: j, points: line, seed: 11)]), j2 = render([PaintStroke(brush: j, points: line, seed: 11)]), j3 = render([PaintStroke(brush: j, points: line, seed: 12)])
             let off = stride(from: 3, to: j1.count, by: 4).filter { j1[$0] > 0.5 }.count
             check("브러시 엔진 (흔들림·산포·색 변화)", j1 == j2 && j1 != j3 && off > 1000, "칠한 픽셀 \(off)")
-            // 혼합 브러시: 묻힌 색이 붓질 따라 바뀐다
+            // Mixer brush: picked-up color changes along the stroke
             var m = b; m.mode = 3
             let mixed = PaintStroke(brush: m, points: line, seed: 1, mixed: (0 ..< 200).flatMap { k in [Float(1) - Float(k) / 200, 0, Float(k) / 200] })
             let ma = render([mixed])
@@ -1449,7 +1449,7 @@ enum SelfTest {
             check("혼합 브러시", left > right + 0.2, String(format: "왼쪽 빨강 %.2f, 오른쪽 %.2f", left, right))
         }
 
-        // 52. 그림: 모양 레이어(채우기·획·점선·별), 벡터 마스크, 글자(가로·세로·단락·뒤틀기·패스 위) 합성
+        // 52. Drawing: shape layers (fill, stroke, dashes, star), vector masks, text (horizontal, vertical, paragraph, warp, on path) compositing
         do {
             let N = CGSize(width: 1200, height: 800)
             let base = CIImage(color: CIColor(red: 0.18, green: 0.2, blue: 0.24)).cropped(to: CGRect(origin: .zero, size: N))
@@ -1463,7 +1463,7 @@ enum SelfTest {
             layers.append(shapeLayer(.preset(.star, in: CGRect(x: 380, y: 480, width: 260, height: 260), sides: 5), fill: [1, 0.85, 0.2], stroke: nil))
             layers.append(shapeLayer(.preset(.ellipse, in: CGRect(x: 680, y: 480, width: 240, height: 260)), fill: nil, stroke: [0.4, 0.8, 1], width: 12, dash: [30, 18]))
             layers.append(shapeLayer(.preset(.arrow, in: CGRect(x: 960, y: 560, width: 200, height: 120)), fill: [0.5, 1, 0.5], stroke: nil))
-            // 벡터 마스크를 건 큰 사각형
+            // large rectangle with a vector mask
             var masked = shapeLayer(.preset(.rect, in: CGRect(x: 40, y: 40, width: 360, height: 400)), fill: [0.3, 0.5, 1], stroke: nil)
             masked.mask.vector = .preset(.polygon, in: CGRect(x: 60, y: 60, width: 320, height: 360), sides: 6)
             layers.append(masked)
@@ -1486,7 +1486,7 @@ enum SelfTest {
             Render.context.render(out, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 190, y: 610, width: 1, height: 1), format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
             let redOK = px[0] > 0.85 && px[1] < 0.5
             Render.context.render(out, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 50, y: 50, width: 1, height: 1), format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-            let maskedOut = px[2] < 0.4   // 사각형 모서리는 육각형 벡터 마스크 밖이라 바탕색
+            let maskedOut = px[2] < 0.4   // Rectangle corners are outside the hexagon vector mask, so background color
             Render.context.render(out, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 220, y: 240, width: 1, height: 1), format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
             let maskedIn = px[2] > 0.8
             if let path = ProcessInfo.processInfo.environment["DUOCHROME_J_PNG"] {
@@ -1495,7 +1495,7 @@ enum SelfTest {
             check("J 모양·벡터 마스크·글자 합성", redOK && maskedOut && maskedIn, "빨간 둥근 사각형 \(redOK), 벡터 마스크 밖 \(maskedOut) 안 \(maskedIn)")
         }
 
-        // 53. 색 모드: 회색조·이중톤·CMYK 왕복·문서 색 공간 변환·8비트·채널 보기·Lab·CMYK·회색 쓰기
+        // 53. Color modes: grayscale, duotone, CMYK round trip, document color space conversion, 8-bit, channel view, writing Lab/CMYK/gray
         do {
             let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
             func solid(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CIImage {
@@ -1512,26 +1512,26 @@ enum SelfTest {
             let grayOK = abs(g[0] - g[1]) < 0.01 && abs(g[1] - g[2]) < 0.01
             s.docMode = DocMode.duotone.rawValue
             let d = px(ColorModes.apply(s, solid(0.5, 0.5, 0.5)))
-            let duoOK = d[0] > d[2] + 0.05   // 세피아 잉크: 빨강이 파랑보다 많다
+            let duoOK = d[0] > d[2] + 0.05   // Sepia ink: more red than blue
             s.docMode = DocMode.cmyk.rawValue
             let c = px(ColorModes.apply(s, solid(0, 1, 0)))
-            let cmykOK = c[1] < 0.99 && (c[0] > 0.02 || c[2] > 0.02)   // 형광 초록은 CMYK 색역 밖
-            // 문서 색 공간 sRGB: Rec.2020의 아주 짙은 초록이 sRGB 안으로 들어온다
+            let cmykOK = c[1] < 0.99 && (c[0] > 0.02 || c[2] > 0.02)   // fluorescent green is outside the CMYK gamut
+            // Document color space sRGB: a very deep Rec.2020 green comes inside sRGB
             s.docMode = nil; s.docSpace = ExportRecipe.Space.sRGB.rawValue
             let wide = CIImage(color: CIColor(red: 0, green: 1, blue: 0, alpha: 1, colorSpace: CGColorSpace(name: CGColorSpace.itur_2020)!)!).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
             let before = px(wide), after = px(ColorModes.apply(s, wide))
             let spaceOK = before[0] < -0.01 && after[0] > -0.005 && after.prefix(3).allSatisfy { $0 >= -0.005 && $0 <= 1.005 }
-            // 8비트: 256단계
+            // 8-bit: 256 levels
             s.docSpace = nil; s.docDepth = 8
             let q = px(ColorModes.apply(s, solid(0.1234, 0.5, 0.5)))
             let depthOK = abs(q[0] * 255 - (q[0] * 255).rounded()) < 0.02
-            // 채널 보기: 빨간 그림의 빨강 채널은 흰색, 파랑 채널은 검정. CMYK 검정 채널은 검은 그림에서 검정
+            // Channel view: a red image's red channel is white, blue channel black. CMYK black channel is black for a black image
             let red = solid(1, 0, 0)
             let rch = px(ColorModes.channelView(red, mode: .rgb, channel: 1)), bch = px(ColorModes.channelView(red, mode: .rgb, channel: 3))
             let kch = px(ColorModes.channelView(solid(0, 0, 0), mode: .cmyk, channel: 4))
             let lch = px(ColorModes.channelView(solid(1, 1, 1), mode: .lab, channel: 1))
             let chOK = rch[0] > 0.98 && bch[0] < 0.02 && kch[0] < 0.02 && lch[0] > 0.97
-            // 쓰기: Lab TIFF·CMYK JPEG·회색 PNG를 파일로 쓰고 다시 읽어 색 모델 확인
+            // Writing: write Lab TIFF, CMYK JPEG, gray PNG to files and read back to check the color model
             let cg = Render.context.createCGImage(solid(0.7, 0.4, 0.2), from: CGRect(x: 0, y: 0, width: 8, height: 8), format: .RGBA8, colorSpace: srgb)!
             func roundTrip(_ img: CGImage, _ type: UTType) -> CGColorSpaceModel? {
                 let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-mode-\(UUID().uuidString)")
@@ -1556,7 +1556,7 @@ enum SelfTest {
         exit(failures == 0 ? 0 : 1)
     }
 
-    /// 외부 카탈로그 가져오기 시험 (DUOCHROME_CATALOG_TEST=카탈로그 경로). 임시 카탈로그·임시 조정값 폴더에만 쓴다.
+    /// External catalog import test (DUOCHROME_CATALOG_TEST=catalog path). Writes only to a temp catalog and temp adjustment folder.
     static func catalogImport(_ path: String) {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
         let catURL = tmp.appendingPathComponent("duochrome-importtest.duochromecatalog")
@@ -1569,11 +1569,11 @@ enum SelfTest {
             let report = try CatalogImport.run(package: URL(fileURLWithPath: path), into: catalog, library: library) { print("…", $0) }
             print(report.summary)
             print(String(format: "걸린 시간 %.1f초", Date().timeIntervalSince(t0)))
-            // 확인용: 앨범 몇 개와 그 사진 수, 미세 회전이 있던 사진의 가져온 값
+            // For checking: a few albums with photo counts, imported values of a photo that had fine rotation
             for a in try catalog.albums().prefix(12) {
                 print("  앨범", a.kind == 0 ? "[그룹]" : "", a.name, "·", try catalog.count(.album(a.id)), "장")
             }
-            // 크롭·화이트 밸런스 확인: 원본이 있는 사진(DUOCHROME_CATALOG_TEST_PHOTO=파일 이름)을 우리 방식으로 그려 가져온 썸네일과 비교
+            // Crop/white balance check: render a photo with a source (DUOCHROME_CATALOG_TEST_PHOTO=file name) our way and compare with the imported thumbnail
             let probe = ProcessInfo.processInfo.environment["DUOCHROME_CATALOG_TEST_PHOTO"] ?? ""
             if !probe.isEmpty, let row = try? catalog.items(.all).first(where: { $0.name == probe && !$0.offline }), let d = try? RawDocument(url: row.url),
                let s = library.loadSettings(for: row.url, over: d.asShot) {

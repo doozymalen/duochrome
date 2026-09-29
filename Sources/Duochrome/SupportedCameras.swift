@@ -1,9 +1,9 @@
 import AppKit
 import CoreImage
 
-/// 지원 카메라 보기 (도움말 > 지원 카메라): 이 맥에서 실제로 되는 기종을 그 자리에서 묻는다.
-/// - RAW 현상: macOS RAW 해독기(CIRAWFilter)가 아는 기종. macOS를 올리면 늘어난다.
-/// - 테더링: 테더링 도우미의 libgphoto2가 아는 기종 (테더링 도구를 설치한 뒤에만).
+/// Supported cameras (Help > Supported Cameras): queries on the spot which models actually work on this Mac.
+/// - RAW develop: models known to the macOS RAW decoder (CIRAWFilter). Grows with macOS updates.
+/// - Tethering: models known to the tether helper's libgphoto2 (only after the tether tools are installed).
 enum SupportedCameras {
     private static var window: NSWindow?
     private static var lists: [[String]] = [[], []]
@@ -67,7 +67,7 @@ enum SupportedCameras {
         text.string = shown.joined(separator: "\n")
     }
 
-    /// 테더링 도우미의 파이썬으로 libgphoto2 기종 목록을 읽는다 (설치 전이면 비워 둔다)
+    /// Reads the libgphoto2 model list with the tether helper's Python (empty before install)
     private static func loadTetherList() {
         let py = GPhotoCamera.python
         guard FileManager.default.isExecutableFile(atPath: py.path) else { return }

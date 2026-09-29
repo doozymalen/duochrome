@@ -1,31 +1,31 @@
 import AppKit
 
-/// 사진 브라우저. 두 가지로 쓴다.
-/// - 편집 모드 오른쪽 필름스트립: 한 장씩 고른다.
-/// - 라이브러리 모드 가운데 격자: 여러 장을 고르고, 두 번 누르면 편집 모드로 연다.
-/// 썸네일 아래 파일 이름, 별점, 색 태그, 조정·오프라인 표시가 붙는다.
+/// Photo browser. Used two ways.
+/// - Edit mode, right filmstrip: pick one at a time.
+/// - Library mode, center grid: pick many; double-click opens in edit mode.
+/// Thumbnails show file name, rating, color tag, and adjusted/offline badges.
 final class BrowserViewController: NSViewController, NSCollectionViewDataSource, NSCollectionViewDelegate {
     var library: Library!
-    /// 대표로 고른 한 장 (편집 모드에서 여는 사진).
+    /// The primary pick (the photo opened in edit mode).
     var onSelect: ((PhotoItem) -> Void)?
-    /// 고른 사진 전부가 바뀌었을 때.
+    /// When the whole selection changed.
     var onSelectionChange: (([PhotoItem]) -> Void)?
-    /// 두 번 눌렀을 때 (라이브러리 → 편집).
+    /// On double-click (library → edit).
     var onOpen: ((PhotoItem) -> Void)?
-    /// 사진을 다른 사진 위에 끌어 놓았을 때 (끌어 온 사진 경로, 놓인 사진)
+    /// When a photo is dropped onto another photo (dragged photo path, target photo)
     var onDropAdjustments: ((String, PhotoItem) -> Void)?
-    /// 숫자 키로 별점 (0~5).
+    /// Number keys set rating (0–5).
     var onRate: ((Int) -> Void)?
 
     let grid: Bool
-    /// 뷰어 아래 가로 필름 스트립
+    /// Horizontal filmstrip under the viewer
     let horizontal: Bool
     private let collection = BrowserCollectionView()
     private let countLabel = NSTextField(labelWithString: "")
     private static let itemID = NSUserInterfaceItemIdentifier("PhotoCell")
     private let layout = NSCollectionViewFlowLayout()
 
-    /// 오른쪽 사진 목록 위 머리줄 (검색칸 + 격자 보기 단추). 대량 보정 모드에서만 쓴다.
+    /// Header above the right photo list (search field + grid button). Only used in batch-edit mode.
     let header: Bool
     var onSearch: ((NSSearchField) -> Void)?
     var onGridToggle: (() -> Void)?
@@ -55,7 +55,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
         collection.backgroundColors = [.clear]
         collection.register(PhotoCell.self, forItemWithIdentifier: Self.itemID)
         collection.singleStep = !grid
-        // 끌기: 앱 안(앨범·다른 사진 위)과 Finder(파일 복사) 모두
+        // Dragging: both in-app (onto albums or photos) and to Finder (file copy)
         collection.setDraggingSourceOperationMask(.every, forLocal: true)
         collection.setDraggingSourceOperationMask(.copy, forLocal: false)
         collection.registerForDraggedTypes([.duochromePhotos])
@@ -81,7 +81,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
             root.addSubview(v)
         }
         if horizontal {
-            // 필름 스트립: 장 수는 왼쪽 위에 작게
+            // Filmstrip: count small at the top left
             countLabel.textColor = .secondaryLabelColor
             NSLayoutConstraint.activate([
                 countLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 4),
@@ -98,7 +98,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
         countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
         var countTop = root.safeAreaLayoutGuide.topAnchor
         if header {
-            // 머리줄: [사진 검색 ········] [격자 보기]
+            // Header: [photo search ········] [grid view]
             let search = ModeBarSearchField(placeholder: "사진 검색 (이름·폴더, ★3)", width: 0, target: self, action: #selector(searchChanged(_:)))
             search.constraints.filter { $0.firstAttribute == .width }.forEach { search.removeConstraint($0) }
             search.controlSize = .small
@@ -116,7 +116,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
             countTop = row.bottomAnchor
         }
         if header {
-            // 장 수 아래 가는 선: 목록이 이 선 밑으로 들어가는 게 보이게 (썸네일이 장 수에 걸려 잘려 보이지 않게)
+            // Hairline under the count: shows the list scrolling beneath it (so thumbnails don't look clipped by the count)
             let line = NSBox(); line.boxType = .separator
             line.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(line)
@@ -142,7 +142,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
     @objc private func searchChanged(_ sender: NSSearchField) { onSearch?(sender) }
     @objc private func gridToggle() { onGridToggle?() }
 
-    /// 오른쪽 사진 목록(세로 한 줄): 패널 폭에 맞춰 사진 칸 너비가 변한다. 양옆 여백 12pt, 넓으면 두 줄.
+    /// Right photo list (single column): cell width follows the panel width. 12 pt side margins; two columns when wide.
     override func viewDidLayout() {
         super.viewDidLayout()
         guard !grid, !horizontal, let scroll = listScroll else { return }
@@ -151,7 +151,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
         guard avail > 40 else { return }
         let cols: CGFloat = avail >= 400 ? 2 : 1
         let w = floor((avail - gap * (cols - 1)) / cols)
-        // 사진(3:2) + 이름·별점 줄
+        // photo (3:2) + name/rating row
         let size = NSSize(width: w, height: floor(w * 2 / 3) + 8 + 30)
         guard layout.itemSize != size else { return }
         layout.itemSize = size
@@ -161,14 +161,14 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
         layout.invalidateLayout()
     }
 
-    /// 격자 칸 크기 (라이브러리 모드 확대 슬라이더).
+    /// Grid cell size (library mode zoom slider).
     func setThumbSize(_ w: CGFloat) {
         layout.itemSize = NSSize(width: w, height: w * 0.78 + 30)
     }
 
     func reload() {
         guard isViewLoaded else { return }
-        // 격자 보기는 위 막대에 장 수가 있다 (두 번 보이지 않게)
+        // Grid view shows the count in the top bar (not twice)
         countLabel.stringValue = library.items.isEmpty || grid ? "" : (horizontal ? "\(library.items.count)장" : "\(library.items.count)")
         let keep = Set(selectedItems.map { ObjectIdentifier($0) })
         collection.reloadData()
@@ -177,14 +177,14 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
         collection.selectionIndexPaths = Set(paths)
     }
 
-    /// 여러 장 같이 보정을 켜면 필름스트립에서도 여러 장을 고를 수 있다
+    /// With multi-photo editing on, the filmstrip allows multiple selection too
     func setMultipleSelection(_ on: Bool) { if isViewLoaded { collection.allowsMultipleSelection = grid || on } }
 
     var selectedItems: [PhotoItem] {
         collection.selectionIndexPaths.map(\.item).sorted().compactMap { library.items.indices.contains($0) ? library.items[$0] : nil }
     }
 
-    /// 경로 비교는 표준화해서 한다 (/private/tmp → /tmp 처럼 표준화가 경로를 바꾼다).
+    /// Compare standardized paths (standardizing changes paths like /private/tmp → /tmp).
     func select(_ url: URL) {
         let want = url.standardizedFileURL.path
         guard let i = library.items.firstIndex(where: { $0.url.standardizedFileURL.path == want }) else { return }
@@ -202,7 +202,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
         }
     }
 
-    /// 다른 모드에서 고른 사진을 이쪽에도 표시만 한다 (알리지 않는다).
+    /// Mirrors a selection made in another mode without notifying.
     func mirror(_ item: PhotoItem?) {
         guard isViewLoaded, let item, let i = library.items.firstIndex(where: { $0 === item }) else { return }
         if collection.selectionIndexPaths.contains(IndexPath(item: i, section: 0)) { return }
@@ -211,8 +211,8 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
 
     func refresh(_ item: PhotoItem) {
         guard isViewLoaded, let i = library.items.firstIndex(where: { $0 === item }) else { return }
-        // 사진 목록이 바뀌었는데 격자가 아직 옛 목록이면 한 칸만 고칠 수 없다 (앱이 멈췄다) → 전체를 다시
-        // 칸을 새로 그리면 그 칸의 선택이 풀렸다 → 별점을 준 뒤 채택(P)이 아무 사진에도 안 걸렸다. 선택을 지킨다
+        // If the photo list changed but the grid still has the old one, a single item can't be reloaded (the app hung) → reload all
+        // Redrawing a cell dropped its selection → after rating, pick (P) hit no photo. Preserve the selection
         let sel = collection.selectionIndexPaths
         guard collection.numberOfSections > 0, collection.numberOfItems(inSection: 0) == library.items.count else {
             reload(); return
@@ -230,7 +230,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
 
     func focus() { view.window?.makeFirstResponder(collection) }
 
-    // MARK: - 데이터
+    // MARK: - Data
 
     func collectionView(_ cv: NSCollectionView, numberOfItemsInSection section: Int) -> Int { library.items.count }
 
@@ -249,7 +249,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
 
     func collectionView(_ cv: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) { selectionChanged() }
 
-    // MARK: - 끌어 놓기 (DragDrop.swift)
+    // MARK: - Drag and drop (DragDrop.swift)
 
     func collectionView(_ cv: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>, with event: NSEvent) -> Bool {
         true
@@ -264,7 +264,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
         return p
     }
 
-    /// 다른 사진 "위"에만 놓을 수 있다 (사이에는 안 됨) → 조정 복사
+    /// Drops only "onto" another photo (not between) → copy adjustments
     func collectionView(_ cv: NSCollectionView, validateDrop info: NSDraggingInfo,
                         proposedIndexPath p: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
                         dropOperation op: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
@@ -291,13 +291,13 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
     }
 }
 
-/// 필름스트립에서는 방향키 위아래로 한 장씩 넘긴다 (여러 열이어도 앞뒤 사진으로).
-/// 숫자 키 0~5는 별점, 리턴은 열기.
+/// In the filmstrip, up/down arrows step one photo (previous/next even with several columns).
+/// Number keys 0–5 set rating, Return opens.
 final class BrowserCollectionView: NSCollectionView {
     var singleStep = true
     var onRate: ((Int) -> Void)?
     var onOpen: (() -> Void)?
-    /// 채택 P(1)·거부 X(-1)·표시 없음 U(0)
+    /// Pick P(1) · reject X(-1) · unflagged U(0)
     static var onFlag: ((Int) -> Void)?
 
     override func keyDown(with event: NSEvent) {
@@ -309,7 +309,7 @@ final class BrowserCollectionView: NSCollectionView {
            let ch = event.charactersIgnoringModifiers?.lowercased(), let f = ["p": 1, "x": -1, "u": 0][ch] {
             Self.onFlag?(f); return
         }
-        if event.keyCode == 36 { onOpen?(); return }   // 리턴
+        if event.keyCode == 36 { onOpen?(); return }   // Return
         guard singleStep else { return super.keyDown(with: event) }
         let delta: Int? = switch event.keyCode {
         case 123, 126: -1   // ←, ↑
@@ -327,7 +327,7 @@ final class BrowserCollectionView: NSCollectionView {
     }
 }
 
-/// 색 태그 색 (순서: 빨강·주황·노랑·초록·파랑·분홍·보라).
+/// Color tag colors (order: red, orange, yellow, green, blue, pink, purple).
 let colorTags: [(String, NSColor)] = [
     ("없음", .clear), ("빨강", .systemRed), ("주황", .systemOrange), ("노랑", .systemYellow),
     ("초록", .systemGreen), ("파랑", .systemBlue), ("분홍", .systemPink), ("보라", .systemPurple),
@@ -349,7 +349,7 @@ final class PhotoCell: NSCollectionViewItem {
         root.wantsLayer = true
         root.layer?.cornerRadius = 4
         thumb.imageScaling = .scaleProportionallyUpOrDown
-        // 썸네일이 칸을 다 차지해 이름 줄이 0 높이로 눌렸다. 이름이 먼저 자리를 잡게 한다.
+        // The thumbnail took the whole cell and squeezed the name row to zero height. Let the name claim space first.
         thumb.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         thumb.setContentHuggingPriority(.defaultLow, for: .vertical)
         name.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -412,7 +412,7 @@ final class PhotoCell: NSCollectionViewItem {
     }
 }
 
-/// 두 번 누르기를 받는 칸 (컬렉션 뷰는 두 번 누르기 동작이 따로 없다).
+/// Cell that receives double-clicks (collection views have no double-click action).
 final class ClickView: NSView {
     var onDoubleClick: (() -> Void)?
     override func mouseDown(with event: NSEvent) {

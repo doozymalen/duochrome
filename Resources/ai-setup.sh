@@ -1,7 +1,7 @@
 #!/bin/bash
-# Duochrome AI 엔진 설치. Duochrome이 직접 실행하고, "@@단계 n/N 설명" 줄로 진행을 알린다.
-# 설치 위치: ~/Library/Application Support/Duochrome/AI (ComfyUI + 파이썬 환경 + 모델). 창은 띄우지 않는다.
-# 이미 받은 것은 건너뛰고, 끊긴 내려받기는 이어서 받는다.
+# Duochrome AI engine installer. Run by Duochrome itself; reports progress as "@@단계 n/N description" lines.
+# Install location: ~/Library/Application Support/Duochrome/AI (ComfyUI + Python env + models). No windows.
+# Skips what is already downloaded and resumes interrupted downloads.
 set -uo pipefail
 ROOT="${DUOCHROME_AI_ROOT:-$HOME/Library/Application Support/Duochrome/AI}"
 COMFY="$ROOT/ComfyUI"
@@ -43,8 +43,8 @@ else git clone --depth 1 -q https://github.com/Acly/comfyui-inpaint-nodes "$NODE
 [ -f "$NODE/requirements.txt" ] && "$UV" pip install -q -p "$PY" -r "$NODE/requirements.txt" >/dev/null 2>&1
 "$UV" pip install -q -p "$PY" opencv-python-headless spandrel >/dev/null 2>&1
 
-# 내려받기: 이미 있으면 건너뛰고, 끊겼으면 이어 받는다
-get() {  # 주소 저장경로
+# Download: skip if present, resume if interrupted
+get() {  # url dest
   local url="$1" out="$2"
   mkdir -p "$(dirname "$out")"
   if [ -s "$out" ] && [ ! -f "$out.part" ]; then return 0; fi
@@ -69,7 +69,7 @@ get "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_
 
 step 11 "사진 생성 모델 (약 6.6GB)"
 CK="$COMFY/models/checkpoints/RealVisXL_V5.0_fp16.safetensors"
-# 구글 드라이브는 파일을 통째로 받은 뒤에야 복사가 시작돼 오래 멈춘 것처럼 보였다 → 공식 배포처에서 바로 받는다
+# Google Drive only starts copying after the whole file arrives, so it looked stalled → fetch from the official host
 get "https://huggingface.co/SG161222/RealVisXL_V5.0/resolve/main/RealVisXL_V5.0_fp16.safetensors" "$CK" || fail "사진 생성 모델을 받지 못함"
 
 step 12 "반사 제거 모델 (약 2.5GB)"

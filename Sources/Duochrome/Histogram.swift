@@ -1,17 +1,17 @@
 import AppKit
 import CoreImage
 
-/// 화면에 보이는 값(Display P3) 기준 256칸 히스토그램.
+/// 256-bin histogram of displayed values (Display P3).
 struct HistogramData {
     var r = [Float](repeating: 0, count: 256)
     var g = [Float](repeating: 0, count: 256)
     var b = [Float](repeating: 0, count: 256)
     var luma = [Float](repeating: 0, count: 256)
-    /// 한 채널이라도 끝까지 간 픽셀의 비율.
+    /// Fraction of pixels clipped in at least one channel.
     var clippedHigh: Float = 0
     var clippedLow: Float = 0
 
-    /// 미리보기 단계 이미지를 가로 512픽셀 이하로 줄여 센다. 모양을 보는 데는 충분하다.
+    /// Counts the draft-stage image scaled to at most 512 px wide. Enough to see the shape.
     static func compute(_ image: CIImage, context: CIContext, space: CGColorSpace) -> HistogramData {
         var img = image
         let longSide = max(img.extent.width, img.extent.height)
@@ -44,7 +44,7 @@ struct HistogramData {
 
 final class HistogramView: NSView {
     var data: HistogramData? { didSet { needsDisplay = true; mirror?.histogram = data } }
-    /// 같은 히스토그램을 보여 줄 레벨 조절 (조정 탭 레벨 카드)
+    /// Levels control showing the same histogram (Levels card in the Adjust tab)
     weak var mirror: LevelsView?
 
     override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 96) }
@@ -55,7 +55,7 @@ final class HistogramView: NSView {
         NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
         guard let d = data else { return }
 
-        // 끝 칸(순수 검정·흰색)은 제외하고 높이를 잡는다. 안 그러면 밤 사진이 한 줄로 눌린다.
+        // Scale height excluding the end bins (pure black/white). Otherwise night photos flatten to a line.
         let peak = [d.r, d.g, d.b, d.luma].map { $0[1..<255].max() ?? 1 }.max() ?? 1
         let top = max(peak, 1)
         let plot = box.insetBy(dx: 4, dy: 4)
@@ -65,7 +65,7 @@ final class HistogramView: NSView {
             p.move(to: NSPoint(x: plot.minX, y: plot.minY))
             for (i, v) in bins.enumerated() {
                 let x = plot.minX + plot.width * CGFloat(i) / 255
-                // 제곱근 눈금: 작은 봉우리도 보이게.
+                // Square-root scale: so small peaks show.
                 let y = plot.minY + plot.height * CGFloat(min(sqrt(v / top), 1))
                 p.line(to: NSPoint(x: x, y: y))
             }
@@ -82,7 +82,7 @@ final class HistogramView: NSView {
         NSColor.white.withAlphaComponent(0.7).setStroke()
         let l = path(d.luma); l.lineWidth = 1; l.stroke()
 
-        // 클리핑 표시: 0.1%를 넘으면 모서리 삼각형에 불이 들어온다.
+        // Clipping indicator: the corner triangle lights up above 0.1%.
         func corner(_ left: Bool, lit: Bool, color: NSColor) {
             let s: CGFloat = 8
             let x = left ? box.minX + 5 : box.maxX - 5

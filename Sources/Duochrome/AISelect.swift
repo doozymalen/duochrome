@@ -2,12 +2,12 @@ import AppKit
 import CoreImage
 import Vision
 
-/// AI 선택: Apple Vision으로 맥 안에서 피사체·사람 마스크를 만든다.
-/// 마스크는 원본 좌표 그림(1/4 크기) 흑백 PNG로 레이어 그림 폴더에 저장하고, 조정 레이어의 마스크가 된다.
+/// AI selection: builds subject/person masks on-device with Apple Vision.
+/// Masks are saved as grayscale PNGs (quarter size, source coordinates) in the layer image folder and become adjustment-layer masks.
 enum AISelect {
     enum Target: String { case subject = "피사체", background = "배경", person = "사람" }
 
-    /// 원본 좌표 그림에서 마스크를 만든다 (백그라운드에서 불러도 된다). 실패하면 nil.
+    /// Builds a mask from a source-coordinate image (safe to call in the background). nil on failure.
     static func mask(_ doc: RawDocument, target: Target) -> String? {
         let img = doc.nativePreview(scale: 0.25)
         let e = img.extent
@@ -36,7 +36,7 @@ enum AISelect {
             return nil
         }
         guard var m = maskCI else { return nil }
-        // 그림 크기에 맞추고 흑백으로
+        // Fit to image size, grayscale
         let me = m.extent
         m = m.transformed(by: .init(scaleX: e.width / me.width, y: e.height / me.height))
         if target == .background { m = m.applyingFilter("CIColorInvert") }
@@ -47,7 +47,7 @@ enum AISelect {
 }
 
 extension MainWindowController {
-    /// AI 선택 레이어를 더한다 (계산은 백그라운드, 1초 안팎).
+    /// Adds an AI selection layer (computed in the background, about a second).
     func addAISelection(_ target: AISelect.Target, done: (() -> Void)? = nil) {
         guard let doc = photo else { NSSound.beep(); return }
         NSCursor.operationNotAllowed.push()

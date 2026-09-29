@@ -1,6 +1,6 @@
 import CoreImage
 
-/// 컬러 밸런스 한 영역 (색 휠 하나). 색조 0~360, 양 0~1, 밝기 -1~1.
+/// One color balance region (one color wheel). Hue 0–360, amount 0–1, luminance -1–1.
 struct ColorShift: Equatable, Codable {
     var hue: Float = 0
     var amount: Float = 0
@@ -8,7 +8,7 @@ struct ColorShift: Equatable, Codable {
     var isNeutral: Bool { amount == 0 && lightness == 0 }
 }
 
-/// 흑백 변환. 색 여섯 개의 감도(-100~100)와 스플릿 톤.
+/// Black & white conversion. Six color sensitivities (-100–100) and split toning.
 struct BlackWhite: Equatable, Codable {
     var enabled = false
     var red: Float = 0, yellow: Float = 0, green: Float = 0
@@ -17,26 +17,26 @@ struct BlackWhite: Equatable, Codable {
     var highlightTone = ColorShift()
 }
 
-/// 컬러 에디터 범위 하나. 가운데 색조에서 넓이의 절반까지는 100%, 그 밖으로 부드러움만큼 줄어든다.
+/// One color editor range. 100% within half the width of the center hue, falling off by the smoothness beyond.
 struct ColorRange: Equatable, Codable {
     var name = ""
     var hue: Float
     var width: Float = 45
     var soft: Float = 0.6
-    var dHue: Float = 0      // 색조 이동 -30~30°
-    var dSat: Float = 0      // 채도 -100~100
-    var dLight: Float = 0    // 밝기 -100~100
-    /// 목록에서 체크를 끈 범위 (값은 두고 잠시 끈다)
+    var dHue: Float = 0      // hue shift -30–30°
+    var dSat: Float = 0      // saturation -100–100
+    var dLight: Float = 0    // lightness -100–100
+    /// Range unchecked in the list (value kept, temporarily off)
     var off: Bool? = nil
     var isNeutral: Bool { dHue == 0 && dSat == 0 && dLight == 0 }
     var isActive: Bool { off != true && !isNeutral }
 
-    /// 기본 컬러 에디터의 여덟 색.
+    /// The eight colors of the basic color editor.
     static let basic: [ColorRange] = [("빨강", 0), ("주황", 30), ("노랑", 60), ("초록", 120), ("청록", 180),
                                       ("파랑", 225), ("보라", 270), ("자홍", 315)]
         .map { ColorRange(name: $0.0, hue: $0.1) }
 
-    /// 이 색(색조 h, 채도 s)에 걸리는 정도 0~1. 무채색에 가까우면 덜 걸린다 (회색이 물들지 않게).
+    /// How strongly this color (hue h, saturation s) is affected, 0–1. Near-neutral colors less (so grays aren't tinted).
     func weight(hue h: Float, sat s: Float) -> Float {
         var d = abs(h - hue).truncatingRemainder(dividingBy: 360)
         if d > 180 { d = 360 - d }
@@ -47,7 +47,7 @@ struct ColorRange: Equatable, Codable {
     }
 }
 
-/// 스킨 톤 균일화: 고른 피부색 쪽으로 색조·채도·밝기의 흩어짐을 모은다.
+/// Skin tone uniformity: pulls the spread of hue/saturation/lightness toward the picked skin color.
 struct SkinTone: Equatable, Codable {
     var enabled = false
     var hue: Float = 25
@@ -60,18 +60,18 @@ struct SkinTone: Equatable, Codable {
     var isNeutral: Bool { !enabled || (hueAmount == 0 && satAmount == 0 && lightAmount == 0) }
 }
 
-/// 전역 색 연산을 3D LUT 하나로 굽는다. 컬러 밸런스, 흑백처럼 픽셀 하나만 보고 정해지는
-/// 연산은 전부 여기 모은다. 32³ 격자면 한 번 굽는 데 수 ms, GPU에서는 삼선형 보간 한 번이다.
+/// Bakes global color operations into one 3D LUT. Every per-pixel operation, like color balance and B&W,
+/// goes here. A 32³ grid bakes in a few ms, and on the GPU it's a single trilinear lookup.
 enum ColorLUT {
     static let size = 32
 
     struct Key: Equatable, Codable {
         var master = ColorShift(), shadow = ColorShift(), mid = ColorShift(), high = ColorShift()
         var bw = BlackWhite()
-        /// 컬러 에디터: 앞 여덟은 기본 색, 그 뒤는 스포이트로 더한 범위 (고급, 최대 35개).
+        /// Color editor: the first eight are basic colors, the rest are eyedropper ranges (advanced, up to 35).
         var editor: [ColorRange] = ColorRange.basic
         var skin = SkinTone()
-        /// 밝기(루마) 커브. 설정의 curves.luma를 현상 단계에서 넣어 준다.
+        /// Luminance (luma) curve. Supplied from settings' curves.luma at the develop stage.
         var luma = ToneCurve()
         var isNeutral: Bool {
             luma.isIdentity &&
@@ -89,7 +89,7 @@ enum ColorLUT {
             data = bake(key)
             cache = (key, data)
         }
-        // 화면 감마 공간에서 건다. 영역 가중치를 사람 눈 밝기 기준으로 나누기 위해서다.
+        // Applied in display gamma space, to split region weights by perceived brightness.
         return image.applyingFilter("CIColorCubeWithColorSpace", parameters: [
             "inputCubeDimension": size,
             "inputCubeData": data,
@@ -97,7 +97,7 @@ enum ColorLUT {
         ])
     }
 
-    /// 색조 방향의 단위 색. 밝기 성분을 빼서 색만 옮기고 밝기는 그대로 둔다.
+    /// Unit color along a hue direction. Luminance removed so only color moves and brightness stays.
     private static func chroma(_ hue: Float) -> SIMD3<Float> {
         let h = (hue.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360) / 60
         let x = 1 - abs(h.truncatingRemainder(dividingBy: 2) - 1)
@@ -127,9 +127,9 @@ enum ColorLUT {
 
     static func transform(_ key: Key, _ input: SIMD3<Float>) -> SIMD3<Float> {
         var c = input
-        let k: Float = 0.25   // 휠 끝까지 밀었을 때 색이 옮겨 가는 정도
+        let k: Float = 0.25   // how far color moves with the wheel pushed to the edge
 
-        // 밝기 커브: 밝기만 곡선대로 옮기고 색 비율은 지킨다.
+        // Luma curve: moves only luminance along the curve, preserving color ratios.
         if !key.luma.isIdentity {
             let table = lumaTable(key.luma)
             let y = min(max(luma(c), 0), 1)
@@ -139,14 +139,14 @@ enum ColorLUT {
             c = y > 1e-4 ? c * (ny / y) : SIMD3(repeating: ny)
         }
 
-        // 컬러 밸런스: 섀도·미드톤·하이라이트 가중치는 합이 1이 되게 나눈다.
+        // Color balance: shadow/midtone/highlight weights normalized to sum to 1.
         let y = min(max(luma(c), 0), 1)
         let ws = (1 - y) * (1 - y), wh = y * y, wm = 1 - ws - wh
         for (w, s) in [(1, key.master), (ws, key.shadow), (wm, key.mid), (wh, key.high)] where !s.isNeutral {
             c += w * (s.amount * k * chroma(s.hue) + s.lightness * 0.2)
         }
 
-        // 컬러 에디터·스킨 톤: HSV에서 옮긴다.
+        // Color editor / skin tone: shifted in HSV.
         if key.editor.contains(where: \.isActive) || !key.skin.isNeutral {
             var (h, s, v) = hsv(c)
             var dh: Float = 0, satMul: Float = 1, lightMul: Float = 1
@@ -177,7 +177,7 @@ enum ColorLUT {
         if key.bw.enabled {
             let b = key.bw
             let (h, sat) = hue(of: c)
-            // 색 여섯 개 중심에서 60° 안쪽만 영향을 받는다. 채도가 낮은 픽셀은 덜 움직인다.
+            // Only within 60° of each of the six color centers is affected. Low-saturation pixels move less.
             var adj: Float = 0
             for (center, sens) in [(0, b.red), (60, b.yellow), (120, b.green), (180, b.cyan), (240, b.blue), (300, b.magenta)] as [(Float, Float)] {
                 var d = abs(h - center)
@@ -226,7 +226,7 @@ enum ColorLUT {
         let n = size
         var cube = [Float](repeating: 0, count: n * n * n * 4)
         var i = 0
-        // CIColorCube 순서: 빨강이 가장 빨리 바뀐다.
+        // CIColorCube order: red changes fastest.
         for b in 0..<n {
             for g in 0..<n {
                 for r in 0..<n {

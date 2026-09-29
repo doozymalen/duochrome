@@ -1,13 +1,13 @@
 import AppKit
 
-/// 두 번째 화면에 지금 사진을 크게 띄우는 창.
-/// 캔버스를 하나 더 만들어 같은 문서를 그린다. 조정할 때마다 같이 다시 그린다.
+/// Window showing the current photo large on a second display.
+/// Creates another canvas drawing the same document. Redraws along with every adjustment.
 final class SecondViewerWindow: NSWindowController, NSWindowDelegate {
     let canvas = CanvasView()
     var onClose: (() -> Void)?
 
     convenience init() {
-        // 다른 화면이 있으면 그 화면을 꽉 채우고, 없으면 지금 화면에 보통 창으로.
+        // With another display, fill it; otherwise a normal window on the current display.
         let screens = NSScreen.screens
         let target = screens.count > 1 ? screens.first { $0 != NSScreen.main } ?? screens[1] : NSScreen.main
         let frame = target?.visibleFrame ?? NSRect(x: 100, y: 100, width: 1200, height: 800)
@@ -36,7 +36,7 @@ final class SecondViewerWindow: NSWindowController, NSWindowDelegate {
 }
 
 extension MainWindowController {
-    /// 보기 → 두 번째 화면에 보기 (켜고 끄기)
+    /// View → Show on Second Display (toggle)
     @objc func toggleSecondViewer(_ sender: Any?) {
         if let v = secondViewer { v.close(); secondViewer = nil; return }
         let v = SecondViewerWindow()

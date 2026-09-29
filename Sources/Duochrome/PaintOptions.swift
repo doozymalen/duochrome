@@ -1,7 +1,7 @@
 import AppKit
 
-/// 칠하기 붓 옵션 (브러시 엔진): 레이어 탭 카드와 심화 보정 도구 옵션 패널에서 같이 쓴다.
-/// 값은 PaintBrush.current에 바로 저장된다 (다음 붓질부터).
+/// Paint brush options (brush engine): shared by the layers tab card and the layer-edit tool options panel.
+/// Values are saved straight into PaintBrush.current (from the next stroke).
 final class PaintOptionsView: NSStackView {
     private let color = NSColorWell()
     private let tip = NSPopUpButton()
@@ -93,7 +93,7 @@ final class PaintOptionsView: NSStackView {
         b.pressureOpacity = pressureOpacity.state == .on
         b.tip = tip.selectedItem?.representedObject as? String
         b.dualTip = dualTip.selectedItem?.representedObject as? String
-        // 텍스처는 패턴 그림을 레이어 그림 폴더로 복사해 쓴다 (문서와 함께 옮겨지게)
+        // Textures copy the pattern image into the layer image folder (so it travels with the document)
         if let f = texture.selectedItem?.representedObject as? String {
             if b.texture == nil || !(b.texture!.hasPrefix("tex-") && b.texture!.contains(f)) {
                 let name = "tex-" + f

@@ -2,10 +2,10 @@ import AppKit
 import CoreImage
 import Vision
 
-// MARK: - AI 1단계: 맥에 들어 있는 AI로 (내려받기 없음) — 배경 제거, 크롭 제안, 하늘 선택, 스킨 마스크, 개체 선택
+// MARK: - AI stage 1: built-in macOS AI (no downloads) — background removal, crop suggestions, sky selection, skin mask, object selection
 
 enum AIBasic {
-    /// 원본 좌표 1/4 그림과 그 CGImage (분석용)
+    /// Quarter-size image in source coordinates and its CGImage (for analysis)
     static func nativeSmall(_ doc: RawDocument, scale: CGFloat = 0.25) -> (CIImage, CGImage)? {
         let img = doc.nativePreview(scale: scale)
         let e = img.extent
@@ -13,7 +13,7 @@ enum AIBasic {
         return (img, cg)
     }
 
-    /// 흑백 마스크 그림을 레이어 그림 폴더에 저장 (원본 좌표 전체를 덮는 크기)
+    /// Saves a grayscale mask into the layer image folder (sized to cover the whole source)
     static func store(_ m: CIImage, size: CGSize) -> String? {
         let r = CGRect(origin: .zero, size: size)
         let me = m.extent
@@ -23,9 +23,9 @@ enum AIBasic {
         return try? LayerImageStore.importData(png, ext: "png")
     }
 
-    // MARK: 하늘 선택
-    /// 맥 기본 AI에 하늘 분할이 없어 사진 단서로 만든다:
-    /// 하늘다움 = 밝기·파란 기운·낮은 질감(구름·맑은 하늘 모두), 위쪽일수록 더. 위 가장자리에서 이어진 곳만 남기고, 가장자리를 사진 밝기로 다듬는다.
+    // MARK: Sky selection
+    /// macOS AI has no sky segmentation, so build it from image cues:
+    /// skyness = brightness · blueness · low texture (clouds and clear sky alike), more toward the top. Keep only regions connected to the top edge, then refine edges with image luminance.
     static func skyMask(_ doc: RawDocument) -> String? {
         guard let (img, cg) = nativeSmall(doc, scale: 0.125) else { return nil }
         let w = cg.width, h = cg.height
@@ -34,11 +34,11 @@ enum AIBasic {
         guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        // px 0행이 위쪽 (CGContext 메모리 순서)
+        // px row 0 is the top (CGContext memory order)
         func lum(_ i: Int) -> Float { (0.299 * Float(px[i * 4]) + 0.587 * Float(px[i * 4 + 1]) + 0.114 * Float(px[i * 4 + 2])) / 255 }
         var L = [Float](repeating: 0, count: w * h)
         for i in 0..<(w * h) { L[i] = lum(i) }
-        // 질감: 주변 3×3 밝기 차의 평균
+        // Texture: mean luminance difference over the 3×3 neighborhood
         var tex = [Float](repeating: 0, count: w * h)
         for y in 1..<(h - 1) { for x in 1..<(w - 1) {
             let c = L[y * w + x]
@@ -46,18 +46,18 @@ enum AIBasic {
             for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] { d += abs(L[(y + dy) * w + x + dx] - c) }
             tex[y * w + x] = d / 4
         } }
-        // 하늘다움 점수
+        // Skyness score
         var score = [Float](repeating: 0, count: w * h)
         for y in 0..<h { for x in 0..<w {
             let i = y * w + x
             let r = Float(px[i * 4]) / 255, g = Float(px[i * 4 + 1]) / 255, b = Float(px[i * 4 + 2]) / 255
-            let blue = max(0, b - max(r, g * 0.9))            // 파란 하늘
-            let white = L[i] > 0.72 ? (L[i] - 0.72) * 3 : 0   // 흐린 날 흰 하늘
-            let smooth = max(0, 1 - tex[i] * 18)              // 질감이 적을수록
-            let top = 1 - Float(y) / Float(h) * 0.9           // 위쪽일수록
+            let blue = max(0, b - max(r, g * 0.9))            // blue sky
+            let white = L[i] > 0.72 ? (L[i] - 0.72) * 3 : 0   // white overcast sky
+            let smooth = max(0, 1 - tex[i] * 18)              // less texture scores higher
+            let top = 1 - Float(y) / Float(h) * 0.9           // higher up scores higher
             score[i] = min(1, (blue * 4 + white + 0.15) * smooth * top * 1.6)
         } }
-        // 위 가장자리에서 이어진 하늘다운 곳만 (흘러 채우기)
+        // Only sky-like regions connected to the top edge (flood fill)
         var seen = [Bool](repeating: false, count: w * h)
         var queue: [Int] = []
         for x in 0..<w where score[x] > 0.35 { queue.append(x); seen[x] = true }
@@ -72,23 +72,23 @@ enum AIBasic {
                 if !seen[j], score[j] > 0.3, abs(L[j] - L[i]) < 0.12 { seen[j] = true; queue.append(j) }
             }
         }
-        guard queue.count > w * h / 200 else { return nil }   // 하늘이 거의 없다
+        guard queue.count > w * h / 200 else { return nil }   // almost no sky
         var out = [UInt8](repeating: 0, count: w * h)
         for i in queue { out[i] = 255 }
-        // CGImage (0행이 위) → CIImage
+        // CGImage (row 0 at top) → CIImage
         guard let prov = CGDataProvider(data: Data(out) as CFData),
               let mcg = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: w, space: CGColorSpaceCreateDeviceGray(),
                                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue), provider: prov, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
         else { return nil }
         var m = CIImage(cgImage: mcg).clampedToExtent().blurred(1.2).cropped(to: CGRect(x: 0, y: 0, width: w, height: h))
-        // 사진 밝기를 길잡이로 가장자리를 다듬는다 (나뭇가지·전선 사이)
+        // Refine edges guided by image luminance (between branches and wires)
         let guide = img.transformed(by: .init(scaleX: CGFloat(w) / img.extent.width, y: CGFloat(h) / img.extent.height))
         m = Layers.refineMask(m, guide: guide.cropped(to: m.extent), radius: 3)
         return store(m, size: doc.nativeSize)
     }
 
-    // MARK: 스킨 마스크
-    /// 사람 영역 ∩ 피부색 (YCbCr 범위). 얼굴·팔 등 피부만
+    // MARK: Skin mask
+    /// Person region ∩ skin tones (YCbCr range). Skin only: face, arms, etc.
     static func skinMask(_ doc: RawDocument) -> String? {
         guard let (img, cg) = nativeSmall(doc) else { return nil }
         let handler = VNImageRequestHandler(cgImage: cg)
@@ -119,8 +119,8 @@ enum AIBasic {
     }
     """)
 
-    // MARK: 개체 선택 (사각형 안의 물체)
-    /// 맥 기본 전경 분할의 개체들 중 사각형 안에 주로 들어 있는 것들만 (원본 좌표 사각형)
+    // MARK: Object selection (things inside a rectangle)
+    /// Only the macOS foreground instances that lie mostly inside the rectangle (source-coordinate rect)
     static func objectMask(_ doc: RawDocument, rect: CGRect) -> String? {
         guard let (img, cg) = nativeSmall(doc) else { return nil }
         let e = img.extent
@@ -148,7 +148,7 @@ enum AIBasic {
             let m = CIImage(cvPixelBuffer: b)
             mask = m.transformed(by: .init(scaleX: e.width / m.extent.width, y: e.height / m.extent.height))
         } else {
-            // 물체를 못 찾으면: 사각형 안에서 눈길이 가는 곳 (돌출 지도)
+            // If no object is found: the salient area inside the rectangle (saliency map)
             guard let sub = cg.cropping(to: CGRect(x: r.minX, y: e.height - r.maxY, width: r.width, height: r.height)) else { return nil }
             let h2 = VNImageRequestHandler(cgImage: sub)
             let sal = VNGenerateObjectnessBasedSaliencyImageRequest()
@@ -158,17 +158,17 @@ enum AIBasic {
                 .transformed(by: .init(translationX: r.minX, y: r.minY))
                 .composited(over: CIImage(color: .black).cropped(to: e))
         }
-        // 사각형 밖은 지운다
+        // Clear everything outside the rectangle
         let box = CIImage(color: .white).cropped(to: r).composited(over: CIImage(color: .black).cropped(to: e))
         mask = mask.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: box]).cropped(to: e)
         mask = Layers.refineMask(mask, guide: img, radius: 3)
         return store(mask, size: doc.nativeSize)
     }
 
-    // MARK: 크롭 제안
+    // MARK: Crop suggestions
     struct CropIdea { var rect: CGRect; var ratio: String; var score: Float; var angle: Float }
 
-    /// 눈길 가는 곳·수평선·사진 좋음 점수로 크롭 후보 셋 (화면 틀 좌표 0~1)
+    /// Three crop candidates from saliency, horizon, and aesthetics score (frame coordinates 0–1)
     static func cropIdeas(_ doc: RawDocument) -> [CropIdea] {
         let img = doc.withFullResolution { doc.image(scale: 1.0 / 8) }
         let e = img.extent
@@ -177,7 +177,7 @@ enum AIBasic {
         let sal = VNGenerateAttentionBasedSaliencyImageRequest()
         let horizon = VNDetectHorizonRequest()
         try? handler.perform([sal, horizon])
-        // 눈길 가는 곳의 상자 (0~1, 아래가 0)
+        // Salient bounding box (0–1, bottom is 0)
         let boxes = sal.results?.first?.salientObjects?.map(\.boundingBox) ?? []
         var focus = boxes.reduce(CGRect.null) { $0.union($1) }
         if focus.isNull { focus = CGRect(x: 0.35, y: 0.35, width: 0.3, height: 0.3) }
@@ -186,23 +186,23 @@ enum AIBasic {
         var ideas: [CropIdea] = []
         for (name, r) in [("원래 비율", aspect), ("4:5", 4.0 / 5), ("1:1", 1), ("16:9", 16.0 / 9), ("3:2", 1.5)] as [(String, CGFloat)] {
             for zoom in [1.0, 0.85, 0.72] as [CGFloat] {
-                // 가장 큰 그 비율 상자 × 크기
+                // Largest box of that aspect × scale
                 var w: CGFloat = 1, h: CGFloat = 1
                 if r >= aspect { h = aspect / r } else { w = r / aspect }
                 w *= zoom; h *= zoom
                 guard w >= focus.width * 0.95 || zoom == 1 else { continue }
-                // 3분할 교차점에 눈길 가는 곳의 가운데를 맞춘 후보들
+                // Candidates placing the salient center on rule-of-thirds intersections
                 for (tx, ty) in [(0.5, 0.5), (1 / 3.0, 2 / 3.0), (2 / 3.0, 2 / 3.0), (1 / 3.0, 1 / 3.0), (2 / 3.0, 1 / 3.0)] as [(CGFloat, CGFloat)] {
                     var x = focus.midX - w * tx, y = focus.midY - h * ty
                     x = min(max(x, 0), 1 - w); y = min(max(y, 0), 1 - h)
                     let c = CGRect(x: x, y: y, width: w, height: h)
-                    // 눈길 가는 곳이 잘리면 감점
+                    // Penalize cutting through the salient area
                     let cover = focus.intersection(c).width * focus.intersection(c).height / max(focus.width * focus.height, 1e-6)
                     ideas.append(CropIdea(rect: c, ratio: name, score: Float(cover), angle: angle))
                 }
             }
         }
-        // 잘 담은 것 가운데 사진 좋음 점수로 고른다 (비율마다 가장 좋은 것 하나씩)
+        // Among well-framed ones, pick by aesthetics score (best one per aspect)
         var best: [String: CropIdea] = [:]
         for var idea in ideas where idea.score > 0.92 {
             let pr = CGRect(x: idea.rect.minX * e.width, y: idea.rect.minY * e.height, width: idea.rect.width * e.width, height: idea.rect.height * e.height).integral
@@ -219,9 +219,9 @@ enum AIBasic {
 }
 
 extension MainWindowController {
-    // MARK: 메뉴 동작
+    // MARK: Menu actions
 
-    /// AI 마스크 계산을 뒤에서 하고 조정 레이어로
+    /// Computes the AI mask in the background and makes an adjustment layer
     func addAIMaskLayer(_ name: String, compute: @escaping (RawDocument) -> String?, configure: ((inout AdjustLayer) -> Void)? = nil) {
         guard let doc = photo else { NSSound.beep(); return }
         JobCenter.shared.begin("ai-mask", title: name)
@@ -253,13 +253,13 @@ extension MainWindowController {
 
     @objc func skinMaskAI(_ sender: Any?) { addAIMaskLayer("스킨 선택") { AIBasic.skinMask($0) } }
 
-    /// 사각형 안 개체 선택 (원본 좌표)
+    /// Object selection inside a rectangle (source coordinates)
     func selectObject(in rect: CGRect) {
         guard rect.width > 4, rect.height > 4 else { NSSound.beep(); return }
         addAIMaskLayer("개체 선택") { AIBasic.objectMask($0, rect: rect) }
     }
 
-    /// 배경 제거: 피사체 밖을 투명하게 (다시 부르면 되돌린다)
+    /// Background removal: make everything outside the subject transparent (calling again undoes it)
     @objc func removeBackgroundAI(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
         if doc.settings.cutout != nil {
@@ -282,7 +282,7 @@ extension MainWindowController {
         }
     }
 
-    /// 크롭 제안: 후보 셋을 보여 주고 고르면 크롭 (수평이 기울었으면 같이 바로)
+    /// Crop suggestions: show three candidates and crop to the chosen one (straightening too if tilted)
     @objc func suggestCropAI(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
         JobCenter.shared.begin("ai-crop", title: "크롭 제안")
@@ -330,7 +330,7 @@ extension MainWindowController {
         let idea = ideas[picker.selected]
         var s = doc.settings
         if abs(idea.angle) > 0.3 { s.rotation = min(max(s.rotation - idea.angle, -45), 45) }
-        // 지금 틀(이미 크롭된 곳) 안에서의 비율 → 틀 전체 기준으로
+        // Ratio within the current frame (already cropped) → relative to the full frame
         let cur = s.crop.cg
         s.crop = CropRect(CGRect(x: cur.minX + idea.rect.minX * cur.width, y: cur.minY + idea.rect.minY * cur.height,
                                  width: idea.rect.width * cur.width, height: idea.rect.height * cur.height))
@@ -339,7 +339,7 @@ extension MainWindowController {
     }
 }
 
-/// 누름 단추 여럿 중 하나만 켜지게
+/// Radio behavior across several push buttons
 final class RadioGroup: NSObject {
     private let buttons: [NSButton]
     private(set) var selected = 0

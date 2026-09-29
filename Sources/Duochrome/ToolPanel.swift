@@ -1,7 +1,7 @@
 import AppKit
 
-/// 왼쪽 도구 패널. 위에 도구 탭이 있고 아래에 그 탭의 도구가 쌓인다.
-/// 레이어·리터칭 같은 기능은 여기에 탭으로 더해 간다.
+/// Left tool panel. Tool tabs on top, that tab's tools stacked below.
+/// Features like layers and retouching are added here as tabs.
 final class ToolPanelController: NSViewController {
     struct Tab {
         let title: String
@@ -66,8 +66,8 @@ final class ToolPanelController: NSViewController {
         container.subviews.forEach { $0.removeFromSuperview() }
         let v = tabs[i].controller.view
         container.addSubview(v)
-        // 탭 내용은 제약으로 잇지 않고 프레임으로만 채운다 (TabHostView.layout).
-        // 제약으로 이으면 탭마다 최소 폭·높이가 달라 탭을 바꿀 때마다 사이드바 폭과 창 크기가 바뀌었다.
+        // Tab content is sized by frame only, not constraints (TabHostView.layout).
+        // With constraints, each tab's minimum width/height differed and every tab switch changed the sidebar width and window size.
         v.translatesAutoresizingMaskIntoConstraints = true
         v.autoresizingMask = []
         v.frame = container.bounds
@@ -78,7 +78,7 @@ final class ToolPanelController: NSViewController {
     }
 }
 
-/// 아이콘 위, 이름 아래. 고른 탭은 둥근 알약으로 칠한다 (창 막대 모드 전환과 같은 강조).
+/// Icon above, name below. The selected tab is filled with a rounded pill (same emphasis as the toolbar mode switch).
 final class TabButton: NSView {
     var onClick: (() -> Void)?
     var active = false { didSet { update() } }
@@ -107,7 +107,7 @@ final class TabButton: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 고른 탭: 창 막대 모드 전환처럼 둥근 알약을 칠하고 글자를 진하게. 올려 두면 옅은 알약.
+    /// Selected tab: rounded pill fill and bold text like the toolbar mode switch. Hover shows a faint pill.
     private func update() {
         wantsLayer = true
         layer?.cornerRadius = 10
@@ -131,14 +131,14 @@ final class TabButton: NSView {
     override func mouseDown(with event: NSEvent) { onClick?() }
 }
 
-// MARK: - 라이브러리 탭
+// MARK: - Library tab
 
-/// 연 폴더, 최근 폴더, 고른 사진의 촬영 정보.
+/// Open folder, recent folders, capture info of the selected photo.
 final class LibraryTabController: NSViewController {
     var onOpenFolder: (() -> Void)?
     var onPickRecent: ((URL) -> Void)?
     var onImportCatalog: (() -> Void)?
-    /// 카탈로그 목록 (라이브러리 모드 왼쪽과 같은 것)
+    /// Catalog list (same as library mode's left side)
     let sources = SourceListController()
 
     private let folderLabel = NSTextField(wrappingLabelWithString: "폴더를 열지 않았습니다")
@@ -234,7 +234,7 @@ final class LibraryTabController: NSViewController {
     }
 }
 
-/// 도구 탭 내용을 담는 칸. 내용 크기가 바깥(사이드바·창)으로 번지지 않게 프레임으로만 맞춘다.
+/// Container for tool tab content. Sized by frame only so content size doesn't leak out (to the sidebar or window).
 final class TabHostView: NSView {
     override func layout() {
         super.layout()

@@ -1,10 +1,10 @@
 import AppKit
 import CoreImage
 
-/// AI 엔진: ComfyUI를 창 없이 Duochrome 안의 보이지 않는 엔진으로 쓴다.
-/// - 설치: ~/Library/Application Support/Duochrome/AI 에 ai-setup.sh로 (처음 한 번, 작업 진행 창에 단계 표시)
-/// - 실행: AI 기능을 처음 쓸 때 뒤에서 켜고(브라우저·창 없음), Duochrome을 닫으면 함께 끈다
-/// - 일: 그림·마스크를 올리고 작업 흐름(노드 묶음)을 보내, 결과 그림을 받아 온다
+/// AI engine: runs ComfyUI headless as an invisible engine inside Duochrome.
+/// - Install: into ~/Library/Application Support/Duochrome/AI via ai-setup.sh (once; steps shown in the jobs panel)
+/// - Run: started in the background on first AI use (no browser or window) and stopped when Duochrome quits
+/// - Work: upload images/masks, submit a workflow (node graph), fetch the result images
 final class AIEngine {
     static let shared = AIEngine()
 
@@ -33,9 +33,9 @@ final class AIEngine {
         var errorDescription: String? { message }
     }
 
-    // MARK: 설치
+    // MARK: Install
 
-    /// 설치 스크립트 (앱 안 → 없으면 개발 폴더)
+    /// Install script (inside the app → else the dev folder)
     static var setupScript: URL? {
         if let u = Bundle.main.url(forResource: "ai-setup", withExtension: "sh") { return u }
         let dev = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -43,7 +43,7 @@ final class AIEngine {
         return FileManager.default.fileExists(atPath: dev.path) ? dev : nil
     }
 
-    /// 설치 (뒤 스레드에서 부른다). 진행은 작업 진행 창에
+    /// Install (call from a background thread). Progress goes to the jobs panel
     func install() throws {
         guard let script = Self.setupScript else { throw Failure(message: "설치 스크립트를 찾지 못함") }
         JobCenter.shared.begin("ai-install", title: "AI 엔진 설치", detail: "준비")
@@ -72,9 +72,9 @@ final class AIEngine {
         if p.terminationStatus != 0 || !isInstalled { throw Failure(message: failure ?? "설치가 끝나지 않음") }
     }
 
-    // MARK: 켜기·끄기
+    // MARK: Start / stop
 
-    /// 엔진이 살아 있으면 참
+    /// True if the engine is alive
     func isAlive() -> Bool {
         var req = URLRequest(url: base.appendingPathComponent("system_stats"))
         req.timeoutInterval = 2
@@ -85,8 +85,8 @@ final class AIEngine {
         return ok
     }
 
-    /// Duochrome 전용 엔진 부품. 공개 지우기 부품은 LaMa를 256픽셀 정사각형으로 줄였다 늘려 결과가 뭉개졌다 →
-    /// 보낸 크기 그대로(8의 배수로 가장자리만 비춰 채움) 돌린다. 켤 때마다 최신으로 써 둔다
+    /// Duochrome custom engine nodes. The stock inpaint node shrank LaMa to a 256 px square and back, smearing the result →
+    /// run at the size sent (edges reflect-padded to a multiple of 8). Rewritten to the latest on every start
     static let nodeSource = """
     import torch
     import torch.nn.functional as F
@@ -117,7 +117,7 @@ final class AIEngine {
             out = img + (out - img) * m
             return (out.clamp(0, 1).permute(0, 2, 3, 1),)
 
-    # 반사 제거 (DSIT, NTIRE 2025 반사 제거 대회 1위 팀 도구 모음, 아파치 2.0). 구조 파일만 불러온다 (학습용 의존성 없이)
+    # Reflection removal (DSIT, toolkit from the NTIRE 2025 reflection removal winners, Apache 2.0). Loads only the architecture files (no training deps)
     _DSIT = {}
 
     def _load_dsit(root):
@@ -137,7 +137,7 @@ final class AIEngine {
         net = mod.DSIT(pretrained_models={}, window_size=12, enc_blk_nums=[12, 8, 4, 2, 2], dec_blk_nums=[2, 2, 2, 2, 2])
         ck = torch.load(os.path.join(root, "reflection", "dsit-26.6959.ckpt"), map_location="cpu", weights_only=False)["state_dict"]
         net.load_state_dict({k[6:]: v for k, v in ck.items() if k.startswith("net_g.")})
-        net.eval()   # 이 구조의 eval()은 자신을 돌려주지 않는다
+        net.eval()   # This architecture's eval() doesn't return self
         _DSIT["net"] = net
         return net
 
@@ -152,14 +152,14 @@ final class AIEngine {
         def run(self, image):
             import os, folder_paths
             root = os.path.dirname(folder_paths.base_path)
-            # 채우기 모델 등이 그래픽 메모리를 잡고 있으면 모자라다 → 먼저 내린다
+            # Not enough memory while fill models etc. hold VRAM → unload them first
             mm.unload_all_models()
             mm.soft_empty_cache()
             net = _load_dsit(root)
             dev = mm.get_torch_device()
             net.to(dev)
             x = image.permute(0, 3, 1, 2)[:, :3]
-            # 이 맥(MPS)은 긴 변 1024까지, 코랩 L4는 1536까지 (2048은 메모리가 모자랐다. 넘으면 줄였다 늘린다)
+            # This Mac (MPS) up to 1024 on the long side, Colab L4 up to 1536 (2048 ran out of memory; larger inputs are downscaled and upscaled back)
             H0, W0 = x.shape[-2:]
             cap = 1536 if dev.type == "cuda" else 1024
             k = min(1.0, cap / max(H0, W0))
@@ -174,7 +174,7 @@ final class AIEngine {
             net.cpu()
             out = out[:, :, :h, :w]
             if k < 1.0:
-                # 반사 차이만 늘려 원래 크기에 더한다 (결은 원래 그림 그대로)
+                # Upscale only the reflection difference and add it at full size (original texture stays intact)
                 out = full + F.interpolate(out - x, size=(H0, W0), mode="bicubic", align_corners=False)
             return (out.clamp(0, 1).permute(0, 2, 3, 1),)
 
@@ -190,7 +190,7 @@ final class AIEngine {
         }
     }
 
-    /// 필요하면 설치하고 켠다 (뒤 스레드에서 부른다). 이미 켜져 있으면 바로 돌아온다
+    /// Installs if needed and starts (call from a background thread). Returns immediately if already running
     func ensureRunning() throws {
         if isAlive() { return }
         if !isInstalled { try install() }
@@ -205,7 +205,7 @@ final class AIEngine {
         let p = Process()
         p.executableURL = Self.python
         p.currentDirectoryURL = Self.comfy
-        // 창·브라우저 없이, 이 맥 안에서만 (127.0.0.1), 미리보기 그림 없이
+        // No window or browser, local only (127.0.0.1), no preview images
         p.arguments = ["main.py", "--listen", "127.0.0.1", "--port", "\(port)", "--disable-auto-launch", "--preview-method", "none",
                        "--output-directory", Self.root.appendingPathComponent("output").path,
                        "--input-directory", Self.root.appendingPathComponent("input").path]
@@ -233,10 +233,10 @@ final class AIEngine {
         throw Failure(message: "AI 엔진이 \(Int(seconds))초 안에 켜지지 않음")
     }
 
-    /// 이 맥 엔진이 Duochrome이 켠 채로 돌고 있으면 참
+    /// True if the local engine is running and was started by Duochrome
     var isRunningHere: Bool { server?.isRunning == true }
 
-    /// 미리 켜 두기: AI 도구를 고르거나 AI 창을 열 때 뒤에서 켜서, 실제로 누를 때 기다리지 않게 (설치 전이면 아무것도 안 함)
+    /// Warm-up: start in the background when an AI tool is picked or the AI window opens, so the actual click doesn't wait (no-op before install)
     func warmUp() {
         guard isInstalled else { return }
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -245,7 +245,7 @@ final class AIEngine {
         }
     }
 
-    /// 큰 생성 모델을 메모리에서 내린다 (16GB 맥에서 생성 뒤 7GB 가까이 붙잡고 있지 않게). 지우기 모델도 함께 내려가지만 다시 싣는 데 1초 안팎
+    /// Unloads large generative models (so a 16 GB Mac doesn't hold ~7 GB after a generation). The inpaint model unloads too, but reloads in about a second
     func freeMemory() {
         var req = URLRequest(url: base.appendingPathComponent("free"))
         req.httpMethod = "POST"
@@ -254,7 +254,7 @@ final class AIEngine {
         _ = try? data(req)
     }
 
-    /// Duochrome을 닫을 때: 엔진도 끈다 (메모리를 돌려받는다)
+    /// When Duochrome quits: stop the engine too (reclaim memory)
     func stop() {
         guard let p = server, p.isRunning else { return }
         p.terminate()
@@ -265,9 +265,9 @@ final class AIEngine {
         DispatchQueue.main.async { NotificationCenter.default.post(name: AIEngineButton.changed, object: nil) }
     }
 
-    // MARK: 일 보내기
+    // MARK: Submitting work
 
-    /// PNG를 엔진 입력 폴더에 올리고 이름을 돌려준다
+    /// Uploads a PNG into the engine input folder and returns its name
     func upload(_ png: Data, name: String) throws -> String {
         let boundary = "duochrome-\(UUID().uuidString)"
         var body = Data()
@@ -284,7 +284,7 @@ final class AIEngine {
         return n
     }
 
-    /// 작업 흐름을 보내고 결과 그림(PNG 자료)들을 받는다. progress: 0~1 (엔진이 알려 주는 단계로)
+    /// Submits a workflow and receives result images (PNG data). progress: 0–1 (from the engine's reported steps)
     func run(_ workflow: [String: Any], title: String, progress: ((Double) -> Void)? = nil) throws -> [Data] {
         var req = URLRequest(url: base.appendingPathComponent("prompt"))
         req.httpMethod = "POST"
@@ -295,7 +295,7 @@ final class AIEngine {
             let err = (j["error"] as? [String: Any])?["message"] as? String ?? "\(j["node_errors"] ?? "")"
             throw Failure(message: "AI 작업을 받지 않음: \(err)")
         }
-        // 끝날 때까지 결과 기록을 본다
+        // Watch the history until it finishes
         let t0 = Date()
         while true {
             Thread.sleep(forTimeInterval: 0.4)
@@ -313,7 +313,7 @@ final class AIEngine {
                         c.queryItems = [URLQueryItem(name: "filename", value: fn), URLQueryItem(name: "subfolder", value: im["subfolder"] as? String ?? ""),
                                         URLQueryItem(name: "type", value: im["type"] as? String ?? "output")]
                         images.append(try data(URLRequest(url: c.url!)))
-                        // 엔진 출력 폴더에 쌓이지 않게 지운다
+                        // Delete outputs so they don't pile up in the engine output folder
                         try? FileManager.default.removeItem(at: Self.root.appendingPathComponent("output").appendingPathComponent(im["subfolder"] as? String ?? "").appendingPathComponent(fn))
                     }
                 }

@@ -1,9 +1,9 @@
 import AppKit
 
-// MARK: - 바깥 처리: 코랩 L4
-// 생성형 채우기·확장, 노이즈 제거, 2배 확대처럼 맥에서 무거운 일만 코랩으로 보낸다. 지우기·선택은 맥 안에서.
-// 구글 공식 코랩 명령줄 도구로 켜고(가상 머신 배정), 파일을 올리고, 커널 안 함수를 부르고, 결과를 받고, 끈다.
-// 브라우저 창·웹 화면·원격 접속을 쓰지 않는다 (코랩 이용 규정의 "웹 화면으로 우회"에 걸리지 않게).
+// MARK: - Offloading: Colab L4
+// Only work that's heavy on the Mac goes to Colab: generative fill/expand, denoise, 2× upscale. Erase and selection stay local.
+// Uses Google's official Colab CLI to start (assign a VM), upload files, call functions in the kernel, fetch results, and stop.
+// No browser window, web UI, or remote shell (to stay clear of the Colab terms on "bypassing the web UI").
 
 enum AIRemote: Int {
     case colabL4 = 0, colabA100 = 1, local = 2
@@ -14,20 +14,20 @@ enum AIRemote: Int {
 final class ColabEngine {
     static let shared = ColabEngine()
     let session = "duochrome"
-    /// 실제로 배정된 그래픽 카드 (L4가 없으면 T4로 물러선다)
+    /// GPU actually assigned (falls back to T4 without L4)
     private(set) var gpu: String?
     private(set) var ready = false { didSet { if ready != oldValue { state = ready ? .on : .off } } }
-    /// 상단 바 AI 엔진 단추가 보여 줄 상태
+    /// State shown by the AI engine button in the top bar
     enum State { case off, starting, on }
     private(set) var state: State = .off {
         didSet { if state != oldValue { DispatchQueue.main.async { NotificationCenter.default.post(name: AIEngineButton.changed, object: nil) } } }
     }
     private var lastUse = Date()
-    /// 코랩 일은 한 번에 하나씩 (가상 머신을 두 번 켜지 않게)
+    /// One Colab job at a time (never start the VM twice)
     private let opLock = NSLock()
-    /// 코랩을 못 쓴 까닭 (있으면 이 맥 엔진이 예비로 처리 중). 상단 바 단추 설명에 보인다
+    /// Why Colab couldn't be used (if set, the local engine is handling it as fallback). Shown in the top bar button tooltip
     private(set) var lastFailure: String?
-    /// 코랩이 안 되던 때부터 잠시는 다시 시도하지 않고 바로 이 맥으로 (매번 수십 초씩 기다리지 않게). 단추로 켜면 다시 시도
+    /// For a while after Colab failed, skip retrying and go straight to this Mac (instead of waiting tens of seconds each time). Starting from the button retries
     private var unavailableUntil: Date?
     var usable: Bool { unavailableUntil.map { Date() > $0 } ?? true }
 
@@ -46,7 +46,7 @@ final class ColabEngine {
         get { UserDefaults.standard.object(forKey: "set.colabIdle") as? Int ?? 10 }
         set { UserDefaults.standard.set(newValue, forKey: "set.colabIdle") }
     }
-    /// 허깅페이스 토큰: 사용자 폴더 안 본인만 읽을 수 있는 파일 (키체인은 앱을 다시 빌드하거나 이름을 바꾸면 비밀번호를 물었다)
+    /// Hugging Face token: a user-only file in the user folder (the keychain asked for a password after rebuilds or renames)
     static var tokenFile: URL { AIEngine.root.deletingLastPathComponent().appendingPathComponent("secrets/huggingface") }
     static var hfToken: String? {
         get {
@@ -71,9 +71,9 @@ final class ColabEngine {
         return FileManager.default.fileExists(atPath: dev.path) ? dev : nil
     }
 
-    // MARK: 명령줄 도구
+    // MARK: CLI
 
-    /// 명령줄 도구를 실행하고 출력(표준 출력+오류)을 돌려준다. onLine: 줄마다 (진행 표시용)
+    /// Runs the CLI and returns its output (stdout + stderr). onLine: per line (for progress)
     @discardableResult
     func cli(_ args: [String], stdin: String? = nil, timeout: Double = 900, onLine: ((String) -> Void)? = nil) throws -> String {
         try ensureCLI()
@@ -139,7 +139,7 @@ final class ColabEngine {
         return lines.suffix(6).joined(separator: "\n")
     }
 
-    /// 명령줄 도구가 없으면 설치 (파이썬 도구 uv로, 사용자 폴더 안에만)
+    /// Installs the CLI if missing (via the Python tool uv, inside the user folder only)
     func ensureCLI() throws {
         if FileManager.default.isExecutableFile(atPath: Self.cli.path) { return }
         guard FileManager.default.isExecutableFile(atPath: Self.uv.path) else { throw Failure(message: "파이썬 도구(uv)가 없습니다. AI 메뉴 > AI 엔진 설치를 먼저 하세요.") }
@@ -153,8 +153,8 @@ final class ColabEngine {
         guard FileManager.default.isExecutableFile(atPath: Self.cli.path) else { throw Failure(message: "코랩 명령줄 도구를 설치하지 못함") }
     }
 
-    /// 코랩 계정 연결 (처음 한 번). 명령줄 도구가 구글 허용 주소를 내면 브라우저로 열고,
-    /// 허용 뒤 구글이 보여 주는 인증 코드를 askCode(주 스레드에서 사용자에게 묻기)로 받아 넘긴다. 뒤 스레드에서 부른다
+    /// Connects the Colab account (first time). When the CLI prints a Google consent URL, opens it in the browser,
+    /// then passes along the auth code Google shows via askCode (asks the user on the main thread). Call from a background thread
     func login(askCode: @escaping () -> String?) throws {
         try ensureCLI()
         let p = Process()
@@ -193,9 +193,9 @@ final class ColabEngine {
         }
     }
 
-    // MARK: 켜기·끄기
+    // MARK: Start / stop
 
-    /// 명령줄 도구는 세션이 없어도 성공 코드를 돌려줄 때가 있어 글로 확인한다 (코랩이 가상 머신을 회수한 경우 등)
+    /// The CLI sometimes returns success even without a session, so check the text (e.g. when Colab reclaimed the VM)
     private func sessionAlive() -> Bool {
         guard let out = try? cli(["status", "-s", session], timeout: 60) else { return false }
         return !Self.saysGone(out)
@@ -206,10 +206,10 @@ final class ColabEngine {
         return t.contains("not found") || t.contains("no active session") || t.contains("pruned")
     }
 
-    /// 켜기 (상단 바 단추나 AI 도구를 고를 때만). 뒤에서 준비하고, 켠 뒤로 쓰지 않으면 자동으로 끈다
+    /// Start (only from the top bar button or when picking an AI tool). Prepares in the background; stops automatically when idle
     func start(fallback: (() -> Void)? = nil) {
         guard state == .off else { return }
-        unavailableUntil = nil      // 직접 켜면 다시 시도
+        unavailableUntil = nil      // Starting manually retries
         lastFailure = nil
         state = .starting
         DispatchQueue.global(qos: .userInitiated).async {
@@ -228,7 +228,7 @@ final class ColabEngine {
         }
     }
 
-    /// 가상 머신을 켜고 엔진을 준비한다 (뒤 스레드에서, opLock 안에서 부른다)
+    /// Starts the VM and prepares the engine (call on a background thread, inside opLock)
     private func ensureReadyLocked() throws {
         if ready, sessionAlive() { return }
         ready = false
@@ -254,14 +254,14 @@ final class ColabEngine {
                 created = true
                 gpu = want
             } catch {
-                // L4·A100이 모자라면 T4로 (느리지만 같은 모델로 돈다)
+                // If L4/A100 is unavailable, use T4 (slower but runs the same models)
                 JobCenter.shared.detail("colab", "\(want)가 없어 T4로")
                 try cli(["new", "-s", session, "--gpu", "T4"], timeout: 600)
                 created = true
                 gpu = "T4"
             }
         }
-        // 토큰은 파일로 올린다 (명령에 넣으면 코랩 실행 기록에 남는다)
+        // Upload the token as a file (in a command it would stay in Colab's execution history)
         JobCenter.shared.detail("colab", "엔진 준비")
         try cli(["exec", "-s", session, "-f", script.path], timeout: 120)
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("duochrome-hf-\(UUID().uuidString)")
@@ -273,7 +273,7 @@ final class ColabEngine {
             let name = gpuLine[r.upperBound...].split(separator: "\n").first.map(String.init) ?? ""
             for g in ["L4", "A100", "T4", "H100"] where name.contains(g) { gpu = g }
         }
-        // Duochrome 전용 부품(지우기·반사 제거)을 이 맥과 같은 것으로
+        // Make Duochrome custom nodes (erase, reflection removal) match this Mac's
         let nodes = FileManager.default.temporaryDirectory.appendingPathComponent("duochrome-nodes-\(UUID().uuidString).py")
         try AIEngine.nodeSource.write(to: nodes, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: nodes) }
@@ -289,12 +289,12 @@ final class ColabEngine {
         unavailableUntil = nil
     }
 
-    /// 작업 흐름 하나를 코랩에서 돌린다. inputs: 엔진 입력 폴더에 올릴 (이름, PNG·JPEG 자료)
+    /// Runs one workflow on Colab. inputs: (name, PNG/JPEG data) to upload into the engine input folder
     func run(_ workflow: [String: Any], inputs: [(String, Data)], title: String, jpeg: Bool = false) throws -> Data {
         opLock.lock()
         defer { opLock.unlock() }
         do { return try runLocked(workflow, inputs: inputs, title: title, jpeg: jpeg) } catch {
-            // 가상 머신이 꺼졌거나 커널이 새로 시작됐으면 한 번 더 (다시 준비)
+            // If the VM stopped or the kernel restarted, try once more (re-prepare)
             let msg = error.localizedDescription
             guard msg.contains("NameError") || msg.contains("not found") || msg.contains("No active") || msg.contains("session") else { throw error }
             ready = false
@@ -309,7 +309,7 @@ final class ColabEngine {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         JobCenter.shared.detail("ai-\(title)", "코랩으로 보내는 중")
-        // 입력 이름을 작업 번호로 바꿔 서로 섞이지 않게
+        // Rename inputs by job id so jobs don't mix
         var wfText = String(data: try JSONSerialization.data(withJSONObject: workflow), encoding: .utf8) ?? "{}"
         for (name, data) in inputs {
             let remoteName = "\(job)-\(name)"
@@ -333,7 +333,7 @@ final class ColabEngine {
         return try Data(contentsOf: local)
     }
 
-    /// 커널 안 뒤 스레드 일이 끝날 때까지 2초마다 짧은 명령으로 묻는다. 묻는 명령이 멈추면 1분 뒤 다시 묻는다
+    /// Polls every 2 s with short commands until the kernel background job finishes. If a poll hangs, poll again after a minute
     private func waitRemote(_ name: String, limit: Double, step: (String) -> Void) throws {
         let t0 = Date()
         var misses = 0
@@ -345,7 +345,7 @@ final class ColabEngine {
                 continue
             }
             misses = 0
-            // 커널이 새로 시작되면 함수가 없다 → 다시 준비하게 (run()이 한 번 더 시도)
+            // A restarted kernel lacks the functions → re-prepare (run() retries once)
             if out.contains("NameError") { ready = false; throw Failure(message: "코랩 커널이 다시 시작됨 (NameError)") }
             if let r = out.range(of: "DUOCHROME_STEP ") { step(String(out[r.upperBound...].split(separator: "\n").first ?? "")) }
             guard let r = out.range(of: "DUOCHROME_STATE ") else { continue }
@@ -357,7 +357,7 @@ final class ColabEngine {
         throw Failure(message: "코랩 작업이 \(Int(limit / 60))분 안에 끝나지 않음")
     }
 
-    /// 한동안 안 쓰면 끈다 (켜져 있는 시간만큼 사용량이 줄어든다)
+    /// Stops after a period of disuse (usage is consumed while it's on)
     private func scheduleIdleStop() {
         idleTimer?.invalidate()
         idleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] t in
@@ -370,7 +370,7 @@ final class ColabEngine {
         }
     }
 
-    /// 가상 머신을 끄고 반납한다
+    /// Stops and releases the VM
     func stop(_ reason: String = "") {
         if ProcessInfo.processInfo.environment["DUOCHROME_COLABLOG"] != nil { print("코랩 끄기 까닭: \(reason)") }
         opLock.lock()
@@ -382,7 +382,7 @@ final class ColabEngine {
         gpu = nil
     }
 
-    /// 앱을 켤 때: 지난번에 앱이 비정상으로 끝나 남은 가상 머신이 있으면 끈다 (켜져 있는 만큼 사용량이 줄어든다)
+    /// On launch: if a VM was left over from an abnormal exit last time, stop it (usage is consumed while it's on)
     func cleanupStale() {
         guard FileManager.default.isExecutableFile(atPath: Self.cli.path), !ready, state == .off else { return }
         DispatchQueue.global(qos: .utility).async {
@@ -391,7 +391,7 @@ final class ColabEngine {
         }
     }
 
-    /// 앱을 닫을 때: 켜져 있으면 끈다 (최대 몇 초만 기다림)
+    /// On quit: stop if running (waits at most a few seconds)
     func stopOnQuit() {
         guard ready, FileManager.default.isExecutableFile(atPath: Self.cli.path) else { return }
         let p = Process()

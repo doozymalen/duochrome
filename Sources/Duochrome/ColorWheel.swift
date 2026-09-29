@@ -1,33 +1,33 @@
 import AppKit
 
-/// 색 휠 하나 (3방향 색상). 각도가 색조, 가운데서 떨어진 거리가 양이다.
-/// 왼쪽 호는 색의 세기(양, 위로 올리면 세지고 아래로 내리면 반대색), 오른쪽 호는 그 영역의 밝기.
-/// 두 번 누르면 가운데로 돌아간다 (호를 두 번 누르면 그 호만).
+/// One color wheel (3-way color). Angle is hue, distance from center is amount.
+/// The left arc is color strength (up is stronger, down is the complement), the right arc is that region's luminance.
+/// Double-click returns to center (double-clicking an arc resets just that arc).
 final class ColorWheelView: NSView {
     var shift = ColorShift() { didSet { needsDisplay = true } }
-    /// (새 값, 끄는 중인지)
+    /// (new value, dragging)
     var onChange: ((ColorShift, Bool) -> Void)?
-    /// 호를 그릴지 (작은 휠은 끈다)
+    /// Whether to draw the arcs (off for small wheels)
     var showsArcs = true { didSet { needsDisplay = true } }
 
     private static var wheelImage: CGImage? = makeWheel(size: 220)
-    /// 화면 각도 = 색조 + 90° (빨강이 위, 청록이 아래)
+    /// Screen angle = hue + 90° (red at top, cyan at bottom)
     static let hueOffset: CGFloat = 90
 
     override var intrinsicContentSize: NSSize { NSSize(width: 170, height: 140) }
 
-    /// 색 원판 자리 (시험에서도 쓴다)
+    /// Color puck position (also used in tests)
     var discRect: NSRect {
         let pad: CGFloat = showsArcs ? 24 : 3
         let d = max(min(bounds.width - pad * 2, bounds.height - 6), 10)
         return NSRect(x: bounds.midX - d / 2, y: bounds.midY - d / 2, width: d, height: d)
     }
 
-    // 호: 원판 바깥, 가운데에서 ±55°
+    // Arcs: outside the disc, ±55° from center
     private let arcSpan: CGFloat = 55
     private var arcRadius: CGFloat { discRect.width / 2 + 13 }
 
-    /// 호 위 값(-1~1) → 점. 왼쪽 호는 180°를 가운데로 (위가 +).
+    /// Arc value (-1–1) → point. The left arc is centered at 180° (up is +).
     private func arcPoint(left: Bool, value t: CGFloat) -> NSPoint {
         let deg = left ? 180 - t * arcSpan : t * arcSpan
         let a = deg * .pi / 180
@@ -52,7 +52,7 @@ final class ColorWheelView: NSView {
             drawArc(left: false, top: NSColor(white: 0.85, alpha: 1), value: CGFloat(shift.lightness))
         }
 
-        // 가운데 십자와 손잡이
+        // Center cross and handle
         NSColor.white.withAlphaComponent(0.35).setStroke()
         let cross = NSBezierPath()
         cross.move(to: NSPoint(x: disc.midX - 9, y: disc.midY)); cross.line(to: NSPoint(x: disc.midX + 9, y: disc.midY))
@@ -65,7 +65,7 @@ final class ColorWheelView: NSView {
     }
 
     private func drawArc(left: Bool, top: NSColor, value: CGFloat) {
-        // 아래(어두움) → 위(그 색)로 조금씩 이어 그린다
+        // Draw in small steps from bottom (dark) to top (the color)
         let steps = 24
         for i in 0..<steps {
             let t0 = -1 + 2 * CGFloat(i) / CGFloat(steps), t1 = -1 + 2 * CGFloat(i + 1) / CGFloat(steps)
@@ -78,7 +78,7 @@ final class ColorWheelView: NSView {
             (NSColor(white: 0.3, alpha: 1).blended(withFraction: k, of: top) ?? top).setStroke()
             seg.stroke()
         }
-        // 가운데 눈금
+        // center tick
         let mid = arcPoint(left: left, value: 0)
         let out = NSPoint(x: mid.x + (left ? -7 : 7), y: mid.y)
         let tick = NSBezierPath(); tick.move(to: mid); tick.line(to: out)
@@ -95,7 +95,7 @@ final class ColorWheelView: NSView {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    // MARK: 끌기
+    // MARK: Dragging
 
     private enum Part { case disc, amountArc, lightArc }
     private var part: Part = .disc
@@ -108,7 +108,7 @@ final class ColorWheelView: NSView {
         return .disc
     }
 
-    /// 점 → 호 값 (-1~1)
+    /// Point → arc value (-1–1)
     private func arcValue(_ v: NSPoint, left: Bool) -> Float {
         var deg = atan2(v.y - discRect.midY, v.x - discRect.midX) * 180 / .pi
         if left { deg = 180 - (deg < 0 ? deg + 360 : deg) }
@@ -127,7 +127,7 @@ final class ColorWheelView: NSView {
             while h < 0 { h += 360 }
             s.hue = h
         case .amountArc:
-            // 아래로 내리면 반대색 쪽으로
+            // Dragging down moves toward the complement
             let t = arcValue(v, left: true)
             if t < 0, s.amount >= 0 { s.hue = (s.hue + 180).truncatingRemainder(dividingBy: 360) }
             s.amount = abs(t)
@@ -157,7 +157,7 @@ final class ColorWheelView: NSView {
     override func mouseUp(with event: NSEvent) { onChange?(shift, false) }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
-    /// 색조는 각도, 채도는 반지름을 따라 늘어나는 원판 (가운데는 어두운 회색, 가장자리로 갈수록 선명하게).
+    /// Disc with hue by angle and saturation increasing with radius (dark gray center, more vivid toward the edge).
     private static func makeWheel(size n: Int) -> CGImage? {
         var px = [UInt8](repeating: 0, count: n * n * 4)
         for y in 0..<n {

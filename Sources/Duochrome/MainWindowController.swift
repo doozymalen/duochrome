@@ -1,15 +1,15 @@
 import AppKit
 
-/// 대량 보정: 왼쪽 도구 탭(라이브러리·형태·조정·리터칭·내역·레이어), 가운데 사진, 오른쪽 사진 목록.
-/// 심화 보정 모드는 Studio.swift. 세 모드가 같은 떠 있는 패널 모양을 쓴다.
+/// Batch edit: left tool tabs (library, geometry, adjust, retouch, history, layers), photo in the center, photo list on the right.
+/// Layer-edit mode is Studio.swift. All three modes share the same floating panel look.
 final class MainWindowController: NSWindowController, NSToolbarDelegate {
-    /// 대량 보정 배치 (GlassLayout.swift). 패널 폭 = 유리 패널 자체 폭.
+    /// Batch edit layout (GlassLayout.swift). Panel width = width of the glass panel itself.
     lazy var split = GlassLayoutController(content: viewer, left: tools, right: browser, key: GlassLayoutController.sharedKey,
                                            leftRange: GlassLayoutController.leftRange, rightRange: GlassLayoutController.rightRange,
                                            leftDefault: 288, rightDefault: 290)
     let library = Library(catalog: MainWindowController.openCatalog())
 
-    /// 기본 카탈로그를 연다. 시험 실행(DUOCHROME_SNAPSHOT·DUOCHROME_CATALOG)은 따로 쓴다 — 사용자 카탈로그를 건드리지 않게.
+    /// Opens the default catalog. Test runs (DUOCHROME_SNAPSHOT, DUOCHROME_CATALOG) use their own — never touching the user catalog.
     static func openCatalog() -> Catalog {
         let env = ProcessInfo.processInfo.environment
         var url = AppSettings.catalogPath.map { URL(fileURLWithPath: $0) } ?? Catalog.defaultURL
@@ -34,10 +34,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     let layersTab = LayersTabController()
     let inspector = InspectorViewController()
     let shape = ShapeTabController()
-    /// 이미지 레이어를 끄는 동안의 처음 자리.
+    /// Starting position while dragging an image layer.
     var imageMoveOrigin: CGPoint?
     var shapeMoveOrigin: VectorPath?
-    /// 심화 보정의 사진 탭 (연 순서)
+    /// Photo tabs in layer edit (in open order)
     var studioTabs: [PhotoItem] = []
     lazy var arrangeOptions = ArrangeOptionsView(host: self)
     lazy var adjustContainer = AdjustOptionsContainer(host: self)
@@ -55,37 +55,37 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     private(set) var photo: RawDocument?
     var photoItem: PhotoItem?
 
-    // 세 가지 모드 (Modes.swift)
+    // the three modes (Modes.swift)
     let libraryMode = LibraryModeController()
-    /// 심화 보정 모드 (Studio.swift)
+    /// Layer-edit mode (Studio.swift)
     let studioMode = StudioModeController()
-    /// 창 막대 하나를 세 모드가 같이 쓴다 (모드마다 다른 것은 캔버스 위의 모드별 막대로).
+    /// One toolbar shared by the three modes (mode-specific items live in per-mode bars over the canvas).
     var bulkToolbar: NSToolbar?
-    /// 대량 보정 모드별 막대의 커서 도구 단추 (CanvasView.Tool 순서)
+    /// Cursor tool buttons in the batch-edit mode bar (CanvasView.Tool order)
     var cursorButtons: [ModeBarButton] = []
     weak var clippingButton: ModeBarButton?
     weak var bulkSearchField: NSSearchField?
     weak var studioZoomSlider: NSSlider?
     weak var studioZoomLabel: NSTextField?
-    /// 색상 피커로 집은 색 (심화 보정 모드 도구 옵션에 보인다)
+    /// Color picked with the color picker (shown in layer-edit tool options)
     lazy var pickerView: StudioPickerView = {
         let v = StudioPickerView()
         v.swatches.onPick = { [weak self] c in self?.applySwatch(c) }
         return v
     }()
-    /// 심화 보정 효과 도구 옵션 (효과 고르기 + 고른 레이어의 효과 편집)
+    /// Layer-edit effects tool options (effect picker + editing the selected layer's effects)
     lazy var studioEffects = StudioEffectsPanel()
-    /// 심화 보정 스타일 도구 옵션
+    /// Layer-edit styles tool options
     lazy var studioStyles = LayerStylesEditor()
-    /// 픽셀 선택 계산 (사진·설정이 바뀌면 다시 만든다)
+    /// Pixel selection computation (rebuilt when the photo or settings change)
     var selectionEngineCache: (String, SelectionEngine)?
     var selectAndMaskPanel: SelectAndMaskPanel?
     lazy var selectionOptions = SelectionOptionsView(host: self)
-    /// 펜·모양·글자 도구 옵션 (VectorTools.swift)
+    /// Pen/shape/text tool options (VectorTools.swift)
     lazy var penOptions = PenOptionsView(host: self)
     lazy var shapeOptions = ShapeOptionsView(host: self)
     lazy var textOptions = TextOptionsView(host: self)
-    /// 측정·계수 옵션, 초점 확인 창 (Workspace.swift)
+    /// Measure/count options, focus loupe (Workspace.swift)
     lazy var measureOptions = MeasureOptionsView(host: self)
     var focusLoupe: FocusLoupe?
     lazy var paintOptions: PaintOptionsView = {
@@ -93,15 +93,15 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         v.onTool = { [weak self] m in self?.startPainting(mode: m) }
         return v
     }()
-    /// 선택 더하기: 이번 끌기에 새로 붙인 합치기 (같은 끌기의 다음 갱신은 이걸 고친다)
+    /// Selection add: the combine added in this drag (later updates in the same drag edit it)
     var comboGesture: Int = -1
-    /// 마지막으로 가져온 PSD에서 옮기지 못한 것 (자체 검사·알림용)
+    /// What couldn't be carried over from the last imported PSD (for self tests and alerts)
     var psdNotes: [String] = []
     var studioThumbCache: (url: URL, settings: DevelopSettings, image: NSImage)?
     var studioThumbPending: DevelopSettings?
-    /// 작업 진행 창 (JobCenter.swift)
+    /// Jobs panel (JobCenter.swift)
     var jobsPanel: JobsPanel?
-    /// 두 번째 화면 보기
+    /// Second display view
     var secondViewer: SecondViewerWindow?
     let tetherMode = TetherModeController()
     var mode: AppMode = .edit
@@ -109,13 +109,13 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     var gphoto: GPhotoCamera?
     var hotFolder: HotFolder?
     weak var modeSegment: ModeSwitch?
-    /// 라이브러리 모드에서 고른 사진들 (편집 모드는 그중 대표 한 장을 연다).
+    /// Photos selected in library mode (edit mode opens the primary one).
     var selection: [PhotoItem] = []
-    /// 여러 사진에 붙일 조정 (JSON 사전 — 오프라인 사진에도 적을 수 있게).
+    /// Adjustments to paste to many photos (JSON dictionary — so they can be written to offline photos too).
     var batchClipboard: [String: Any]?
     var batchClipboardName: String?
 
-    /// 조정값 되돌리기. 슬라이더를 끄는 동안은 쌓지 않고, 손을 뗄 때 끄기 전 값 하나만 쌓는다.
+    /// Adjustment undo. Nothing is pushed while dragging a slider; on release, one pre-drag value is pushed.
     var history = AdjustHistory()
     var colorPickPurpose = 0
     let historyTab = HistoryTabController()
@@ -136,12 +136,12 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         super.init(window: window)
 
         browser.library = library
-        // 배치: 왼쪽 도구 탭, 가운데 사진, 오른쪽 사진 목록
-        // 리퀴드 글래스 배치: 사진이 창 전체에 깔리고 도구 탭(왼쪽)·사진 목록(오른쪽)이 유리로 뜬다
+        // Layout: left tool tabs, photo in the center, photo list on the right
+        // Liquid Glass layout: the photo spans the window and the tool tabs (left) and photo list (right) float as glass
         split.onInsetsChange = { [weak self] l, r in self?.viewer.setSideInsets(left: l, right: r) }
-        // 창 막대도 투명하게: 사진이 창 막대 밑까지 보인다
+        // Transparent toolbar too: the photo shows under the toolbar
         window.titlebarAppearsTransparent = true
-        // contentViewController를 넣으면 창 크기가 뷰 크기로 줄어든다. 넣은 뒤에 다시 잡는다.
+        // Setting contentViewController shrinks the window to the view size. Reset the frame afterwards.
         window.contentViewController = split
         window.setContentSize(NSSize(width: 1560, height: 960))
         window.center()
@@ -150,9 +150,9 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
         let toolbar = NSToolbar(identifier: "DuochromeToolbar")
         toolbar.delegate = self
-        // 가이드라인: 창 막대는 아이콘만, 설명은 풍선 도움말로
+        // Guidelines: toolbar shows icons only, descriptions as tooltips
         toolbar.displayMode = .iconOnly
-        // 저장된 항목 구성이 코드의 기본 목록을 이기면 새 항목이 영영 안 보인다 (Meridian에서 겪음).
+        // If a saved item configuration beats the code's default list, new items never appear (learned in Meridian).
         toolbar.autosavesConfiguration = false
         toolbar.allowsUserCustomization = false
         toolbar.centeredItemIdentifiers = [.modeSwitch]
@@ -162,12 +162,12 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
         window.onDrop = { [weak self] url in self?.openFileOrFolder(url) }
         jobsPanel = JobsPanel(host: window)
-        // 열어 둔 채 끝냈으면 다음에 켤 때도 연다 (창이 자리 잡은 뒤에)
+        // If it was open at quit, reopen on next launch (after the window settles)
         if jobsPanel?.visibility == .open { DispatchQueue.main.async { [weak self] in self?.jobsPanel?.reload() } }
         libraryTab.onOpenFolder = { [weak self] in self?.chooseFolder() }
         libraryTab.onPickRecent = { [weak self] url in self?.openFolder(url) }
         browser.onSelect = { [weak self] item in self?.show(item) }
-        // 문서가 뒤에서 값을 다 재면(디헤이즈 안개 빛 등) 다시 그린다
+        // Redraw when the document finishes measuring values in the background (dehaze airlight etc.)
         NotificationCenter.default.addObserver(forName: RawDocument.needsRedraw, object: nil, queue: .main) { [weak self] n in
             guard let self, let d = n.object as? RawDocument, d === self.photo else { return }
             self.canvas.needsDisplay = true
@@ -285,7 +285,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
     required init?(coder: NSCoder) { fatalError("코드로만 만든다") }
 
-    // MARK: - 폴더와 사진
+    // MARK: - Folders and photos
 
     func chooseFolder() {
         let panel = NSOpenPanel()
@@ -303,7 +303,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         libraryTab.showFolder(url, count: library.items.count)
     }
 
-    /// 파일이면 그 폴더를 열고 그 사진을 고른다. 폴더면 폴더를 연다.
+    /// For a file, opens its folder and selects the photo. For a folder, opens the folder.
     func openFileOrFolder(_ url: URL) {
         if url.pathExtension == DuochromeDocument.ext { openDuochromeDocument(url); return }
         if url.pathExtension == "cocatalog" { runCatalogImport(url); return }
@@ -326,7 +326,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         leaveCurrentPhoto()
         mark("떠나기")
         if item.offline {
-            // 원본이 지금 경로에 없다. 가져온 썸네일로 보여 주기만 한다 (조정은 원본이 돌아오면).
+            // The source isn't at its path. Only show the imported thumbnail (adjustments wait for the source to return).
             photo = nil
             LayerThumbs.doc = nil
             photoItem = item
@@ -344,7 +344,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 doc.settings = saved
                 if doc.applyImportedWB() { library.saveSettings(doc.settings, asShot: doc.asShot, for: item.url) }
             } else if let f = doc.psd {
-                // PSD를 처음 열면 레이어를 옮기고 바로 저장한다 (다음부터는 저장된 레이어를 쓴다)
+                // On first open of a PSD, carry the layers over and save right away (later opens use the saved layers)
                 let res = PSDImport.convert(f)
                 doc.settings.layers = res.layers
                 doc.settings.gammaBlend = true
@@ -354,7 +354,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 psdNotes = res.notes
             }
             doc.releasePSD()
-            // 대량 보정·격자·테더링은 미리보기만, 심화 보정만 원본 크기로 보정한다
+            // Batch edit, grid, and tethering use previews only; only layer edit adjusts at full size
             doc.previewOnly = mode != .studio
             mark("설정")
             photo = doc
@@ -363,7 +363,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             DispatchQueue.main.async { [weak self] in self?.syncGuides(); self?.syncCounts() }
             photoItem = item
             history.reset(doc.settings)
-            // 저장된 작업 내역이 있으면 이어서 (마지막 상태가 지금 설정과 같을 때만)
+            // Continue saved history if present (only when the last state matches the current settings)
             if let h = library.catalog.history(Library.key(for: item.url)) { _ = history.restore(h, current: doc.settings) }
             syncHistory()
             mark("내역")
@@ -371,14 +371,14 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             window?.representedURL = item.url
             let beforeHooks = doc.settings
             applyDevHooks(doc)
-            // 개발용: DUOCHROME_COMMIT=1이면 훅으로 넣은 값을 사용자가 바꾼 것처럼 저장한다.
+            // Dev only: with DUOCHROME_COMMIT=1, values injected by hooks are saved as if the user changed them.
             if ProcessInfo.processInfo.environment["DUOCHROME_COMMIT"] != nil, doc.settings != beforeHooks {
                 history.record("시험 값", doc.settings)
                 commit()
             }
             NSLog("opened %@ exposure=%.2f clarity=%.0f edited=%d", item.name, doc.settings.exposure,
                   doc.settings.clarity, item.edited ? 1 : 0)
-            // 미리보기가 없어 RAW를 풀어야 하면 썸네일을 먼저 크게 보인다
+            // If there's no preview and the RAW must be decoded, show the thumbnail large first
             if !PreviewCache.shared.hasPreview(url: item.url, settings: SliderResponse.effective(doc.settings)),
                let cg = item.thumbnail?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                 viewer.canvas.placeholder = cg
@@ -410,7 +410,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
 
-    /// 다른 사진으로 넘어가기 전에 썸네일을 조정 결과로 바꿔 둔다 (그림 계획만 여기서, 그리기는 뒤에서 — 넘길 때 멈추지 않게)
+    /// Before moving to another photo, update the thumbnail to the adjusted result (only planning here, rendering in the background — no stall when stepping)
     func leaveCurrentPhoto() {
         guard let doc = photo, let item = photoItem, item.edited else { return }
         let image = doc.image(scale: 1.0 / 8)
@@ -425,7 +425,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
 
-    // MARK: - 조정
+    // MARK: - Adjustments
 
     func apply(_ settings: DevelopSettings, dragging: Bool) {
         guard let doc = photo else { return }
@@ -450,10 +450,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         if before != settings { propagateMultiEdit(from: before, to: settings) }
     }
 
-    /// 손을 뗀 값을 저장하고 브라우저 표시를 고친다.
+    /// Saves the released value and updates the browser badge.
     private func commit() {
         guard let doc = photo, let item = photoItem else { return }
-        // 시험 실행은 사용자의 조정값을 건드리지 않는다. 저장 시험만 DUOCHROME_COMMIT으로 연다.
+        // Test runs don't touch the user's adjustments. Only the save test opens it via DUOCHROME_COMMIT.
         let env = ProcessInfo.processInfo.environment
         if env["DUOCHROME_SNAPSHOT"] != nil && env["DUOCHROME_COMMIT"] == nil { return }
         let wasEdited = item.edited
@@ -463,7 +463,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         PreviewCache.shared.ensure(url: doc.url, settings: doc.settings)
     }
 
-    /// 되돌리기·붙여넣기처럼 패널 밖에서 값을 바꿀 때.
+    /// When values change from outside the panel, like undo or paste.
     func replaceSettings(_ s: DevelopSettings, recordUndo: Bool, label: String? = nil) {
         guard let doc = photo else { return }
         BackgroundGate.touch()
@@ -496,10 +496,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         syncHistory()
     }
 
-    /// 작업 내역에 한 줄 더한다. 이름은 바뀐 갈래에서 짓는다 ("노출·대비…", "리터칭 점" 등).
+    /// Adds a history entry. Named from the changed groups ("노출·대비…", "리터칭 점", etc.).
     func recordHistory(from before: DevelopSettings, to after: DevelopSettings, label: String? = nil) {
         let name = label ?? {
-            // 전체 강도만 바꿨으면 "강도 71%" (강도는 복사 갈래로는 노출 묶음이라 그 이름이 붙었다)
+            // If only overall strength changed, "강도 71%" (strength belongs to the exposure group for copying, so it got that name)
             if before.intensity != after.intensity {
                 var b = before; b.intensity = after.intensity
                 if b == after { return "강도 \(Int((after.intensity * 100).rounded()))%" }
@@ -523,21 +523,21 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         replaceSettings(doc.asShot, recordUndo: true, label: "초기화")
     }
 
-    /// 조정 복사/적용. 화이트 밸런스처럼 사진마다 다른 카메라 값도 그대로 옮긴다.
+    /// Copy/apply adjustments. Per-photo camera values like white balance are carried over as is.
     @objc func copyAdjustments(_ sender: Any?) {
         clipboard = photo?.settings
         clipboardName = photoItem?.name
         if let s = photo?.settings, let name = photoItem?.name { rememberForBatch(s, name: name) }
     }
 
-    /// 기억해 둔 갈래만 붙인다 (처음엔 형태·리터칭·레이어를 뺀 전부).
+    /// Pastes only the remembered groups (initially everything except geometry, retouching, and layers).
     @objc func pasteAdjustments(_ sender: Any?) {
         guard let c = clipboard else { return }
         let saved = Set((UserDefaults.standard.stringArray(forKey: "pasteGroups") ?? []).compactMap(AdjustGroup.init))
         pasteGroups(c, saved.isEmpty ? Set(AdjustGroup.allCases.filter(\.defaultOn)) : saved)
     }
 
-    /// 갈래를 골라 붙인다 (⌥⇧⌘V).
+    /// Pick groups to paste (⌥⇧⌘V).
     @objc func pasteAdjustmentsChoosing(_ sender: Any?) {
         guard let window, let c = clipboard else { NSSound.beep(); return }
         let sheet = PasteGroupsSheet(title: "조정 적용", source: clipboardName)
@@ -562,10 +562,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         enterTool(CanvasView.Tool.allCases[i])
     }
 
-    /// 크롭 도구에서는 틀 전체를 보이고 크롭 사각형을 겹친다. 다른 도구로 가면 크롭 결과를 보인다.
+    /// The crop tool shows the whole frame with the crop rect overlaid. Other tools show the cropped result.
     func enterTool(_ tool: CanvasView.Tool) {
         canvas.tool = tool
-        // 막대에 없는 도구(컬러 에디터 스포이트 등)면 아무 단추도 켜지 않는다.
+        // For tools not in the bar (color editor eyedropper etc.), no button lights up.
         for (i, b) in cursorButtons.enumerated() { b.isOn = CanvasView.Tool.allCases[i] == tool }
         guard let doc = photo else { return }
         let full = tool == .crop
@@ -579,7 +579,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         canvas.needsDisplay = true
     }
 
-    /// 그은 선(화면에 보이는 이미지 좌표)이 세로·가로가 되는 키스톤과 미세 회전을 찾아 건다.
+    /// Finds and applies keystone and fine rotation that make drawn lines (displayed image coordinates) vertical/horizontal.
     func applyKeystoneLines(_ vertical: [(CGPoint, CGPoint)], horizontal: [(CGPoint, CGPoint)] = []) {
         guard let doc = photo else { return }
         let s = doc.settings, native = doc.nativeSize, full = doc.showFullFrame
@@ -587,7 +587,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                       horizontal: Geometry.framedLines(horizontal, s, native: native, fullFrame: full), robust: false)
     }
 
-    /// 틀 좌표 선으로 풀어서 건다.
+    /// Solved and applied as frame-coordinate lines.
     private func applyKeystone(vertical: [(CGPoint, CGPoint)], horizontal: [(CGPoint, CGPoint)], robust: Bool) {
         guard let doc = photo, !(vertical.isEmpty && horizontal.isEmpty) else { NSSound.beep(); return }
         var s = doc.settings
@@ -603,7 +603,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         shape.sync(s)
     }
 
-    /// 자동 키스톤: 1/8 미리보기에서 곧은 선을 찾아 푼다. 방식에 따라 세로선·가로선만 쓴다.
+    /// Auto keystone: finds straight lines in the 1/8 preview and solves. Uses only verticals or horizontals depending on the mode.
     func autoKeystone(_ mode: Geometry.KeystoneMode) {
         guard let doc = photo else { return }
         let found = doc.detectFramedLines()
@@ -619,7 +619,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         applyKeystone(vertical: v, horizontal: h, robust: true)
     }
 
-    /// 컬러 에디터·스킨 톤 스포이트: 지금 화면 결과에서 그 점(둘레 5×5 평균)의 색을 집는다.
+    /// Color editor / skin tone eyedropper: picks the color at that point (5×5 mean) from the current rendered result.
     func pickColor(at point: CGPoint) {
         guard let doc = photo else { return }
         let scale = Develop.guideScale
@@ -632,7 +632,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         let avg = c / 25
         if colorPickPurpose == 20 || colorPickPurpose == 21 { normalizePicked(avg); return }
         if colorPickPurpose == 9 {
-            // 심화 보정 모드의 색상 피커: 도구를 그대로 두고 집은 색만 보여 준다.
+            // Layer-edit color picker: keeps the tool and just shows the picked color.
             pickerView.show(avg)
             return
         }
@@ -642,7 +642,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             return
         }
         if colorPickPurpose == 2 || colorPickPurpose == 3 {
-            // 레벨 검정 점은 가장 밝은 채널, 흰 점은 가장 어두운 채널을 기준으로 (색이 한쪽으로 날아가지 않게)
+            // Levels black point uses the brightest channel, white point the darkest (so color doesn't blow to one side)
             inspector.pickedLevel(colorPickPurpose, value: colorPickPurpose == 2 ? max(avg.x, avg.y, avg.z) : min(avg.x, avg.y, avg.z))
             enterTool(.pan)
             return
@@ -652,7 +652,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         enterTool(.pan)
     }
 
-    /// point가 nil이면 자동 화이트 밸런스.
+    /// A nil point means auto white balance.
     func pickWhiteBalance(at point: CGPoint?, done: (() -> Void)? = nil) {
         guard let doc = photo else { return }
         NSCursor.operationNotAllowed.push()
@@ -660,7 +660,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             let wb = doc.neutralWhiteBalance(at: point)
             DispatchQueue.main.async {
                 NSCursor.pop()
-                // 계산하는 동안 다른 사진으로 넘어갔으면 버린다.
+                // Discard if the user moved to another photo during the computation.
                 guard let self, self.photo === doc, var s = self.photo?.settings else { return }
                 guard let wb else { NSSound.beep(); return }
                 s.temperature = wb.temperature
@@ -672,7 +672,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
 
-    // MARK: - 리터칭
+    // MARK: - Retouching
 
     private func setupRetouch() {
         let o = canvas.retouchOverlay
@@ -697,7 +697,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         retouch.onBrushChange = { [weak self] b in
             self?.canvas.retouchOverlay.brushRadius = b.radius
             self?.canvas.retouchOverlay.patchMode = b.patch
-            // 심화 보정 모드: 패널에서 복구·복제·패치를 바꾸면 도구 막대도 따라간다.
+            // Layer-edit mode: switching heal/clone/patch in the panel updates the tool bar too.
             if let self, self.mode == .studio, ["repair", "clone", "patch"].contains(self.studioMode.currentTool) {
                 let id = b.patch ? "patch" : (b.kind == .heal ? "repair" : "clone")
                 if id != self.studioMode.currentTool { self.studioMode.noteTool(id) }
@@ -718,7 +718,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
         tools.onSelect = { [weak self] i in
             guard let self else { return }
-            // 리터칭 탭을 고르면 리터칭 도구로, 떠나면 이동 도구로.
+            // Picking the retouch tab switches to the retouch tool; leaving it switches to the move tool.
             let title = self.tools.tabTitle(i)
             if title == "리터칭" { self.enterTool(.retouch) }
             else if title == "레이어" { if self.layersTab.selectedID != nil { self.enterTool(.mask) } }
@@ -726,7 +726,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
 
-    /// 원본 좌표에 점을 찍는다. 원본 자리는 결이 닮은 곳으로 자동으로 고른다.
+    /// Places a spot in source coordinates. The source position is chosen automatically where texture is similar.
     func addSpot(at p: CGPoint) {
         guard let doc = photo else { return }
         let b = retouch.brush
@@ -736,7 +736,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         canvas.retouchOverlay.selected = n - 1
     }
 
-    /// 붓질 하나를 더한다. 원본 자리는 획과 나란히 옆으로 옮긴 곳 중 가장 닮은 곳.
+    /// Adds one stroke. The source is the most similar spot among positions offset sideways along the stroke.
     func addStroke(_ pts: [CGPoint]) {
         guard let doc = photo, let first = pts.first else { return }
         let b = retouch.brush
@@ -747,7 +747,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         canvas.retouchOverlay.selected = n - 1
     }
 
-    /// 패치 하나를 더한다 (원본 좌표 올가미). 원본 자리는 올가미 크기의 원으로 결이 닮은 곳을 고른다.
+    /// Adds one patch (source-coordinate lasso). The source is picked by texture similarity with a circle of the lasso's size.
     func addPatch(_ pts: [CGPoint]) {
         guard let doc = photo, pts.count >= 3 else { return }
         var area: CGFloat = 0, cx: CGFloat = 0, cy: CGFloat = 0
@@ -779,7 +779,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         retouch.showCount(targetSpots(s).count)
     }
 
-    /// 리터칭 점이 들어갈 곳: 고른 레이어가 배경 복사면 그 레이어, 아니면 배경(RAW 현상).
+    /// Where retouch spots go: the selected layer if it's a background copy, else the background (RAW develop).
     var retouchLayerID: String? {
         guard let id = layersTab.selectedID, photo?.settings.layers.first(where: { $0.id == id })?.isCopy == true else { return nil }
         return id
@@ -790,7 +790,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         return s.spots
     }
 
-    /// 지금 대상의 리터칭 점을 고치고 적용한다. 고친 뒤 점 수를 돌려준다.
+    /// Edits and applies the current target's retouch spots. Returns the spot count afterwards.
     @discardableResult
     func editSpots(dragging: Bool = false, _ f: (inout [RetouchSpot]) -> Void) -> Int {
         guard var s = photo?.settings else { return 0 }
@@ -807,7 +807,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     @objc func toolRetouch(_ sender: Any?) { enterTool(.retouch) }
     @objc func toolMask(_ sender: Any?) { enterTool(.mask) }
 
-    // MARK: - 레이어
+    // MARK: - Layers
 
     private func setupLayers() {
         layersTab.current = { [weak self] in self?.photo?.settings }
@@ -872,7 +872,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         o.onMoveImage = { [weak self] a, b, dragging in
             guard let self, var s = self.photo?.settings, let id = self.layersTab.selectedID,
                   let i = s.layers.firstIndex(where: { $0.id == id }) else { return }
-            // 모양 레이어: 패스를 통째로 옮긴다 (가운데를 안내선·가장자리에 붙인다)
+            // Shape layer: move the whole path (snapping its center to guides/edges)
             if s.layers[i].kind == "shape", let v = s.layers[i].vector {
                 guard !s.layers[i].locked else { if !dragging { NSSound.beep() }; return }
                 let origin = self.shapeMoveOrigin ?? v.path
@@ -892,7 +892,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             }
             guard s.layers[i].image != nil || s.layers[i].text != nil else { return }
             guard !s.layers[i].locked else { if !dragging { NSSound.beep() }; return }
-            // 글자 레이어는 글자 기준점과 (있으면) 가져온 그림을 같이 옮긴다
+            // Text layers move the text anchor together with the imported image (if any)
             let start = s.layers[i].image.map { CGPoint(x: $0.cx, y: $0.cy) } ?? CGPoint(x: s.layers[i].text!.x, y: s.layers[i].text!.y)
             let origin = self.imageMoveOrigin ?? start
             self.imageMoveOrigin = dragging ? origin : nil
@@ -923,7 +923,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                   let i = s.layers.firstIndex(where: { $0.id == id }) else { return }
             guard !s.layers[i].locked else { if !dragging { NSSound.beep() }; return }
             if s.layers[i].isFill, s.layers[i].mask.kind == .full {
-                // 칠 레이어: 끈 방향이 그라디언트 방향
+                // Fill layer: drag direction is the gradient direction
                 s.layers[i].fillPoints = [a.x, a.y, b.x, b.y]
                 self.apply(s, dragging: dragging)
                 return
@@ -933,7 +933,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             let cur = s.layers[i].mask
             let hasShape = (cur.kind == .rect || cur.kind == .ellipse) && (cur.box[0] != cur.box[2] || cur.box[1] != cur.box[3])
             if let op = self.selectionOp(o.startFlags), hasShape || (toolKind != nil && toolKind != cur.kind && cur.kind != .full) {
-                // 선택 더하기·빼기·교차: 끌기마다 합치기 하나
+                // Selection add/subtract/intersect: one combine per drag
                 var sub = LayerMask(); sub.kind = toolKind ?? cur.kind; sub.box = [a.x, a.y, b.x, b.y]
                 var combos = cur.combos ?? []
                 if self.comboGesture == o.gesture, !combos.isEmpty { combos[combos.count - 1] = MaskCombo(op: op, mask: sub) }
@@ -955,7 +955,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
 
-    /// 파일을 골라 이미지 레이어로 (가져오기).
+    /// Picks a file as an image layer (import).
     @objc func placeImageLayer(_ sender: Any?) {
         guard photo != nil, let window else { NSSound.beep(); return }
         let panel = NSOpenPanel()
@@ -999,7 +999,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
     private var histogramGeneration = 0
 
-    /// 슬라이더를 끄는 동안 여러 번 불려도 마지막 요청만 반영한다.
+    /// Called many times while dragging a slider, applies only the last request.
     func updateHistogram() {
         guard let doc = photo else { return }
         histogramGeneration += 1
@@ -1016,10 +1016,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
 
-    // MARK: - 툴바
+    // MARK: - Toolbar
 
-    /// 세 모드 공통 창 막대: [왼쪽 패널 · 확대] … [모드 전환(창 가운데)] … [실행 취소 · 비교 · 내보내기 · 오른쪽 패널].
-    /// 모드에만 필요한 도구는 캔버스 위 모드별 막대(ModeBar)에 있다.
+    /// Toolbar shared by the three modes: [left panel · zoom] … [mode switch (window center)] … [undo · compare · export · right panel].
+    /// Mode-only tools live in the per-mode bar over the canvas (ModeBar).
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         titleBarItems
     }
@@ -1057,7 +1057,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
     @objc func chooseFolderAction(_ sender: Any?) { chooseFolder() }
 
-    /// 개발용: DUOCHROME_DEVELOP="exposure=1.5,temperature=3800,tint=5", DUOCHROME_CLIPPING=1, DUOCHROME_ZOOM=actual
+    /// Dev only: DUOCHROME_DEVELOP="exposure=1.5,temperature=3800,tint=5", DUOCHROME_CLIPPING=1, DUOCHROME_ZOOM=actual
     private func applyDevHooks(_ doc: RawDocument) {
         let env = ProcessInfo.processInfo.environment
         if let spec = env["DUOCHROME_DEVELOP"] {
@@ -1095,7 +1095,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             if env["DUOCHROME_NO_HLREC"] != nil { s.highlightRecoveryOn = false }
             doc.settings = s
         }
-        // DUOCHROME_CURVE="rgb:0.25/0.15;0.75/0.85|red:0.5/0.6" — 양끝 점은 자동으로 붙는다.
+        // DUOCHROME_CURVE="rgb:0.25/0.15;0.75/0.85|red:0.5/0.6" — end points are added automatically.
         if let spec = env["DUOCHROME_CURVE"] {
             var set = doc.settings.curves
             for part in spec.split(separator: "|") {
@@ -1114,17 +1114,17 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         if env["DUOCHROME_CLIPPING"] != nil { canvas.showClipping = true }
         if env["DUOCHROME_SPLIT"] != nil { canvas.splitCompare = true }
         if env["DUOCHROME_MASKGRAY"] != nil { canvas.maskGray = true }
-        // DUOCHROME_CROP="x,y,w,h" (0~1), DUOCHROME_TOOL=0~3 (이동, 확대, 크롭, 수평)
+        // DUOCHROME_CROP="x,y,w,h" (0–1), DUOCHROME_TOOL=0–3 (move, zoom, crop, straighten)
         if let c = env["DUOCHROME_CROP"]?.split(separator: ",").compactMap({ Double($0) }), c.count == 4 {
             doc.settings.crop = CropRect(CGRect(x: c[0], y: c[1], width: c[2], height: c[3]))
         }
-        // DUOCHROME_WB_PICK="x,y", DUOCHROME_KEYSTONE_LINES="x1,y1,x2,y2;x3,y3,x4,y4" (화면 이미지 좌표, 원본 픽셀)
+        // DUOCHROME_WB_PICK="x,y", DUOCHROME_KEYSTONE_LINES="x1,y1,x2,y2;x3,y3,x4,y4" (displayed image coordinates, source pixels)
         if let v = env["DUOCHROME_WB_PICK"]?.split(separator: ",").compactMap({ Double($0) }), v.count == 2 {
             DispatchQueue.main.async {
                 let t0 = CACurrentMediaTime()
                 self.pickWhiteBalance(at: CGPoint(x: v[0], y: v[1])) {
                 let ms = (CACurrentMediaTime() - t0) * 1000
-                // 결과 확인: 최종 화면(1/8)에서 그 점의 색
+                // Check the result: color of that point in the final view (1/8)
                 let img = doc.image(scale: 1.0 / 8)
                 var px = [UInt8](repeating: 0, count: 4 * 9)
                 Render.context.render(img, toBitmap: &px, rowBytes: 12,
@@ -1146,7 +1146,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 NSLog("keystone lines -> V %.1f rot %.2f", doc.settings.keystoneV, doc.settings.rotation)
             }
         }
-        // DUOCHROME_RENDER_DUMP="x,y,w,h:배율:경로" — 저장된 조정 그대로, 그 배율에서 그린 한 부분 (원본 픽셀 좌표)
+        // DUOCHROME_RENDER_DUMP="x,y,w,h:scale:path" — a region rendered at that scale with saved adjustments (source pixel coordinates)
         if let d = env["DUOCHROME_RENDER_DUMP"]?.split(separator: ":"), d.count == 3, let sc = Double(d[1]) {
             let v = d[0].split(separator: ",").compactMap { Double($0) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -1157,7 +1157,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 NSLog("render dump %@ at %.3f", String(d[2]), sc)
             }
         }
-        // DUOCHROME_AI_SELECT=subject|background|person — AI 선택 레이어 하나, 마스크를 흑백으로 보여 준다
+        // DUOCHROME_AI_SELECT=subject|background|person — one AI selection layer, mask shown in grayscale
         if let t = env["DUOCHROME_AI_SELECT"], let target = ["subject": AISelect.Target.subject, "background": .background, "person": .person][t] {
             DispatchQueue.main.async {
                 let started = CACurrentMediaTime()
@@ -1168,21 +1168,21 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 }
             }
         }
-        // DUOCHROME_STUDIO_TOOL=도구 id, DUOCHROME_STUDIO_CUSTOMIZE=1 — 심화 보정 모드 모양 확인용
+        // DUOCHROME_STUDIO_TOOL=tool id, DUOCHROME_STUDIO_CUSTOMIZE=1 — for checking the layer-edit mode look
         if let t = env["DUOCHROME_STUDIO_TOOL"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if self.mode == .studio { self.studioMode.selectTool(t) } }
         }
         if env["DUOCHROME_STUDIO_CUSTOMIZE"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if self.mode == .studio { self.studioMode.customize() } }
         }
-        // DUOCHROME_AUTO_KEYSTONE=0|1|2 (세로·가로·전체)
+        // DUOCHROME_AUTO_KEYSTONE=0|1|2 (vertical, horizontal, both)
         if let m = env["DUOCHROME_AUTO_KEYSTONE"].flatMap(Int.init).flatMap(Geometry.KeystoneMode.init) {
             DispatchQueue.main.async {
                 self.autoKeystone(m)
                 NSLog("auto keystone -> V %.1f H %.1f rot %.2f", doc.settings.keystoneV, doc.settings.keystoneH, doc.settings.rotation)
             }
         }
-        // DUOCHROME_SPOTS="x,y,r;x,y,r" (디코딩 원본 좌표) — 원본 자리는 자동
+        // DUOCHROME_SPOTS="x,y,r;x,y,r" (decoded source coordinates) — source positions automatic
         if let spec = env["DUOCHROME_SPOTS"] {
             DispatchQueue.main.async {
                 for part in spec.split(separator: ";") {
@@ -1191,7 +1191,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                     self.retouch.brush.radius = v[2]
                     self.addSpot(at: CGPoint(x: v[0], y: v[1]))
                 }
-                // DUOCHROME_DUMP_REGION="x,y,w,h:경로" — 원본 해상도 결과의 한 부분을 저장 (화면 이미지 좌표)
+                // DUOCHROME_DUMP_REGION="x,y,w,h:path" — saves a region of the full-resolution result (displayed image coordinates)
                 if let d = env["DUOCHROME_DUMP_REGION"]?.split(separator: ":"), d.count == 2 {
                     let v = d[0].split(separator: ",").compactMap { Double($0) }
                     let r = CGRect(x: v[0], y: v[1], width: v[2], height: v[3])
@@ -1200,7 +1200,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                     try? Render.context.writePNGRepresentation(of: doc.originalImage(scale: 1).cropped(to: r),
                         to: URL(fileURLWithPath: String(d[1]) + ".before.png"), format: .RGBA8, colorSpace: Render.displaySpace)
                 }
-                // DUOCHROME_MERGE_TEST=1: 조정 탭이 점 찍기 전 값으로 슬라이더를 움직인 상황 흉내 → 점이 남아야 한다
+                // DUOCHROME_MERGE_TEST=1: simulates the adjust tab moving a slider with pre-spot values → spots must survive
                 if env["DUOCHROME_MERGE_TEST"] != nil {
                     var stale = doc.settings
                     stale.spots = []
@@ -1211,7 +1211,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 NSLog("spots: %@", doc.settings.spots.map { String(format: "(%.0f,%.0f)←(%.0f,%.0f) r%.0f", $0.targetX, $0.targetY, $0.sourceX, $0.sourceY, $0.radius) }.joined(separator: " "))
             }
         }
-        // DUOCHROME_STROKE="x,y;x,y;…|r" (원본 좌표) — 붓질 하나
+        // DUOCHROME_STROKE="x,y;x,y;…|r" (source coordinates) — one stroke
         if let spec = env["DUOCHROME_STROKE"]?.split(separator: "|"), spec.count == 2, let r = Double(spec[1]) {
             let pts = spec[0].split(separator: ";").compactMap { p -> CGPoint? in
                 let v = p.split(separator: ",").compactMap { Double($0) }
@@ -1224,7 +1224,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 if let d = env["DUOCHROME_DUMP_REGION"]?.split(separator: ":"), d.count == 2 {
                     let v = d[0].split(separator: ",").compactMap { Double($0) }
                     let rect = CGRect(x: v[0], y: v[1], width: v[2], height: v[3])
-                    // DUOCHROME_DUMP_SCALE=0.5 등: 미리보기 단계에서 그린 결과 (좌표는 원본 픽셀)
+                    // DUOCHROME_DUMP_SCALE=0.5 etc.: result rendered at the draft stage (coordinates in source pixels)
                     let sc = CGFloat(Double(env["DUOCHROME_DUMP_SCALE"] ?? "") ?? 1)
                     let r2 = CGRect(x: rect.minX * sc, y: rect.minY * sc, width: rect.width * sc, height: rect.height * sc)
                     try? Render.context.writePNGRepresentation(of: doc.image(scale: sc).cropped(to: r2),
@@ -1234,7 +1234,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 }
             }
         }
-        // DUOCHROME_IMAGE_LAYER="그림경로[:혼합[:불투명도[:칠]]]" — 이미지 레이어 하나
+        // DUOCHROME_IMAGE_LAYER="image path[:blend[:opacity[:fill]]]" — one image layer
         if let spec = env["DUOCHROME_IMAGE_LAYER"]?.split(separator: ":").map(String.init), let path = spec.first {
             DispatchQueue.main.async {
                 guard let file = try? LayerImageStore.importFile(URL(fileURLWithPath: path)) else { NSLog("이미지 레이어 실패"); return }
@@ -1247,8 +1247,8 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 self.apply(s, dragging: false)
             }
         }
-        // DUOCHROME_LAYER="linear:exposure=-1.5,saturation=40" — 기본 모양의 레이어 하나, DUOCHROME_SHOWMASK=1
-        // 개발용: 레이어 스타일 모습 확인 (타원 칠 레이어에 그림자·획·경사)
+        // DUOCHROME_LAYER="linear:exposure=-1.5,saturation=40" — one layer with the default shape, DUOCHROME_SHOWMASK=1
+        // Dev only: check layer style looks (shadow, stroke, bevel on an ellipse fill layer)
         if env["DUOCHROME_STYLE_DEMO"] != nil {
             DispatchQueue.main.async {
                 guard var s = self.photo?.settings else { return }
@@ -1267,7 +1267,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 self.apply(s, dragging: false)
             }
         }
-        // 개발용: 끌어 놓기 확인용 레이어 셋 (전체 레이어 3개, 마지막 것은 그룹 안)
+        // Dev only: three layers for checking drag and drop (three full layers, the last inside a group)
         if env["DUOCHROME_TEST_LAYERS"] != nil, doc.settings.layers.isEmpty {
             DispatchQueue.main.async {
                 for _ in 0..<3 { self.layersTab.addLayer(.full, native: doc.nativeSize) }
@@ -1298,7 +1298,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 if env["DUOCHROME_SHOWMASK"] != nil { self.toggleMaskView(nil) }
             }
         }
-        // DUOCHROME_SAVE_DOC=경로.duochrome — 지금 사진을 문서로 저장
+        // DUOCHROME_SAVE_DOC=path.duochrome — saves the current photo as a document
         if let path = env["DUOCHROME_SAVE_DOC"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 do { try DuochromeDocument.save(doc, to: URL(fileURLWithPath: path)); NSLog("saved doc %@", path) }
@@ -1316,7 +1316,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { self.runUITests() }
         }
         if env["DUOCHROME_FIELDTEST"] != nil {
-            // 주 큐 블록 안에서 돌리면 뒤 작업이 주 큐로 돌아오지 못한다 → 타이머(런루프)에서 시작
+            // Running inside a main-queue block keeps background work from returning to the main queue → start from a timer (run loop)
             Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in self.runFieldTest() }
         }
         if env["DUOCHROME_EXPORT_SHEET"] != nil {
@@ -1328,7 +1328,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 }
             }
         }
-        // DUOCHROME_EXPORT="tiff16|jpeg|png|heic,폴더,긴변,색공간" — 지금 사진을 내보내고 경로를 로그로
+        // DUOCHROME_EXPORT="tiff16|jpeg|png|heic,folder,long side,color space" — exports the current photo and logs the path
         if let spec = env["DUOCHROME_EXPORT"]?.split(separator: ","), spec.count >= 2,
            let f = ExportRecipe.Format(rawValue: String(spec[0])) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -1356,7 +1356,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         if env["DUOCHROME_ZOOM"] == "actual" {
             DispatchQueue.main.async { self.canvas.zoomToActual() }
         }
-        // 슬라이더를 끄는 상황 흉내: 0.15초 간격으로 노출을 8번 바꾸고 마지막에 손을 뗀다.
+        // Simulates dragging a slider: changes exposure 8 times at 0.15 s intervals and releases at the end.
         if env["DUOCHROME_BENCH_SLIDER"] != nil {
             for i in 1...9 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5 + Double(i) * 0.15) { [weak self] in
@@ -1369,7 +1369,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
 
-    // MARK: - 보기 메뉴
+    // MARK: - View menu
 
     @objc func toggleClipping(_ sender: Any?) {
         if mode == .tether { tetherMode.toggleClipping(); return }
@@ -1388,7 +1388,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         if canvas.maskLayerID == nil { toggleMaskView(nil) }
     }
 
-    /// 붓 크기 ([ 작게, ] 크게): 지금 도구가 리터칭이면 리터칭 붓, 마스크면 마스크 붓.
+    /// Brush size ([ smaller, ] larger): the retouch brush for retouch tools, the mask brush for mask tools.
     @objc func brushSmaller(_ sender: Any?) { resizeBrush(1 / 1.25) }
     @objc func brushLarger(_ sender: Any?) { resizeBrush(1.25) }
     private func resizeBrush(_ k: Double) {
@@ -1412,7 +1412,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         (sender as? NSMenuItem)?.state = canvas.showOriginal ? .on : .off
     }
 
-    /// 작업 진행 창 여닫기 (윈도우 메뉴 · ⌥⌘J)
+    /// Toggle the jobs panel (Window menu · ⌥⌘J)
     @objc func toggleJobsPanel(_ sender: Any?) { jobsPanel?.toggle() }
 
     @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
@@ -1441,8 +1441,8 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 }
 
 
-/// 파일을 창 어디에 떨어뜨려도 연다. 분할 뷰의 loadView를 가로채면 세 칸이 붙지 않으므로
-/// 드롭은 창이 받는다.
+/// Opens files dropped anywhere on the window. Intercepting the split view's loadView keeps the three panes from attaching,
+/// so the window receives drops.
 final class DropWindow: NSWindow {
     var onDrop: ((URL) -> Void)?
 
@@ -1485,10 +1485,10 @@ extension NSToolbarItem.Identifier {
     static let panelRight = Self("panelRight")
 }
 
-/// 작업 내역 (되돌리기 목록). 첫 줄은 사진을 열었을 때. 사진을 바꾸면 새로 시작한다.
+/// History (undo list). The first entry is the photo open. Switching photos starts a new one.
 struct AdjustHistory {
     var states: [(label: String, settings: DevelopSettings)] = []
-    /// 스냅샷: 이름 붙여 남긴 상태. 내역이 넘쳐도 지워지지 않는다
+    /// Snapshot: a named saved state. Not removed when history overflows
     var snapshots: [(label: String, settings: DevelopSettings)] = []
     var index = 0
     var labels: [String] { states.map(\.label) }
@@ -1497,7 +1497,7 @@ struct AdjustHistory {
 
     mutating func reset(_ s: DevelopSettings) { states = [("사진 열기", s)]; index = 0; snapshots = [] }
 
-    /// 되돌린 뒤에 새로 조정하면 그 뒤의 내역은 버린다.
+    /// Adjusting after an undo discards the history after that point.
     mutating func record(_ label: String, _ s: DevelopSettings) {
         if states.isEmpty { states = [("사진 열기", s)]; index = 0; return }
         states = Array(states[...index])
@@ -1515,12 +1515,12 @@ struct AdjustHistory {
     }
 }
 
-/// 가운데 뷰어. 위에 파일 이름과 배율, 사진이 없으면 안내 문구.
+/// Center viewer. File name and zoom on top; a hint when there's no photo.
 final class ViewerController: NSViewController {
     let canvas = CanvasView()
     private let empty = NSTextField(labelWithString: "선택된 사진이 없습니다")
     private let offlineImage = NSImageView()
-    /// 캔버스 위에 뜨는 모드별 막대 (대량 보정·테더링). 배율은 창 막대의 공통 확대 조절로 옮겼다.
+    /// Per-mode bar floating over the canvas (batch edit, tethering). Zoom moved to the shared zoom control in the toolbar.
     var bar: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
@@ -1537,7 +1537,7 @@ final class ViewerController: NSViewController {
         let strip = NSView()
         offlineImage.imageScaling = .scaleProportionallyUpOrDown
         offlineImage.alphaValue = 0.8
-        // 막대(strip)를 맨 위에 둔다: 캔버스가 유리 막대 밑까지 깔린다
+        // Strip at the very top: the canvas extends under the glass bar
         for v in [canvas, offlineImage, empty, strip] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(v)
@@ -1561,7 +1561,7 @@ final class ViewerController: NSViewController {
     private var stripLeading: NSLayoutConstraint!
     private var stripTrailing: NSLayoutConstraint!
     private var emptyX: NSLayoutConstraint?
-    /// 유리 패널에 가려진 왼쪽·오른쪽 폭. 막대는 그 사이 가운데, 맞춤 보기 사진도 그 사이에 놓인다.
+    /// Left/right widths covered by glass panels. The bar sits centered between them, and so does the fitted photo.
     private var side: (left: CGFloat, right: CGFloat) = (0, 0)
 
     func setSideInsets(left: CGFloat, right: CGFloat) {
@@ -1576,10 +1576,10 @@ final class ViewerController: NSViewController {
     private func applyFitInsets() {
         canvas.fitInsets = NSEdgeInsets(top: ModeBar.slot - 12, left: side.left, bottom: 0, right: side.right)
     }
-    /// 배율이 바뀔 때 (심화 보정 모드의 확대 슬라이더도 따라오게).
+    /// When zoom changes (so the layer-edit zoom slider follows).
     var onZoom: (((fitting: Bool, percent: CGFloat)) -> Void)?
 
-    /// 심화 보정 모드에서 옮겨 간 캔버스를 되찾는다.
+    /// Takes back the canvas that moved to layer-edit mode.
     func reclaimCanvas() {
         guard isViewLoaded, canvas.superview !== view else { return }
         canvas.removeFromSuperview()
@@ -1599,7 +1599,7 @@ final class ViewerController: NSViewController {
         applyFitInsets()
         canvas.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            // 캔버스는 창 막대 밑까지 깔린다 (리퀴드 글래스: 창 막대·막대·패널이 사진 위에 뜬다)
+            // The canvas extends under the toolbar (Liquid Glass: toolbar, bars, and panels float over the photo)
             canvas.topAnchor.constraint(equalTo: root.topAnchor),
             canvas.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             canvas.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -1613,7 +1613,7 @@ final class ViewerController: NSViewController {
         ])
     }
 
-    /// 원본이 오프라인인 사진: 가져온 썸네일만 보여 준다.
+    /// Photo whose source is offline: show only the imported thumbnail.
     func showOffline(_ item: PhotoItem) {
         _ = view
         canvas.document = nil

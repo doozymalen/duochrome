@@ -1,6 +1,6 @@
 import AppKit
 
-/// 누르면 클로저를 부르는 메뉴 항목.
+/// Menu item that calls a closure when chosen.
 final class ClosureMenuItem: NSMenuItem {
     private let handler: () -> Void
     init(_ title: String, key: String = "", modifiers: NSEvent.ModifierFlags = [.command], state: Bool? = nil,
@@ -16,7 +16,7 @@ final class ClosureMenuItem: NSMenuItem {
     @objc private func fire() { handler() }
 }
 
-/// 레이어 우클릭 메뉴 (심화 보정 레이어 패널, 대량 보정 레이어 탭 공통).
+/// Layer context menu (shared by the layer-edit layers panel and the batch-edit layers tab).
 extension MainWindowController {
     func layerContextMenu(_ id: String?) -> NSMenu {
         let m = NSMenu()
@@ -24,7 +24,7 @@ extension MainWindowController {
         guard let doc = photo else { return m }
         layersTab.select(id)
         guard let id, let i = doc.settings.layers.firstIndex(where: { $0.id == id }) else {
-            // 배경
+            // background
             m.addItem(ClosureMenuItem("배경 복제 (복제 레이어에 리터칭)", key: "j") { [weak self] in self?.duplicateBackground(nil) })
             m.addItem(.separator())
             for (title, kind) in [("브러시 조정 레이어", LayerMask.Kind.brush), ("선형 그라디언트 조정 레이어", .linear),
@@ -110,7 +110,7 @@ extension MainWindowController {
 }
 
 extension MainWindowController {
-    /// 배경 복제 (⌘J, 레이어를 안 골랐을 때): 배경 복사 레이어를 맨 위에 더하고 고른다. 리터칭하면 이 레이어에 들어간다.
+    /// Duplicate background (⌘J with no layer selected): adds a background copy layer on top and selects it. Retouching goes into this layer.
     @objc func duplicateBackground(_ sender: Any?) {
         guard var s = photo?.settings else { NSSound.beep(); return }
         var l = AdjustLayer(name: "배경 복사")
@@ -122,7 +122,7 @@ extension MainWindowController {
         studioMode.layersPanel.reload()
     }
 
-    /// ⌘J: 고른 레이어 복제, 안 골랐으면 배경 복제
+    /// ⌘J: duplicate the selected layer, or the background if none is selected
     @objc func duplicateLayerOrBackground(_ sender: Any?) {
         if layersTab.selectedID == nil { duplicateBackground(sender) } else { layersTab.duplicateLayer() }
     }

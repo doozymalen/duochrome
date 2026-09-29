@@ -1,9 +1,9 @@
 import Foundation
 
-/// 레이어 배열을 그룹 나무로 다루는 규칙 (배열 앞이 아래).
+/// Rules for treating the layer array as a group tree (array front is the bottom).
 ///
-/// 그룹의 자식(손주까지)은 배열에서 그룹 항목 바로 앞에 붙어 있다. 레이어 하나(또는 그룹 덩어리)를
-/// 위아래로 옮길 때 그룹에 들어가고 나온다.
+/// A group's children (and grandchildren) sit right before the group item in the array. Moving a layer (or group block)
+/// up/down enters and leaves groups.
 enum LayerTree {
     static func depth(_ layers: [AdjustLayer], _ i: Int) -> Int {
         var d = 0, p = layers[i].group
@@ -21,7 +21,7 @@ enum LayerTree {
         return false
     }
 
-    /// i번 레이어와 그 자손이 차지하는 범위 (자손은 바로 앞에 붙어 있다).
+    /// Range occupied by layer i and its descendants (descendants sit right before it).
     static func block(_ layers: [AdjustLayer], _ i: Int) -> ClosedRange<Int> {
         guard layers[i].isGroup else { return i...i }
         var lo = i
@@ -29,7 +29,7 @@ enum LayerTree {
         return lo...i
     }
 
-    /// j번 레이어를 품은 것 중 그룹이 `group`인 조상 (같은 층의 형제). 없으면 nil.
+    /// Ancestor of layer j whose group is `group` (a sibling at the same level). nil if none.
     private static func sibling(_ layers: [AdjustLayer], _ j: Int, group: String?) -> Int? {
         var k = j, n = 0
         while n < 32 {
@@ -47,40 +47,40 @@ enum LayerTree {
         layers.insert(contentsOf: items, at: at)
     }
 
-    /// 위로 한 칸. 그룹의 맨 위 자식이면 그룹 밖(그룹 위)으로, 바로 위 형제가 그룹이면 그 그룹의 맨 아래 자식으로.
+    /// Up one step. The top child of a group leaves it (above the group); if the sibling right above is a group, becomes its bottom child.
     static func moveUp(_ layers: inout [AdjustLayer], _ i: Int) {
         let r = block(layers, i)
         let above = r.upperBound + 1
         guard above < layers.count else { return }
         let me = layers[i]
         if let parent = me.group, layers[above].id == parent {
-            // 그룹 밖으로: 그룹 항목 위로
+            // Out of the group: above the group item
             layers[i].group = layers[above].group
             move(&layers, r, to: above + 1)
             return
         }
         guard let s = sibling(layers, above, group: me.group) else { return }
         if layers[s].isGroup {
-            // 형제 그룹의 맨 아래 자식이 된다 (자리는 그대로).
+            // Becomes the bottom child of the sibling group (position unchanged).
             layers[i].group = layers[s].id
             return
         }
         move(&layers, r, to: s + 1)
     }
 
-    /// 아래로 한 칸. 그룹의 맨 아래 자식이면 그룹 밖(그룹 아래)으로, 바로 아래 형제가 그룹이면 그 그룹의 맨 위 자식으로.
+    /// Down one step. The bottom child of a group leaves it (below the group); if the sibling right below is a group, becomes its top child.
     static func moveDown(_ layers: inout [AdjustLayer], _ i: Int) {
         let r = block(layers, i)
         let below = r.lowerBound - 1
         let me = layers[i]
         if below < 0 || (me.group != nil && sibling(layers, below, group: me.group) == nil) {
-            // 그룹 밖으로 (자리는 그대로, 그룹의 아래에 놓인다)
+            // Out of the group (position unchanged, placed below the group)
             if let parent = me.group { layers[i].group = layers.first { $0.id == parent }?.group }
             return
         }
         guard let s = sibling(layers, below, group: me.group) else { return }
         if layers[s].isGroup {
-            // 형제 그룹의 맨 위 자식: 그룹 항목 바로 아래로
+            // Top child of the sibling group: right below the group item
             layers[i].group = layers[s].id
             move(&layers, r, to: s)
             return
@@ -88,7 +88,7 @@ enum LayerTree {
         move(&layers, r, to: block(layers, s).lowerBound)
     }
 
-    /// i번 레이어(덩어리)를 새 그룹에 넣는다. 그룹 항목은 덩어리 바로 위에 선다.
+    /// Puts layer i (block) into a new group. The group item sits right above the block.
     @discardableResult
     static func groupLayer(_ layers: inout [AdjustLayer], _ i: Int, name: String) -> String {
         let r = block(layers, i)
@@ -101,7 +101,7 @@ enum LayerTree {
         return g.id
     }
 
-    /// 그룹을 푼다: 그룹 항목을 지우고 자식은 한 층 올린다.
+    /// Ungroups: removes the group item and moves children up one level.
     static func ungroup(_ layers: inout [AdjustLayer], _ i: Int) {
         guard layers[i].isGroup else { return }
         let g = layers[i]
@@ -109,7 +109,7 @@ enum LayerTree {
         layers.remove(at: i)
     }
 
-    /// 레이어(그룹이면 자손까지)를 지운다.
+    /// Removes a layer (with descendants if a group).
     static func remove(_ layers: inout [AdjustLayer], _ i: Int) {
         layers.removeSubrange(block(layers, i))
     }

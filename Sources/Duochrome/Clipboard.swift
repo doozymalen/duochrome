@@ -1,6 +1,6 @@
 import AppKit
 
-/// 조정값 묶음 ("조정 복사/적용" 창의 갈래). 설정 JSON의 최상위 키로 나눈다.
+/// Adjustment groups (sections of the "Copy/Apply Adjustments" window). Split by top-level keys of the settings JSON.
 enum AdjustGroup: String, CaseIterable {
     case whiteBalance, exposure, hdr, clarity, levelsCurves, color, detail, lens, grain, geometry, retouch, layers
 
@@ -39,12 +39,12 @@ enum AdjustGroup: String, CaseIterable {
         }
     }
 
-    /// 여러 사진에 붙일 때 기본으로 빼는 것 (사진마다 달라서).
+    /// Excluded by default when pasting to many photos (they differ per photo).
     var defaultOn: Bool { ![.geometry, .retouch, .layers].contains(self) }
 
     static func keys(_ groups: Set<AdjustGroup>) -> Set<String> { Set(groups.flatMap(\.keys)) }
 
-    /// 두 설정 사이에 바뀐 갈래 (작업 내역 이름에 쓴다).
+    /// Groups changed between two settings (used for history item names).
     static func changed(_ a: [String: Any], _ b: [String: Any]) -> [AdjustGroup] {
         func same(_ k: String) -> Bool {
             switch (a[k], b[k]) {
@@ -57,7 +57,7 @@ enum AdjustGroup: String, CaseIterable {
     }
 }
 
-/// "조정 적용…" 창: 붙일 갈래를 고른다. 고른 것은 다음에도 기억한다.
+/// "Apply Adjustments…" window: choose groups to paste. The choice is remembered.
 final class PasteGroupsSheet: NSWindowController {
     var onApply: ((Set<AdjustGroup>) -> Void)?
     private var boxes: [(AdjustGroup, NSButton)] = []
@@ -109,15 +109,15 @@ final class PasteGroupsSheet: NSWindowController {
     }
 }
 
-// MARK: - 작업 내역
+// MARK: - History
 
-/// 되돌리기 목록을 그대로 보여 준다. 누르면 그 시점으로 간다.
+/// Shows the undo list as-is. Clicking goes to that point.
 final class HistoryTabController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     var entries: [String] = [] { didSet { table.reloadData(); selectCurrent() } }
-    /// 지금 상태가 몇 번째 항목인지.
+    /// Index of the current state.
     var current = 0 { didSet { selectCurrent() } }
     var onJump: ((Int) -> Void)?
-    /// 스냅샷 이름들 (목록 맨 위에 따로 보인다)
+    /// Snapshot names (shown separately at the top)
     var snapshots: [String] = [] { didSet { table.reloadData(); selectCurrent() } }
     var onSnapshot: ((Int) -> Void)?
     var onMakeSnapshot: (() -> Void)?
@@ -130,7 +130,7 @@ final class HistoryTabController: NSViewController, NSTableViewDataSource, NSTab
         table.addTableColumn(col)
         table.headerView = nil
         table.style = .sourceList
-        table.backgroundColor = .clear   // 유리 패널이 비치게
+        table.backgroundColor = .clear   // Let the glass panel show through
         table.dataSource = self
         table.delegate = self
         let scroll = NSScrollView()
@@ -187,7 +187,7 @@ final class HistoryTabController: NSViewController, NSTableViewDataSource, NSTab
         let i = row - snapshots.count
         let t = NSTextField(labelWithString: entries[i])
         t.font = .systemFont(ofSize: 12)
-        // 되돌린 뒤의 (다시 실행할 수 있는) 항목은 흐리게.
+        // Items after an undo (redoable) are dimmed.
         t.textColor = i > current ? .tertiaryLabelColor : .labelColor
         return t
     }

@@ -1,17 +1,17 @@
 import CoreImage
 
-/// 조정 레이어가 바꾸는 값. 현상 조정과 색 조정 레이어를 하나로 합쳤다.
-/// 모두 0이 "그대로"다.
+/// Values an adjustment layer changes. Develop and color adjustment layers merged into one.
+/// All zeros means "unchanged".
 struct LocalAdjust: Equatable, Codable {
-    /// 필터(흐림·선명 등)가 하나라도 켜졌는지
+    /// Whether any filter (blur, sharpen, etc.) is on
     var hasFilter: Bool { blur > 0 || motionBlur > 0 || highPass > 0 || noise > 0 || median > 0 || sharpen > 0 || (skinSmooth ?? 0) > 0 }
     var exposure: Float = 0        // EV
     var contrast: Float = 0        // -100~100
     var brightness: Float = 0
     var saturation: Float = 0
-    var highlight: Float = 0       // 예전 값: 0~100 (클수록 눌러 되살림)
-    var highlights: Float? = nil   // -100~100: +는 밝게, -는 눌러 되살림
-    /// 화면·계산에 쓰는 하이라이트 값 (DevelopSettings.highlightTone과 같다)
+    var highlight: Float = 0       // old value: 0–100 (higher recovers more)
+    var highlights: Float? = nil   // -100–100: + brightens, - recovers
+    /// Highlights value used for display and math (same as DevelopSettings.highlightTone)
     var highlightTone: Float {
         get { (highlights ?? 0) - highlight }
         set { highlights = newValue; highlight = 0 }
@@ -19,122 +19,122 @@ struct LocalAdjust: Equatable, Codable {
     var shadow: Float = 0
     var clarity: Float = 0         // -100~100
     var dehaze: Float = 0          // 0~100
-    var temperature: Float = 0     // -100 차갑게 ~ 100 따뜻하게
-    var tint: Float = 0            // -100 초록 ~ 100 자홍
-    // 색 조정
-    var vibrance: Float = 0        // 활기 -100~100
-    var hue: Float = 0             // 색조 돌리기 -180~180°
-    var filterHue: Float = 35      // 포토 필터 색조 (35° = 따뜻한 필터 85)
-    var filterDensity: Float = 0   // 포토 필터 농도 0~100
-    var invert: Float = 0          // 1이면 반전
-    var posterize: Float = 0       // 0 끔, 2~32 단계
-    var threshold: Float = 0       // 0 끔, 1~255
-    /// 그라디언트 맵: 비었으면 끔. 어두운 색 RGB + 밝은 색 RGB (0~1, 화면 값)
+    var temperature: Float = 0     // -100 cooler – 100 warmer
+    var tint: Float = 0            // -100 green – 100 magenta
+    // color adjustments
+    var vibrance: Float = 0        // vibrance -100–100
+    var hue: Float = 0             // hue rotation -180–180°
+    var filterHue: Float = 35      // photo filter hue (35° = warming filter 85)
+    var filterDensity: Float = 0   // photo filter density 0–100
+    var invert: Float = 0          // 1 inverts
+    var posterize: Float = 0       // 0 off, 2–32 levels
+    var threshold: Float = 0       // 0 off, 1–255
+    /// Gradient map: empty = off. Dark color RGB + light color RGB (0–1, display values)
     var gradientMap: [Float] = []
-    /// 여러 색 그라디언트 맵 (위치, 가운데점, r, g, b 반복). 있으면 gradientMap 대신 쓴다
+    /// Multi-color gradient map (position, midpoint, r, g, b repeated). Used instead of gradientMap when set
     var gradientStops: [Float]? = nil
-    /// 채널 혼합: 비었으면 끔. 3×3 (행: 출력 빨강·초록·파랑, 열: 입력 빨강·초록·파랑)
+    /// Channel mixer: empty = off. 3×3 (rows: output red/green/blue, columns: input red/green/blue)
     var mixer: [Float] = []
-    // 필터 (반경은 원본 픽셀)
-    var blur: Float = 0            // 가우시안 흐림
-    var motionBlur: Float = 0      // 동작 흐림 거리
-    var motionAngle: Float = 0     // 동작 흐림 각도 (°)
-    var highPass: Float = 0        // 하이 패스 반경 (0 끔). 오버레이로 섞으면 주파수 분리 리터칭
-    var noise: Float = 0           // 노이즈 추가 0~100
-    var median: Float = 0          // 중간값 (먼지와 스크래치) 0~5
-    var sharpen: Float = 0         // 선명 효과 0~300
-    /// 피부 매끈하게 0~100: 얼룩은 고르게, 모공 같은 잔 질감은 남긴다
+    // Filters (radii in source pixels)
+    var blur: Float = 0            // Gaussian blur
+    var motionBlur: Float = 0      // motion blur distance
+    var motionAngle: Float = 0     // motion blur angle (°)
+    var highPass: Float = 0        // High pass radius (0 off). Blended with overlay for frequency separation retouching
+    var noise: Float = 0           // add noise 0–100
+    var median: Float = 0          // median (dust & scratches) 0–5
+    var sharpen: Float = 0         // sharpen 0–300
+    /// Skin smoothing 0–100: evens out blotches, keeps fine texture like pores
     var skinSmooth: Float? = nil
-    /// .cube LUT (레이어 그림 폴더의 파일 이름). 비었으면 끔. sRGB 화면 값에서 건다.
+    /// .cube LUT (file name in the layer image folder). Empty = off. Applied to sRGB display values.
     var lut: String = ""
-    /// 레이어 효과 (스마트 필터처럼 차례로 쌓는다, Effects.swift). 예전 문서에는 없어서 선택 항목
+    /// Layer effects (stacked in order like smart filters, Effects.swift). Optional since older documents lack it
     var effects: [LayerEffect]? = nil
     var fx: [LayerEffect] { effects ?? [] }
 }
 
-/// 브러시 마스크의 붓질 하나 (디코딩 원본 좌표).
+/// One brush stroke of a brush mask (decoded source coordinates).
 struct MaskStroke: Equatable, Hashable, Codable {
     var points: [Double]           // x0, y0, x1, y1, …
     var radius: Double
-    var hardness: Double = 0.5     // 0 부드럽게 ~ 1 딱딱하게
+    var hardness: Double = 0.5     // 0 soft – 1 hard
     var flow: Double = 1
     var erase = false
-    /// 가져온 붓 끝 (프리셋 폴더의 그림). 있으면 선 대신 붓 끝을 찍는다.
+    /// Imported brush tip (image in the preset folder). If set, stamps the tip instead of a line.
     var tip: String? = nil
-    /// 붓 끝 간격 (지름의 비율)
+    /// Brush tip spacing (fraction of diameter)
     var spacing: Double? = nil
 }
 
-/// 레이어 마스크. 좌표는 모두 디코딩 원본 좌표라 형태 보정을 거쳐 사진과 같이 움직인다.
+/// Layer mask. All coordinates are decoded source coordinates, so it moves with the photo through geometry corrections.
 struct LayerMask: Equatable, Codable {
     enum Kind: String, Codable { case full, brush, linear, radial, rect, ellipse, polygon, image }
     var kind: Kind = .full
     var strokes: [MaskStroke] = []
-    /// 선형: 시작점(효과 100%) → 끝점(0%).
+    /// Linear: start point (100% effect) → end point (0%).
     var linear: [Double] = [0, 0, 0, 0]
-    /// 원형: 가운데 x, y, 반지름 x, 반지름 y. 안쪽이 100%.
+    /// Radial: center x, y, radius x, radius y. Inside is 100%.
     var radial: [Double] = [0, 0, 0, 0]
-    /// 원형 가장자리 부드러움 0~1.
+    /// Radial edge feather 0–1.
     var radialFeather: Double = 0.5
-    /// 사각형·타원 선택: 두 모서리 x0, y0, x1, y1 (원본 좌표)
+    /// Rectangle/ellipse selection: two corners x0, y0, x1, y1 (source coordinates)
     var box: [Double] = [0, 0, 0, 0]
-    /// 올가미 선택: x0, y0, x1, y1, … (원본 좌표, 닫힌 다각형)
+    /// Lasso selection: x0, y0, x1, y1, … (source coordinates, closed polygon)
     var polygon: [Double] = []
-    /// AI 선택 마스크 그림 (레이어 그림 폴더의 흑백 PNG, 원본 좌표 전체를 덮는다)
+    /// AI selection mask image (grayscale PNG in the layer image folder, covering the whole source)
     var maskFile: String = ""
     var invert = false
-    /// 마스크 전체를 더 흐리게 (원본 픽셀).
+    /// Extra blur over the whole mask (source pixels).
     var feather: Double = 0
-    /// 루마 레인지: 이 밝기 범위(화면 값 0~1)에서만 효과가 난다.
+    /// Luma range: effect only within this brightness range (display values 0–1).
     var lumaMin: Float = 0
     var lumaMax: Float = 1
     var lumaSoft: Float = 0.1
     var hasLumaRange: Bool { lumaMin > 0 || lumaMax < 1 }
 
-    // 선택 (예전 문서에는 없어서 모두 선택 항목)
-    /// 선택 더하기·빼기·교차: 이 마스크 모양에 차례로 합친다
+    // Selection (all optional since older documents lack them)
+    /// Selection add/subtract/intersect: combined into this mask shape in order
     var combos: [MaskCombo]? = nil
-    /// 확장(+)·축소(−), 원본 픽셀
+    /// Expand (+) / contract (−), source pixels
     var grow: Double? = nil
-    /// 테두리: 가장자리 둘레 이 폭만 (원본 픽셀)
+    /// Border: only this width around the edge (source pixels)
     var border: Double? = nil
-    /// 선택 및 마스크: 매끄럽게(원본 픽셀), 대비(0~100), 가장자리 이동(−100~100 %)
+    /// Select and Mask: smooth (source pixels), contrast (0–100), shift edge (−100–100 %)
     var smooth: Double? = nil
     var contrast: Double? = nil
     var shiftEdge: Double? = nil
-    /// 가장자리 다듬기(머리카락·나뭇가지): 사진 밝기를 길잡이로 마스크를 다듬는 반경 (원본 픽셀)
+    /// Refine edge (hair, branches): radius for refining the mask guided by photo luminance (source pixels)
     var refine: Double? = nil
-    /// 색상 범위: 화면 값 RGB + 허용량(0~1). 이 색에 가까운 곳만
+    /// Color range: display RGB + fuzziness (0–1). Only areas close to this color
     var colorRange: [Float]? = nil
-    /// 브러시 마스크를 흰색(전체 보임)에서 시작 (지우개로 가리기)
+    /// Brush mask starts white (fully visible) (hide with the eraser)
     var brushWhite: Bool? = nil
-    /// 벡터 마스크 (펜 패스, 원본 좌표)
+    /// Vector mask (pen path, source coordinates)
     var vector: VectorPath? = nil
 }
 
-/// 마스크 합치기 한 단계 (합칠 모양은 합치기를 더 갖지 않는다)
+/// One mask combine step (combined shapes don't have their own combines)
 struct MaskCombo: Equatable, Codable {
     enum Op: String, Codable { case add, subtract, intersect }
     var op: Op
     var mask: LayerMask
 }
 
-/// 이미지 레이어의 그림: 레이어 그림 폴더의 파일과, 디코딩 원본 좌표에서의 자리.
-/// 사진과 같은 형태 보정(회전·키스톤·크롭)을 거쳐 사진에 붙어 움직인다.
+/// Image layer picture: a file in the layer image folder and its position in decoded source coordinates.
+/// Goes through the same geometry corrections as the photo (rotation, keystone, crop) and moves with it.
 struct LayerImage: Equatable, Codable {
     var file: String
-    /// 가운데 (원본 픽셀), 너비 (원본 픽셀), 회전 (°, 반시계 +)
+    /// Center (source pixels), width (source pixels), rotation (°, counterclockwise +)
     var cx: Double
     var cy: Double
     var width: Double
     var rotation: Double = 0
-    /// 자유 변형(원근·왜곡·기울이기): 네 모서리 원본 좌표 (왼아래, 오른아래, 오른위, 왼위). 있으면 자리·크기·회전 대신
+    /// Free transform (perspective, distort, skew): four corners in source coordinates (bottom-left, bottom-right, top-right, top-left). Replaces position/size/rotation when set
     var quad: [Double]? = nil
-    /// 뒤틀기 격자: 4×4 베지어 조절점 (원본 좌표, 아래 줄부터)
+    /// Warp grid: 4×4 Bézier control points (source coordinates, from the bottom row)
     var mesh: [Double]? = nil
-    /// 퍼펫 핀: (원래 x, y, 옮긴 x, y) 반복
+    /// Puppet pins: (original x, y, moved x, y) repeated
     var pins: [Double]? = nil
-    /// 세로 크기 (원본 픽셀). 없으면 그림 비율대로 (자유 변형에서 비율을 바꾸면 생긴다)
+    /// Height (source pixels). Absent means image aspect (set when free transform changes the aspect)
     var height: Double?
 }
 
@@ -146,61 +146,61 @@ struct AdjustLayer: Equatable, Codable, Identifiable {
     var blend: String = "normal"
     var adjust = LocalAdjust()
     var mask = LayerMask()
-    /// 잠금: 마스크 칠하기와 값 바꾸기를 막는다.
+    /// Lock: blocks mask painting and value changes.
     var locked = false
-    /// 클리핑 마스크: 바로 아래 레이어의 마스크 안에서만 효과가 난다 (⌥⌘G).
+    /// Clipping mask: effect only inside the mask of the layer right below (⌥⌘G).
     var clipped = false
-    /// "adjust" 조정 레이어, "image" 이미지(픽셀) 레이어, "group" 그룹.
+    /// "adjust" adjustment layer, "image" image (pixel) layer, "group" group.
     var kind = "adjust"
-    /// 칠 불투명도: 레이어 내용에만 건다. 하드 혼합에서는 불투명도와 달리 결과를 부드럽게 한다.
+    /// Fill opacity: applies to layer content only. With hard mix, unlike opacity, it softens the result.
     var fill: Float = 1
-    /// 들어 있는 그룹의 id. 그룹의 자식은 배열에서 그룹 항목 바로 앞(아래)에 모여 있다.
+    /// Id of the containing group. A group's children are gathered right before (below) the group item in the array.
     var group: String?
-    /// 이미지 레이어의 그림과 자리.
+    /// Image layer picture and position.
     var image: LayerImage?
 
-    /// 심화 보정 붓 도구가 만든 레이어 (밝게·어둡게 등). 같은 도구를 다시 고르면 이 레이어에 이어 칠한다.
+    /// Layer created by a layer-edit brush tool (dodge, burn, etc.). Picking the same tool again continues painting on it.
     var preset: String?
 
     var isGroup: Bool { kind == "group" }
     var isImage: Bool { kind == "image" }
     var isFill: Bool { kind == "fill" }
-    /// 배경 복사: 배경(RAW 현상)을 복제한 레이어. 자기 리터칭 점을 가진다
+    /// Background copy: a layer duplicating the background (RAW develop). Has its own retouch spots
     var isCopy: Bool { kind == "copy" }
-    /// 배경 복사 레이어의 리터칭 점 (원본 좌표)
+    /// Retouch spots of a background copy layer (source coordinates)
     var spots: [RetouchSpot] = []
-    /// 칠 레이어 색: RGB 셋(단색) 또는 여섯(그라디언트: 시작 색 + 끝 색), 화면 값 0~1
+    /// Fill layer color: three RGB values (solid) or six (gradient: start + end color), display values 0–1
     var fillColor: [Float] = []
-    /// 그라디언트 칠의 시작·끝 (원본 좌표 x0, y0, x1, y1)
+    /// Gradient fill start/end (source coordinates x0, y0, x1, y1)
     var fillPoints: [Double] = []
-    /// 레이어 스타일 (그림자·획·광선 등, LayerStyles.swift). 모양이 있는 레이어(이미지·칠·글자·모양)만
+    /// Layer styles (shadow, stroke, glow, etc., LayerStyles.swift). Only for layers with shape (image, fill, text, shape)
     var styles: LayerStyles? = nil
-    /// 혼합 조건: 이 레이어 밝기 [검정 시작, 검정 끝, 흰 시작, 흰 끝] + 아래 레이어 같은 넷 (화면 값 0~1)
+    /// Blend If: this layer's brightness [black start, black end, white start, white end] + the same four for the layer below (display 0–1)
     var blendIf: [Float]? = nil
-    /// 칠 무늬: nil 단색·그라디언트, 0 체크, 1 줄무늬, 2 구름, 3 점 (색 1·2는 fillColor 여섯 값)
+    /// Fill pattern: nil solid/gradient, 0 checker, 1 stripes, 2 clouds, 3 dots (colors 1·2 are fillColor's six values)
     var fillPattern: Int? = nil
     var fillScale: Float? = nil
-    /// 가져온 패턴 그림 (레이어 그림 폴더). 있으면 이 그림을 바둑판으로 깐다
+    /// Imported pattern image (layer image folder). If set, tiled
     var fillPatternFile: String? = nil
-    /// 여러 색 그라디언트 칠 (위치, 가운데점, r, g, b 반복)
+    /// Multi-color gradient fill (position, midpoint, r, g, b repeated)
     var fillStops: [Float]? = nil
-    /// 연결: 같은 값의 레이어는 함께 옮긴다
+    /// Link: layers with the same value move together
     var link: String? = nil
-    /// 글자 레이어 내용 (kind "text"). PSD에서 가져온 글자는 파일에 든 그림(image)을 고치기 전까지 쓴다.
+    /// Text layer content (kind "text"). Text imported from PSD uses the embedded image until edited.
     var text: LayerText? = nil
-    /// 픽셀 유동화 붓질 (원본 좌표)
+    /// Liquify strokes (source coordinates)
     var liquify: [LiquifyStroke]? = nil
-    /// 칠 레이어 붓질 (kind "paint")
+    /// Paint layer strokes (kind "paint")
     var paint: [PaintStroke]? = nil
-    /// PSD에서 가져온 조정 레이어의 원래 자료 ("키:base64") — 고치지 않았으면 PSD로 내보낼 때 그대로 쓴다
+    /// Original data of an adjustment layer imported from PSD ("key:base64") — written back as is on PSD export if unedited
     var psdBlock: String? = nil
-    /// 모양 레이어 (kind "shape"): 패스·채우기·획
+    /// Shape layer (kind "shape"): path, fill, stroke
     var vector: VectorShape? = nil
     var isText: Bool { kind == "text" }
-    /// 스타일을 입힐 수 있는 레이어
+    /// Layers that can take styles
     var takesStyles: Bool { isImage || isFill || kind == "text" || kind == "shape" || kind == "paint" }
 
-    /// PSD 혼합 모드와 이름 → Core Image 필터.
+    /// PSD blend modes and names → Core Image filters.
     static let blendModes: [(String, String, String?)] = [
         ("normal", "표준", nil),
         ("multiply", "곱하기", "CIMultiplyBlendMode"), ("screen", "스크린", "CIScreenBlendMode"),
@@ -217,25 +217,25 @@ struct AdjustLayer: Equatable, Codable, Identifiable {
         ("darkerColor", "어두운 색상", "CIDarkerColorBlendMode"), ("lighterColor", "밝은 색상", "CILighterColorBlendMode"),
         ("hardMix", "하드 혼합", nil), ("dissolve", "디졸브", nil),
     ]
-    /// 그룹 전용: 자식이 아래 레이어에 바로 겹친다
+    /// Groups only: children composite directly onto the layers below
     static let passThrough = ("passThrough", "통과")
 }
 
-/// 조정 레이어 합성. 아래 레이어까지 합친 결과에 이 레이어의 조정을 걸고, 혼합 모드로 합친 뒤
-/// 마스크 × 불투명도만큼 섞는다.
+/// Adjustment layer compositing. Applies this layer's adjustments to the composite below, blends with the blend mode,
+/// then mixes by mask × opacity.
 enum Layers {
-    /// `shape`: 원본 좌표 마스크를 형태 보정·크롭해 화면 틀에 맞춘다 (사진과 같은 변환).
+    /// `shape`: geometry-corrects and crops the source-coordinate mask to fit the view frame (same transform as the photo).
     static func apply(_ layers: [AdjustLayer], to image: CIImage, guide: CIImage, scale: CGFloat,
                       guideScale gs: CGFloat, native: CGSize, shape: (CIImage, CGFloat) -> CIImage,
                       toDisplay: ((CGPoint) -> CGPoint)? = nil, gamma: Bool = false) -> CIImage {
-        // 감마 혼합: 섞기·혼합 모드를 화면 감마 값에서 한다 (PSD 문서). 그림 그래프는 여기서 바로 만들어지므로
-        // 이 스레드에만 표시해 둔다.
+        // Gamma blending: mixing and blend modes run on display gamma values (PSD documents). The image graph is built right here,
+        // so it's flagged on this thread only.
         let td = Thread.current.threadDictionary
         let saved = td[gammaKey]
         td[gammaKey] = gamma
         defer { td[gammaKey] = saved }
         var out = image, g = guide
-        var below: CIImage?        // 바로 아래 레이어의 마스크 (클리핑용)
+        var below: CIImage?        // mask of the layer right below (for clipping)
         var belowG: CIImage?
         let byID = Dictionary(layers.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         func visible(_ l: AdjustLayer, depth: Int = 0) -> Bool {
@@ -243,7 +243,7 @@ enum Layers {
             guard let p = l.group.flatMap({ byID[$0] }) else { return true }
             return visible(p, depth: depth + 1)
         }
-        // 그룹이 시작될 때의 결과 (그룹 불투명도·마스크를 여기와 섞는다)
+        // Result at group start (group opacity/mask blend against this)
         var groupStart: [String: (CIImage, CIImage)] = [:]
         for layer in layers where visible(layer) {
             var p = layer.group
@@ -259,9 +259,9 @@ enum Layers {
             let fill = layer.fill
             let blendedOut: CIImage, blendedG: CIImage
             if layer.isGroup {
-                guard let (s0, g0) = groupStart[layer.id] else { continue }   // 빈 그룹
+                guard let (s0, g0) = groupStart[layer.id] else { continue }   // empty group
                 let mode = layer.blend == passThroughKey ? "normal" : layer.blend
-                // 통과: 자식이 이미 겹친 결과를 그룹 시작과 마스크·불투명도로 섞는다.
+                // Pass-through: blend the children's composite with the group start by mask and opacity.
                 out = mix(s0, blend(out, over: s0, mode: mode, fill: 1), mask: mask, opacity: layer.opacity)
                 if gs != scale {
                     var gm = maskImage(layer.mask, scale: gs, native: native, shape: shape, base: g0)
@@ -273,7 +273,7 @@ enum Layers {
                 }
                 continue
             } else if layer.isCopy {
-                // 배경을 복제하고 이 레이어의 리터칭 점을 건다 (점은 원본 좌표 → 화면 좌표로 옮긴다)
+                // Duplicate the background and apply this layer's retouch spots (spots mapped from source to view coordinates)
                 let spots = layer.spots.map { mapSpot($0, toDisplay) }
                 var content = spots.isEmpty ? image : Retouch.apply(spots, to: image, scale: scale)
                 var contentG = spots.isEmpty || gs == scale ? content : Retouch.apply(spots, to: guide, scale: gs)
@@ -284,9 +284,9 @@ enum Layers {
                 blendedG = blend(gAdjusted, over: g, mode: layer.blend, fill: fill)
             } else if layer.isFill {
                 var top = Effects.apply(layer.adjust.fx, filled(layer, scale: scale, native: native, shape: shape, frame: out.extent), scale: scale)
-                below = multiply(mask, LayerStyles.alphaGray(top))   // 위 레이어는 내용 모양으로 잘린다
+                below = multiply(mask, LayerStyles.alphaGray(top))   // Upper layers are clipped to the content shape
                 if let st = layer.styles, st.isActive {
-                    // 스타일은 마스크 모양을 따라 그린다: 내용을 마스크로 자르고, 뒤에서는 마스크를 다시 걸지 않는다
+                    // Styles follow the mask shape: clip content to the mask, and don't reapply the mask afterwards
                     top = LayerStyles.apply(st, cut(top, mask), scale: scale)
                     mask = CIImage(color: .white).cropped(to: out.extent)
                 }
@@ -330,7 +330,7 @@ enum Layers {
 
     static let passThroughKey = AdjustLayer.passThrough.0
 
-    /// 원본 좌표 리터칭 점을 화면(형태 보정 뒤) 좌표로. 반지름은 두 점 거리로 배율을 잰다.
+    /// Source-coordinate retouch spots → view (post-geometry) coordinates. Radius scale is measured from the distance of two points.
     static func mapSpot(_ s: RetouchSpot, _ f: ((CGPoint) -> CGPoint)?) -> RetouchSpot {
         guard let f else { return s }
         var o = s
@@ -349,9 +349,9 @@ enum Layers {
         return o
     }
 
-    // MARK: - 칠 레이어
+    // MARK: - Fill layers
 
-    /// 단색 또는 선형 그라디언트 칠 (칠 레이어). 그라디언트는 원본 좌표라 형태 보정을 따라간다.
+    /// Solid or linear gradient fill (fill layer). Gradients are in source coordinates, so they follow geometry corrections.
     static func filled(_ layer: AdjustLayer, scale: CGFloat, native: CGSize, shape: (CIImage, CGFloat) -> CIImage,
                        frame: CGRect) -> CIImage {
         func color(_ i: Int) -> CIColor {
@@ -362,7 +362,7 @@ enum Layers {
         }
         let nativeRect = CGRect(x: 0, y: 0, width: native.width * scale, height: native.height * scale).integral
         if let file = layer.fillPatternFile, let tile = sourceImage(file), tile.extent.width > 0 {
-            // 패턴 크기(%)만큼 키워 원본 좌표에 바둑판으로 깐다
+            // Scale by the pattern size (%) and tile in source coordinates
             let k = CGFloat(layer.fillScale ?? 100) / 100 * scale
             let t = tile.transformed(by: .init(translationX: -tile.extent.minX, y: -tile.extent.minY)).transformed(by: .init(scaleX: k, y: k))
             let tiled = t.applyingFilter("CIAffineTile", parameters: [kCIInputTransformKey: NSAffineTransform()]).cropped(to: nativeRect)
@@ -380,7 +380,7 @@ enum Layers {
             let c = layer.fillColor
             if c.count >= 3 { o.color = Array(c[0..<3]) }
             if c.count >= 6 { o.color2 = Array(c[3..<6]) } else { o.color2 = [0, 0, 0] }
-            // 무늬도 원본 좌표에 깔고 형태 보정을 따라간다
+            // Patterns are laid in source coordinates too and follow geometry corrections
             return shape(LayerStyles.pattern(o, nativeRect, scale: scale), scale).cropped(to: frame)
         }
         if layer.fillColor.count == 6, layer.fillPoints.count == 4 {
@@ -394,7 +394,7 @@ enum Layers {
         return CIImage(color: color(0)).cropped(to: frame)
     }
 
-    /// 여러 색 그라디언트 → 1024×1 그림 (작업 공간 선형 값)
+    /// Multi-color gradient → 1024×1 image (working-space linear values)
     static func gradientImage(_ stops: [Float]) -> CIImage? {
         let st = stride(from: 0, to: stops.count - 4, by: 5).map {
             PSDAdjust.GradientStop(loc: stops[$0], mid: stops[$0 + 1], color: SIMD3(stops[$0 + 2], stops[$0 + 3], stops[$0 + 4]))
@@ -425,17 +425,17 @@ enum Layers {
         ]) ?? CIImage(color: .gray).cropped(to: extent)
     }
 
-    // MARK: - 이미지 레이어
+    // MARK: - Image layers
 
     private static var imageCache: [String: CIImage] = [:]
-    /// 최근에 쓴 순서 (넘치면 오래된 것 하나만 뺀다. 예전엔 8장이 넘으면 모두 비워, 레이어·마스크 그림이 많은 문서는
-    /// 그릴 때마다 그림을 새로 읽었고 그리기 도구가 새 그림마다 버퍼를 만들어 메모리가 수십 GB까지 늘었다)
+    /// Most-recently-used order (on overflow, evict just the oldest. It used to clear everything past 8, so documents with many layer/mask images
+    /// re-read images on every draw, and the renderer created buffers for each new image, growing memory to tens of GB)
     private static var imageOrder: [String] = []
     private static let imageLock = NSLock()
 
     static func sourceImage(_ file: String) -> CIImage? {
         imageLock.lock(); defer { imageLock.unlock() }
-        // 연결된 이미지("link:경로"): 원본 파일을 바로 읽고, 파일이 바뀌면 다시 읽는다 (스마트 오브젝트 연결)
+        // Linked image ("link:path"): reads the source file directly and rereads it when the file changes (smart object link)
         var key = file
         var url = LayerImageStore.url(file)
         if file.hasPrefix("link:") {
@@ -449,14 +449,14 @@ enum Layers {
             return hit
         }
         guard let img = CIImage(contentsOf: url) else { return nil }
-        // 파일에서 읽는 그림은 그릴 때 풀리므로 여럿 들고 있어도 가볍다
+        // Images read from files decode at draw time, so holding several is cheap
         while imageOrder.count >= 64 { imageCache[imageOrder.removeFirst()] = nil }
         imageCache[key] = img
         imageOrder.append(key)
         return img
     }
 
-    /// 이미지 레이어를 원본 좌표에 놓고 사진과 같은 형태 보정을 거쳐 화면 틀에 맞춘다. 바깥은 투명.
+    /// Places an image layer in source coordinates and fits it to the view frame through the photo's geometry corrections. Transparent outside.
     static func placed(_ layer: AdjustLayer, scale: CGFloat, native: CGSize, shape: (CIImage, CGFloat) -> CIImage,
                        frame: CGRect) -> CIImage? {
         if layer.kind == "paint" { return painted(layer, scale: scale, native: native, shape: shape, frame: frame) }
@@ -477,7 +477,7 @@ enum Layers {
             if let lq = layer.liquify, !lq.isEmpty { canvas = Warp.liquify(canvas, strokes: lq, native: native, scale: scale) }
             return shape(canvas, scale).cropped(to: frame)
         }
-        // 줄일 때 계단이 지지 않게 먼저 부드럽게 줄인다.
+        // Smooth downscale first so it doesn't alias when shrinking.
         var img = src
         let total = k * scale
         if total < 0.5 {
@@ -495,7 +495,7 @@ enum Layers {
         return shape(canvas, scale).cropped(to: frame)
     }
 
-    /// 내용을 마스크 모양으로 자른다 (마스크 밖은 투명)
+    /// Clips content to the mask shape (transparent outside the mask)
     static func cut(_ top: CIImage, _ mask: CIImage) -> CIImage {
         top.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: CIImage.empty(), "inputMaskImage": mask])
             .cropped(to: top.extent)
@@ -503,7 +503,7 @@ enum Layers {
 
     static let gammaKey = "duochrome.gammaBlend"
     private static var gammaBlend: Bool { (Thread.current.threadDictionary[gammaKey] as? Bool) ?? false }
-    /// 작업 공간(선형 Rec.2020) ↔ sRGB 감마 값
+    /// Working space (linear Rec.2020) ↔ sRGB gamma values
     static let srgbSpace = CGColorSpace(name: CGColorSpace.extendedSRGB)!
     static func encode(_ i: CIImage) -> CIImage { i.matchedFromWorkingSpace(to: srgbSpace) ?? i }
     static func decode(_ i: CIImage) -> CIImage { i.matchedToWorkingSpace(from: srgbSpace) ?? i }
@@ -540,7 +540,7 @@ enum Layers {
         }
         """)
 
-    /// 혼합 조건 가중치 (이 레이어 결과·아래 결과의 밝기 범위)
+    /// Blend If weights (brightness ranges of this layer's result and the result below)
     static func blendIfMask(_ v: [Float], this: CIImage, below: CIImage) -> CIImage {
         guard let k = blendIfK else { return CIImage(color: .white).cropped(to: below.extent) }
         let c = v.map { CGFloat($0) }
@@ -552,13 +552,13 @@ enum Layers {
         a.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: b]).cropped(to: a.extent)
     }
 
-    /// 디졸브: 불투명도만큼의 픽셀을 무작위로 골라 100%로 보인다.
+    /// Dissolve: randomly picks opacity-worth of pixels and shows them at 100%.
     private static func dissolve(_ mask: CIImage, opacity: Float) -> CIImage {
         let noise = CIFilter(name: "CIRandomGenerator")!.outputImage!.cropped(to: mask.extent)
         return GPU.run("dissolve_mask", [mask, noise], params: [opacity], extent: mask.extent)
     }
 
-    /// `fill`: 칠 불투명도. 위 레이어 내용의 알파에 곱한 뒤 혼합한다 (하드 혼합은 커널이 따로 다룬다).
+    /// `fill`: fill opacity. Multiplied into the upper layer content's alpha before blending (hard mix is handled in its kernel).
     private static func blend(_ top: CIImage, over base: CIImage, mode: String, fill: Float) -> CIImage {
         if gammaBlend { return decode(blendLinear(encode(top), over: encode(base), mode: mode, fill: fill)).cropped(to: base.extent) }
         return blendLinear(top, over: base, mode: mode, fill: fill)
@@ -569,7 +569,7 @@ enum Layers {
         var t = top
         if fill < 1 {
             let f = CGFloat(max(fill, 0))
-            // CIColorMatrix는 알파를 나눈 색에 작용하므로 알파만 줄인다 (색까지 줄이면 두 번 줄어든다).
+            // CIColorMatrix acts on unpremultiplied color, so reduce alpha only (reducing color too would halve it twice).
             t = t.applyingFilter("CIColorMatrix", parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: f)])
         }
         guard let filter = AdjustLayer.blendModes.first(where: { $0.0 == mode })?.2 else {
@@ -578,11 +578,11 @@ enum Layers {
         return t.applyingFilter(filter, parameters: [kCIInputBackgroundImageKey: base]).cropped(to: base.extent)
     }
 
-    /// 레이어 조정을 건다. 국소 도구(클래리티·디헤이즈)는 기본 현상과 같은 가이드 방식을 쓴다.
+    /// Applies layer adjustments. Local tools (clarity, dehaze) use the same guide approach as the base develop.
     static func develop(_ a: LocalAdjust, _ image: CIImage, guide: CIImage, scale: CGFloat,
                         guideScale gs: CGFloat) -> (CIImage, CIImage) {
         var out = image, g = guide
-        // 필터 (흐림·선명·하이 패스 등)는 먼저 건다. 반경은 원본 픽셀 × 미리보기 배율.
+        // Filters (blur, sharpen, high pass, etc.) apply first. Radius = source pixels × preview scale.
         if a.hasFilter {
             out = filters(a, out, scale: scale)
             g = gs == scale ? out : filters(a, g, scale: gs)
@@ -591,7 +591,7 @@ enum Layers {
             var o = img
             if a.exposure != 0 { o = o.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: a.exposure]) }
             if a.temperature != 0 || a.tint != 0 {
-                // 6500K를 기준으로 상대적으로 옮긴다. 양수면 따뜻하게.
+                // Shift relative to 6500K. Positive is warmer.
                 o = o.applyingFilter("CITemperatureAndTint", parameters: [
                     "inputNeutral": CIVector(x: 6500, y: 0),
                     "inputTargetNeutral": CIVector(x: CGFloat(6500 - a.temperature * 25), y: CGFloat(-a.tint * 0.8)),
@@ -639,7 +639,7 @@ enum Layers {
         if a.highPass > 0 { o = GPU.run("high_pass", [o, o.blurred(max(CGFloat(a.highPass) * scale, 0.5))], extent: e) }
         if a.noise > 0 { o = Develop.grain(o, amount: a.noise, size: 10, scale: scale, type: 3) }
         if let sk = a.skinSmooth, sk > 0, let k = skinKernel {
-            // 큰 흐림(얼룩 고르게)으로 섞고, 작은 흐림과의 차(잔 질감)는 되살린다
+            // Blend with a large blur (evens blotches) and restore the difference from a small blur (fine texture)
             let big = o.clampedToExtent().blurred(max(14 * scale, 1)).cropped(to: e)
             let small = o.clampedToExtent().blurred(max(1.6 * scale, 0.5)).cropped(to: e)
             o = k.apply(extent: e, arguments: [o, big, small, CGFloat(min(sk, 100) / 100)]) ?? o
@@ -655,7 +655,7 @@ enum Layers {
         }
         """)
 
-    /// 색 조정 (활기, 색조, 포토 필터, 채널 혼합, 그라디언트 맵, 포스터화, 한계값, 반전).
+    /// Color adjustments (vibrance, hue, photo filter, channel mixer, gradient map, posterize, threshold, invert).
     static func colorAdjust(_ a: LocalAdjust, _ img: CIImage) -> CIImage {
         let e = img.extent
         var o = img
@@ -668,7 +668,7 @@ enum Layers {
         if a.vibrance != 0 { o = o.applyingFilter("CIVibrance", parameters: ["inputAmount": a.vibrance / 100]) }
         if a.hue != 0 { o = o.applyingFilter("CIHueAdjust", parameters: [kCIInputAngleKey: a.hue * .pi / 180]) }
         if a.filterDensity > 0 {
-            // 필터 색을 밝기 1로 맞춰 곱한다 (밝기는 거의 그대로, 색만 따뜻하게·차갑게)
+            // Multiply by the filter color normalized to brightness 1 (brightness nearly unchanged, only warmer/cooler)
             let c = ColorLUT.rgb(a.filterHue, 0.6, 1)
             let y = 0.2627 * c.x + 0.678 * c.y + 0.0593 * c.z
             let d = a.filterDensity / 100
@@ -686,7 +686,7 @@ enum Layers {
             ])
         }
         if let st = a.gradientStops, st.count >= 10, let g = gradientImage(st) {
-            // 밝기(화면 감마) → 그라디언트
+            // brightness (display gamma) → gradient
             let gm = o.applyingFilter("CIColorClamp").applyingFilter("CIGammaAdjust", parameters: ["inputPower": 1 / 2.2])
             let lum = gm.applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": CIVector(x: 0.3, y: 0.59, z: 0.11, w: 0), "inputGVector": CIVector(x: 0.3, y: 0.59, z: 0.11, w: 0),
@@ -699,7 +699,7 @@ enum Layers {
                 "inputColor1": CIColor(red: g[3], green: g[4], blue: g[5], alpha: 1, colorSpace: Render.workingSpace)!,
             ])
         }
-        // 포스터화·한계값·반전은 화면 감마에서 (선형에서 하면 단계가 어두운 쪽에 몰린다)
+        // Posterize, threshold, and invert in display gamma (in linear the steps crowd into the shadows)
         if a.posterize >= 2 || a.threshold > 0 || a.invert >= 0.5 {
             var gm = o.applyingFilter("CIColorClamp").applyingFilter("CIGammaAdjust", parameters: ["inputPower": 1 / 2.2])
             if a.posterize >= 2 { gm = gm.applyingFilter("CIColorPosterize", parameters: ["inputLevels": a.posterize]) }
@@ -710,18 +710,18 @@ enum Layers {
         return o.cropped(to: e)
     }
 
-    // MARK: - 마스크
+    // MARK: - Masks
 
-    /// 마스크 이미지 (흑백, 화면 틀 좌표). `base`는 루마 레인지 판단에 쓰는 아래 레이어까지의 결과.
+    /// Mask image (grayscale, view frame coordinates). `base` is the result up to the layer below, used for luma range.
     static func maskImage(_ m: LayerMask, scale: CGFloat, native: CGSize, shape: (CIImage, CGFloat) -> CIImage,
                           base: CIImage) -> CIImage {
         let nativeRect = CGRect(x: 0, y: 0, width: native.width * scale, height: native.height * scale).integral
         var mask = shapeMask(m, scale: scale, native: native)
-        // 벡터 마스크: 패스 안만 (래스터 마스크와 곱한다)
+        // Vector mask: inside the path only (multiplied with the raster mask)
         if let v = m.vector, !v.isEmpty {
             mask = mask.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: VectorRender.mask(v, scale: scale, nativeRect: nativeRect)]).cropped(to: nativeRect)
         }
-        // 선택 더하기·빼기·교차 (원본 좌표에서)
+        // Selection add/subtract/intersect (in source coordinates)
         for c in m.combos ?? [] {
             let other = shapeMask(c.mask, scale: scale, native: native)
             let o = c.mask.invert ? other.applyingFilter("CIColorInvert") : other
@@ -732,7 +732,7 @@ enum Layers {
             }
             mask = mask.cropped(to: nativeRect)
         }
-        // 확장·축소·테두리·매끄럽게·대비·가장자리 이동
+        // expand · contract · border · smooth · contrast · shift edge
         if let g = m.grow, abs(g) >= 0.5 {
             let r = max(abs(g) * scale, 0.5)
             mask = mask.clampedToExtent().applyingFilter(g > 0 ? "CIMorphologyMaximum" : "CIMorphologyMinimum", parameters: [kCIInputRadiusKey: r]).cropped(to: nativeRect)
@@ -749,7 +749,7 @@ enum Layers {
         }
         if m.feather > 0 { mask = mask.blurred(CGFloat(m.feather) * scale) }
         if (m.contrast ?? 0) > 0 || (m.shiftEdge ?? 0) != 0 {
-            // 가운데(0.5)를 옮기고 기울기를 키운다
+            // Move the midpoint (0.5) and steepen the slope
             let k = 1 + CGFloat(m.contrast ?? 0) / 10, sh = CGFloat(m.shiftEdge ?? 0) / 200
             mask = mask.applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": CIVector(x: k, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: k, z: 0, w: 0),
@@ -773,7 +773,7 @@ enum Layers {
         return shaped.cropped(to: base.extent)
     }
 
-    /// 색상 범위: 화면 값에서 고른 색과의 거리 → 가까우면 1 (허용량 안에서 부드럽게)
+    /// Color range: distance to the picked color in display values → 1 when close (soft within the fuzziness)
     static let colorRangeK = CIColorKernel(source: """
         kernel vec4 k(__sample s, vec3 c, float fuzz) {
             vec3 d = pow(clamp(s.rgb, 0.0, 1.0), vec3(1.0 / 2.2)) - c;
@@ -782,7 +782,7 @@ enum Layers {
         }
         """)
 
-    /// 가장자리 다듬기: 사진 밝기를 길잡이로 한 가이디드 필터 (머리카락·잔가지에 마스크가 붙는다)
+    /// Refine edge: guided filter steered by photo luminance (the mask clings to hair and twigs)
     static func refineMask(_ mask: CIImage, guide: CIImage, radius r: CGFloat) -> CIImage {
         let e = mask.extent
         let I = guide.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0]).applyingFilter("CIColorClamp").cropped(to: e)
@@ -792,7 +792,7 @@ enum Layers {
         guard let k = guidedK else { return mask }
         let mI = box(I), mp = box(p), mIp = box(mul(I, p)), mII = box(mul(I, I))
         let ab = k.apply(extent: e, arguments: [mI, mp, mIp, mII, 0.0004]) ?? mask
-        // ab: r = a, g = b → 다시 평균해서 q = a·I + b
+        // ab: r = a, g = b → averaged again, q = a·I + b
         let mab = box(ab)
         return applyAB?.apply(extent: e, arguments: [mab, I]) ?? mask
     }
@@ -810,7 +810,7 @@ enum Layers {
         }
         """)
 
-    /// 마스크 모양 하나 (원본 좌표·배율, 합치기·다듬기 전)
+    /// One mask shape (source coordinates and scale, before combining/refining)
     static func shapeMask(_ m: LayerMask, scale: CGFloat, native: CGSize) -> CIImage {
         let nativeRect = CGRect(x: 0, y: 0, width: native.width * scale, height: native.height * scale).integral
         var mask: CIImage
@@ -827,7 +827,7 @@ enum Layers {
         case .radial:
             let p = m.radial
             let rx = max(p[2] * scale, 1), ry = max(p[3] * scale, 1)
-            // 원을 그린 뒤 세로로 늘여 타원으로 만든다.
+            // Draw a circle, then stretch vertically into an ellipse.
             let inner = rx * (1 - m.radialFeather * 0.9)
             mask = CIFilter(name: "CIRadialGradient", parameters: [
                 "inputCenter": CIVector(x: 0, y: 0), "inputRadius0": inner, "inputRadius1": max(rx, inner + 0.5),
@@ -867,7 +867,7 @@ enum Layers {
         return mask.cropped(to: nativeRect)
     }
 
-    /// 올가미 선택 마스크 (채운 다각형). 최대 1/2 해상도로 그리고 키운다.
+    /// Lasso selection mask (filled polygon). Drawn at up to 1/2 resolution and upscaled.
     static func polygonMask(_ pts: [Double], scale: CGFloat, native: CGSize) -> CIImage {
         let rs = min(scale, 0.5)
         let w = Int((native.width * rs).rounded(.up)), h = Int((native.height * rs).rounded(.up))
@@ -890,8 +890,8 @@ enum Layers {
     private static var brushCache: [String: CIImage] = [:]
     private static let brushLock = NSLock()
 
-    /// 붓질 마스크. 부드러운 마스크라 원본 해상도까지는 필요 없어서 최대 1/2 해상도로 그리고 키운다.
-    /// 딱딱함(hardness)은 흐림 반경으로 낸다.
+    /// Brush stroke mask. A soft mask doesn't need full resolution, so it's drawn at up to 1/2 and upscaled.
+    /// Hardness comes from the blur radius.
     static func brushMask(_ strokes: [MaskStroke], scale: CGFloat, native: CGSize, white: Bool = false) -> CIImage {
         let rs = min(scale, 0.5)
         let key = "\(strokes.hashValue)|\(rs)|\(white)"
@@ -912,14 +912,14 @@ enum Layers {
                     .map { CGPoint(x: stroke.points[$0] * rs, y: stroke.points[$0 + 1] * rs) }
                 guard let first = pts.first else { continue }
                 if let t = stroke.tip, let tip = PresetFiles.tip(t) {
-                    // 가져온 붓 끝을 찍는다 (지우개는 검정 끝이 없어서 선으로)
+                    // Stamp the imported brush tip (the eraser has no black tip, so it uses lines)
                     if !stroke.erase {
                         PresetFiles.stamp(ctx, tip: tip, points: pts, diameter: stroke.radius * 2 * rs,
                                           spacing: stroke.spacing ?? 0.25, alpha: stroke.flow)
                         continue
                     }
                 }
-                // 지우개는 검정으로 덮는다. 그리기는 흐름(flow)만큼 쌓는다.
+                // The eraser covers with black. Painting accumulates by flow.
                 ctx.setStrokeColor(gray: stroke.erase ? 0 : 1, alpha: stroke.erase ? 1 : stroke.flow)
                 ctx.setLineWidth(stroke.radius * 2 * rs * (0.55 + 0.45 * stroke.hardness))
                 ctx.beginPath()
@@ -931,7 +931,7 @@ enum Layers {
             let hardness = strokes.map { $0.tip == nil ? $0.hardness : 1 }.reduce(0, +) / Double(max(strokes.count, 1))
             let avgR = strokes.map(\.radius).reduce(0, +) / Double(max(strokes.count, 1))
             var raw = CIImage(cgImage: ctx.makeImage()!)
-            // 부드러운 붓일수록 더 흐린다 (평균 반지름 기준).
+            // Softer brushes blur more (by mean radius).
             let sigma = avgR * rs * (1 - hardness) * 0.45
             if sigma > 0.5 { raw = raw.blurred(sigma) }
             img = raw
@@ -943,9 +943,9 @@ enum Layers {
     }
 }
 
-/// 이미지 레이어 그림 폴더. 시험 실행은 임시 폴더를 쓴다.
+/// Image layer picture folder. Test runs use a temp folder.
 enum LayerImageStore {
-    /// 지금 카탈로그 (열 때 정한다). 레이어 그림·AI 마스크·LUT는 카탈로그 안 Assets 폴더에 둔다.
+    /// Current catalog (set on open). Layer images, AI masks, and LUTs live in the catalog's Assets folder.
     static var catalogURL: URL? { didSet { cachedFolder = nil } }
     private static var cachedFolder: URL?
 
@@ -965,7 +965,7 @@ enum LayerImageStore {
         return dir
     }
 
-    /// 예전 레이어 그림 폴더 (옮겨 올 때만 읽는다)
+    /// Old layer image folder (read only when migrating)
     static var legacyFolder: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Duochrome/LayerImages", isDirectory: true)
@@ -973,14 +973,14 @@ enum LayerImageStore {
 
     static func url(_ file: String) -> URL { folder.appendingPathComponent(file) }
 
-    /// 파일을 복사해 넣고 이름을 돌려준다 (원본을 옮기거나 지워도 레이어가 남게).
+    /// Copies a file in and returns its name (the layer survives moving or deleting the source).
     static func importFile(_ src: URL) throws -> String {
         let name = UUID().uuidString + "." + (src.pathExtension.isEmpty ? "png" : src.pathExtension.lowercased())
         try FileManager.default.copyItem(at: src, to: url(name))
         return name
     }
 
-    /// 데이터(붙여넣은 그림)를 파일로 적는다.
+    /// Writes data (a pasted image) to a file.
     static func importData(_ data: Data, ext: String) throws -> String {
         let name = UUID().uuidString + "." + ext
         try data.write(to: url(name))
@@ -988,7 +988,7 @@ enum LayerImageStore {
     }
 }
 
-/// .cube LUT 읽기 (3D만). 빨강이 가장 빨리 바뀌는 순서라 CIColorCube와 같다.
+/// Reads a .cube LUT (3D only). Red changes fastest, same as CIColorCube.
 enum CubeLUT {
     private static var cache: [String: (n: Int, data: Data)] = [:]
     private static let lock = NSLock()
@@ -1016,7 +1016,7 @@ enum CubeLUT {
             if parts.first == "DOMAIN_MAX", parts.count >= 4 { hi = parts[1...3].compactMap { Float($0) }; continue }
             let v = parts.compactMap { Float($0) }
             if v.count == 3 {
-                // 출력 값을 0~1로 (영역이 다르면 맞춘다)
+                // Output values to 0–1 (adjust if the domain differs)
                 for c in 0..<3 { values.append((v[c] - lo[c]) / max(hi[c] - lo[c], 1e-6)) }
                 values.append(1)
             }

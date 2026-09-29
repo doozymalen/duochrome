@@ -1,9 +1,9 @@
 import AppKit
 import CoreImage
 
-/// 레이어 고급: 레이어 구성, 스냅샷, 정렬·분배·연결, 병합·도장 찍기, 연결된 이미지(스마트 오브젝트).
+/// Advanced layers: layer comps, snapshots, align/distribute/link, merge/stamp, linked images (smart objects).
 
-/// 레이어 구성: 레이어마다 보임·불투명도·혼합·(이미지) 자리를 기억한다.
+/// Layer comp: remembers visibility, opacity, blend, and (image) position per layer.
 struct LayerComp: Equatable, Codable {
     struct State: Equatable, Codable {
         var enabled: Bool
@@ -17,7 +17,7 @@ struct LayerComp: Equatable, Codable {
 }
 
 extension MainWindowController {
-    // MARK: - 레이어 구성
+    // MARK: - Layer comps
 
     @objc func saveLayerComp(_ sender: Any?) {
         guard var s = photo?.settings, !s.layers.isEmpty else { NSSound.beep(); return }
@@ -81,7 +81,7 @@ extension MainWindowController {
         return m
     }
 
-    // MARK: - 스냅샷 (작업 내역 탭)
+    // MARK: - Snapshots (History tab)
 
     func makeSnapshot(named name: String? = nil) {
         guard let doc = photo else { NSSound.beep(); return }
@@ -109,11 +109,11 @@ extension MainWindowController {
         library.catalog.setHistory(Library.key(for: doc.url), h)
     }
 
-    // MARK: - 정렬·분배·연결 (이미지 레이어 자리)
+    // MARK: - Align · distribute · link (image layer positions)
 
     enum AlignEdge: Int { case left, centerX, right, top, centerY, bottom }
 
-    /// 고른 이미지 레이어(와 연결된 레이어)를 사진 틀(원본 좌표)에 맞춘다.
+    /// Aligns the selected image layer (and linked layers) to the photo frame (source coordinates).
     func alignLayer(_ edge: AlignEdge) {
         guard var s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }),
               let im = s.layers[i].image, let doc = photo else { NSSound.beep(); return }
@@ -132,7 +132,7 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: "레이어 정렬")
     }
 
-    /// 회전을 넣은 이미지 레이어의 둘레 상자 크기 (원본 픽셀)
+    /// Bounding box size of a rotated image layer (source pixels)
     func layerSize(_ im: LayerImage) -> (Double, Double) {
         let src = Layers.sourceImage(im.file)?.extent.size ?? CGSize(width: 1, height: 1)
         let w = im.width, h = im.height ?? im.width * Double(src.height / max(src.width, 1))
@@ -140,7 +140,7 @@ extension MainWindowController {
         return (abs(w * cos(r)) + abs(h * sin(r)), abs(w * sin(r)) + abs(h * cos(r)))
     }
 
-    /// i번 레이어와 같은 연결의 이미지 레이어를 모두 옮긴다
+    /// Moves all image layers linked with layer i
     func moveLinked(_ s: inout DevelopSettings, from i: Int, dx: Double, dy: Double) {
         let link = s.layers[i].link
         for k in s.layers.indices where k == i || (link != nil && s.layers[k].link == link) {
@@ -149,7 +149,7 @@ extension MainWindowController {
         }
     }
 
-    /// 연결된 이미지 레이어들을 가로(세로)로 고르게 벌린다 (가운데 기준, 셋 이상)
+    /// Spreads linked image layers evenly horizontally (vertically) (by center, three or more)
     func distributeLinked(horizontal: Bool) {
         guard var s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }),
               let link = s.layers[i].link else { NSSound.beep(); return }
@@ -165,7 +165,7 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: "레이어 분배")
     }
 
-    /// 고른 레이어를 바로 아래 레이어와 연결한다 (이미 연결돼 있으면 푼다)
+    /// Links the selected layer with the one right below (unlinks if already linked)
     @objc func toggleLinkBelow(_ sender: Any?) {
         guard var s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }) else { return }
         if s.layers[i].link != nil { s.layers[i].link = nil; replaceSettings(s, recordUndo: true, label: "연결 풀기"); return }
@@ -176,9 +176,9 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: "레이어 연결")
     }
 
-    // MARK: - 병합·도장 찍기
+    // MARK: - Merge · stamp
 
-    /// 레이어들을 투명 바탕(또는 사진) 위에 원본 좌표·원본 크기로 그린다 (형태 보정 없이 — 새 이미지 레이어가 다시 형태 보정을 받는다)
+    /// Renders layers over a transparent background (or the photo) at source coordinates and size (without geometry — the new image layer gets geometry again)
     func rasterize(_ layers: [AdjustLayer], withPhoto: Bool) -> CIImage? {
         guard let doc = photo else { return nil }
         let n = doc.nativeSize
@@ -186,7 +186,7 @@ extension MainWindowController {
         if withPhoto {
             var flat = doc.settings
             flat.layers = layers
-            flat.adoptGeometry(from: DevelopSettings())   // 형태 보정을 뺀다
+            flat.adoptGeometry(from: DevelopSettings())   // strip geometry corrections
             let saved = doc.settings, full = doc.showFullFrame
             doc.settings = flat
             doc.showFullFrame = true
@@ -198,7 +198,7 @@ extension MainWindowController {
                             gamma: doc.settings.gammaBlend ?? false)
     }
 
-    /// 그림을 레이어 그림 폴더에 PNG로 저장하고 원본 전체를 덮는 이미지 레이어로 만든다
+    /// Saves an image as PNG in the layer image folder and makes an image layer covering the whole source
     func imageLayer(from img: CIImage, name: String) -> AdjustLayer? {
         guard let doc = photo else { return nil }
         let n = doc.nativeSize
@@ -218,7 +218,7 @@ extension MainWindowController {
         }
     }
 
-    /// 보이는 레이어 도장 찍기 (⌥⇧⌘E): 지금 보이는 결과를 새 이미지 레이어로 (다른 레이어는 그대로)
+    /// Stamp visible (⌥⇧⌘E): the current visible result as a new image layer (other layers untouched)
     @objc func stampVisible(_ sender: Any?) {
         guard var s = photo?.settings, let img = rasterize(s.layers, withPhoto: true),
               let l = imageLayer(from: img, name: "도장 \(s.layers.count + 1)") else { NSSound.beep(); return }
@@ -227,7 +227,7 @@ extension MainWindowController {
         layersTab.select(l.id)
     }
 
-    /// 보이는 레이어 병합 (⇧⌘E): 보이는 결과 하나로 바꾸고 레이어를 모두 지운다
+    /// Merge visible (⇧⌘E): replace with the single visible result and remove all layers
     @objc func mergeVisible(_ sender: Any?) {
         guard var s = photo?.settings, !s.layers.isEmpty, let img = rasterize(s.layers, withPhoto: true),
               let l = imageLayer(from: img, name: "병합") else { NSSound.beep(); return }
@@ -236,8 +236,8 @@ extension MainWindowController {
         layersTab.select(l.id)
     }
 
-    /// 아래 레이어와 병합 (⌘E): 고른 레이어와 바로 아래(같은 층) 레이어를 투명 바탕에 합쳐 이미지 레이어 하나로.
-    /// 조정 레이어는 아래 내용 레이어에 조정을 구워 넣는다. 둘 다 내용이 없으면(조정 둘) 할 수 없다.
+    /// Merge down (⌘E): merges the selected layer with the one right below (same level) on transparency into one image layer.
+    /// An adjustment layer bakes into the content layer below. Not possible if neither has content (two adjustments).
     @objc func mergeDown(_ sender: Any?) {
         guard var s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }), i > 0 else { NSSound.beep(); return }
         let below = i - 1
@@ -254,9 +254,9 @@ extension MainWindowController {
         layersTab.select(l.id)
     }
 
-    // MARK: - 연결된 이미지 (스마트 오브젝트)
+    // MARK: - Linked images (smart objects)
 
-    /// 파일을 복사하지 않고 연결해서 이미지 레이어로 넣는다 (원본 파일을 고치면 레이어가 따라 바뀐다)
+    /// Inserts a file as an image layer by link, without copying (the layer follows edits to the source file)
     @objc func placeLinkedImage(_ sender: Any?) {
         guard photo != nil, let window else { NSSound.beep(); return }
         let panel = NSOpenPanel()
@@ -268,7 +268,7 @@ extension MainWindowController {
         }
     }
 
-    /// 연결된 이미지를 카탈로그 안으로 복사해 내장으로 바꾼다
+    /// Copies a linked image into the catalog, making it embedded
     @objc func embedLinkedImage(_ sender: Any?) {
         guard var s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }),
               let file = s.layers[i].image?.file, file.hasPrefix("link:") else { NSSound.beep(); return }
@@ -286,7 +286,7 @@ extension MainWindowController {
     @objc func distributeV(_ sender: Any?) { distributeLinked(horizontal: false) }
 }
 
-/// "레이어 구성" 메뉴를 열 때마다 저장된 구성으로 채운다
+/// Fills the "Layer Comps" menu with saved comps each time it opens
 final class LayerCompMenuDelegate: NSObject, NSMenuDelegate {
     static let shared = LayerCompMenuDelegate()
     func menuNeedsUpdate(_ menu: NSMenu) {

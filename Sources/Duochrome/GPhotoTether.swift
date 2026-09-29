@@ -1,9 +1,9 @@
 import AppKit
 import ImageIO
 
-// MARK: - 테더링 (유선 USB 전용): 공개 라이브러리 libgphoto2로 카메라 설정 원격 변경·라이브 뷰·초점·촬영
-// 회사별 SDK 대신 여러 회사 카메라를 다루는 libgphoto2를 쓴다. 도우미(tether-helper.py)가 카메라를 잡고,
-// Duochrome과는 JSON 한 줄씩 주고받는다. 도우미를 못 쓰면 macOS 기본 ImageCaptureCore(TetherCamera)로 물러선다.
+// MARK: - Tethering (wired USB only): remote camera settings, live view, focus, and capture via libgphoto2
+// Uses libgphoto2, which covers cameras from many vendors, instead of per-vendor SDKs. A helper (tether-helper.py) holds the camera
+// and talks to Duochrome one JSON line at a time. Without the helper, falls back to macOS ImageCaptureCore (TetherCamera).
 
 final class GPhotoCamera {
     struct Setting {
@@ -16,19 +16,19 @@ final class GPhotoCamera {
     struct Caps {
         var af = false
         var focus = false
-        /// 라이브 뷰 확대 값 (카메라가 알려 준 그대로, 비었으면 확대 없음)
+        /// Live view zoom values (as reported by the camera; empty = no zoom)
         var zoom: [String] = []
     }
 
     var onStatus: ((String) -> Void)?
     var onDownloaded: ((URL) -> Void)?
     var onConfig: (([String: Setting]) -> Void)?
-    /// 이 카메라에서 되는 것 (설정 이름이 회사마다 달라 도우미가 찾아 알려 준다)
+    /// What this camera supports (config names differ by vendor, so the helper discovers and reports them)
     var onCaps: ((Caps) -> Void)?
     var onFrame: ((CGImage) -> Void)?
     var onLive: ((Bool) -> Void)?
     var onConnected: ((Bool) -> Void)?
-    /// 도우미를 쓸 수 없을 때 (설치 실패 등) — 기본 방식으로 물러서게
+    /// When the helper can't be used (install failure etc.) — fall back to the built-in path
     var onUnavailable: ((String) -> Void)?
 
     var folder: URL { didSet { send(["cmd": "folder", "path": folder.path]) } }
@@ -54,7 +54,7 @@ final class GPhotoCamera {
         return FileManager.default.fileExists(atPath: dev.path) ? dev : nil
     }
 
-    /// 도우미 환경 (처음 한 번, 사용자 폴더 안에만: 파이썬 3.11 + python-gphoto2. 라이브러리가 함께 들어 있다)
+    /// Helper environment (once, inside the user folder only: Python 3.11 + python-gphoto2, which bundles the library)
     static func ensureInstalled() throws {
         if FileManager.default.isExecutableFile(atPath: python.path) {
             let check = Process()
@@ -130,13 +130,13 @@ final class GPhotoCamera {
         DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if p?.isRunning == true { p?.terminate() } }
     }
 
-    // MARK: 명령
+    // MARK: Commands
 
     func shoot() { send(["cmd": "capture"]) }
     func set(_ name: String, _ value: String) { send(["cmd": "set", "name": name, "value": value]) }
     func live(_ on: Bool) { send(["cmd": "live", "on": on]) }
     func autofocus() { send(["cmd": "af"]) }
-    /// step: 음수는 가까이, 양수는 멀리 (1 = 조금, 3 = 크게)
+    /// step: negative is nearer, positive is farther (1 = small, 3 = large)
     func focus(_ step: Int) { send(["cmd": "focus", "step": step]) }
     func zoom(_ value: String) { send(["cmd": "zoom", "value": value]) }
 
@@ -145,7 +145,7 @@ final class GPhotoCamera {
         input.write(d + Data("\n".utf8))
     }
 
-    // MARK: 소식
+    // MARK: Events
 
     private func receive(_ d: Data) {
         buffer.append(d)
@@ -158,7 +158,7 @@ final class GPhotoCamera {
         }
     }
 
-    /// 라이브 뷰 한 장: 앞 장을 아직 푸는 중이면 버린다 (늦게 따라가며 쌓이지 않게)
+    /// One live view frame: dropped if the previous one is still decoding (so it doesn't lag and pile up)
     private func frame(_ b64: String?) {
         guard let b64, !decoding, let data = Data(base64Encoded: b64) else { return }
         decoding = true
@@ -209,10 +209,10 @@ final class GPhotoCamera {
     }
 }
 
-// MARK: - 다음 촬영 이름 규칙 (설정 > 테더링 > 파일 이름): {날짜} {시각} {순번} {원래이름}
+// MARK: - Next capture naming rule (Settings > Tethering > File Name): {날짜} {시각} {순번} {원래이름}
 
 enum TetherNaming {
-    /// RAW+JPEG처럼 같은 원래 이름으로 잇달아 오는 파일은 같은 새 이름을 쓴다
+    /// Files arriving in a row with the same original name (like RAW+JPEG) share the same new name
     private static var recent: [String: (String, Date)] = [:]
 
     static func rename(_ url: URL, rule: String = AppSettings.tetherNaming, now: Date = Date()) -> URL {
@@ -228,7 +228,7 @@ enum TetherNaming {
             let df = DateFormatter(); df.dateFormat = "yyyyMMdd"
             let tf = DateFormatter(); tf.dateFormat = "HHmmss"
             let existing = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-            // 방금 받은 파일 자신과 RAW+JPEG 짝은 세지 않는다 (경로 표기가 /private/var 와 /var 처럼 달라도 이름으로)
+            // Don't count the file just received or its RAW+JPEG pair (by name, even if paths read /private/var vs /var)
             let stems = Set(existing.filter { Library.supported.contains($0.pathExtension.lowercased()) && $0.deletingPathExtension().lastPathComponent != stem }
                 .map { $0.deletingPathExtension().lastPathComponent })
             let seq = String(format: "%04d", stems.count + 1)
@@ -249,7 +249,7 @@ enum TetherNaming {
     }
 }
 
-// MARK: - 라이브 뷰와 구도 오버레이 (뷰어 캔버스 위에 뜬다)
+// MARK: - Live view and composition overlay (floats above the viewer canvas)
 
 final class LiveOverlayView: NSView {
     let live = NSImageView()
@@ -272,7 +272,7 @@ final class LiveOverlayView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 누르기는 아래 캔버스로
+    /// Clicks pass through to the canvas below
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func layout() {
@@ -283,7 +283,7 @@ final class LiveOverlayView: NSView {
             r = NSRect(x: i.left, y: i.bottom, width: bounds.width - i.left - i.right, height: bounds.height - i.top - i.bottom)
         }
         live.frame = r
-        // 오버레이·격자는 라이브 뷰 그림(또는 캔버스)의 실제 그림 영역에 맞춘다
+        // Overlays and grids fit the actual image area of the live view (or canvas)
         let size = live.image?.size ?? reference.image?.size ?? r.size
         let fit = Self.aspectFit(size, in: r)
         reference.frame = fit

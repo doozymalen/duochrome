@@ -1,33 +1,33 @@
 import Foundation
 
-/// Duochrome 카탈로그. 사진 목록, 폴더, 앨범, 별점·색 태그를 관리한다.
-/// 조정값은 사진 경로마다 따로 저장하는 기존 방식(`Library`)을 그대로 쓴다.
+/// Duochrome catalog. Manages photos, folders, albums, ratings, and color tags.
+/// Adjustments are still stored per photo path the existing way (`Library`).
 ///
-/// 위치: `~/Pictures/Duochrome/Duochrome.duochromecatalog/catalog.sqlite`
+/// Location: `~/Pictures/Duochrome/Duochrome.duochromecatalog/catalog.sqlite`
 final class Catalog {
     let url: URL
     let db: SQLiteDB
 
-    /// 브라우저 왼쪽 목록에서 고르는 사진 묶음.
+    /// Photo collection picked in the browser's left list.
     enum Source: Equatable {
         case all
         case recentImport
         case folder(Int64)
         case album(Int64)
-        case rated(Int)          // 별점 이상
+        case rated(Int)          // rating or above
         case offline
-        case flag(Int)           // 1 채택, -1 거부
-        case keyword(Int64)      // 이 키워드(하위 포함)가 붙은 사진
-        case edited              // 조정한 사진
+        case flag(Int)           // 1 pick, -1 reject
+        case keyword(Int64)      // photos tagged with this keyword (including children)
+        case edited              // adjusted photos
     }
 
     struct Album {
         let id: Int64
         var name: String
         var parent: Int64?
-        /// 0 그룹(앨범을 담는 폴더), 1 앨범
+        /// 0 group (folder holding albums), 1 album
         var kind: Int
-        var source: String?      // "import" 이면 외부 카탈로그에서 가져온 것
+        var source: String?      // "import" means it came from an external catalog
     }
 
     struct Folder {
@@ -64,9 +64,9 @@ final class Catalog {
         try migrateExtras()
     }
 
-    // MARK: - 가져오기
+    // MARK: - Import
 
-    /// 폴더 안의 사진을 제자리에 둔 채 등록한다 (복사하지 않는다). 이미 있는 사진은 건너뛴다.
+    /// Registers photos in a folder in place (no copying). Skips photos already present.
     @discardableResult
     func addFolder(_ folder: URL) throws -> Int64 {
         let fid = try folderID(folder.standardizedFileURL.path)
@@ -95,7 +95,7 @@ final class Catalog {
         try db.scalar("SELECT COALESCE(MAX(import_batch), 0) + 1 FROM images")
     }
 
-    // MARK: - 읽기
+    // MARK: - Reading
 
     func folders() throws -> [Folder] {
         var out: [Folder] = []
@@ -125,7 +125,7 @@ final class Catalog {
         case .album(let id) where smartRule(id) != nil:
             return smartRule(id)!.sql()
         case .album(let id):
-            // 그룹이면 안에 든 앨범들의 사진을 모두 보여 준다.
+            // For a group, show photos from all albums inside it.
             return ("""
                 WHERE id IN (SELECT image_id FROM album_images WHERE album_id IN (
                     WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT a.id FROM albums a JOIN sub ON a.parent_id = sub.id)
@@ -163,7 +163,7 @@ final class Catalog {
         return out
     }
 
-    // MARK: - 쓰기
+    // MARK: - Writing
 
     func setRating(_ ids: [Int64], _ rating: Int) throws {
         try db.transaction { for id in ids { try db.run("UPDATE images SET rating = ? WHERE id = ?", [rating, id]) } }
@@ -201,7 +201,7 @@ final class Catalog {
         }
     }
 
-    // MARK: - 보정값·작업 내역 (사진 경로 해시가 열쇠)
+    // MARK: - Adjustments · history (keyed by photo path hash)
 
     func adjustment(_ key: String) -> String? {
         var v: String?

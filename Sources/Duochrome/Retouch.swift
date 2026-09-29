@@ -1,18 +1,18 @@
 import CoreImage
 
-/// 리터칭 점 하나. 좌표와 반지름은 디코딩 원본 픽셀 기준이라 크롭·회전을 바꿔도 사진 내용에 붙어 있다.
+/// One retouch spot. Coordinates and radius are in decoded source pixels, so it sticks to the photo content through crop/rotation changes.
 struct RetouchSpot: Equatable, Hashable, Codable {
     enum Kind: String, Codable { case heal, clone }
     var kind: Kind = .heal
     var targetX: Double, targetY: Double
     var sourceX: Double, sourceY: Double
     var radius: Double
-    /// 가장자리 부드러움 0~1.
+    /// Edge feather 0–1.
     var feather: Double = 0.5
     var opacity: Double = 1
-    /// 붓질(획)이면 지나간 점들 (x0, y0, x1, y1, …). 첫 점이 target, 원본 자리는 target에서 같은 거리만큼 옮긴 획이다.
+    /// For a stroke, the points passed (x0, y0, x1, y1, …). The first point is target; the source is the stroke offset by the same distance from target.
     var path: [Double]? = nil
-    /// 패치: path가 닫힌 올가미(고칠 곳)다. 원본 자리는 올가미를 offset만큼 옮긴 곳.
+    /// Patch: path is a closed lasso (the area to fix). The source is the lasso moved by offset.
     var patch: Bool? = nil
 
     var isStroke: Bool { (path?.count ?? 0) >= 4 }
@@ -23,7 +23,7 @@ struct RetouchSpot: Equatable, Hashable, Codable {
     }
     var offset: CGPoint { CGPoint(x: sourceX - targetX, y: sourceY - targetY) }
 
-    /// 획 전체를 옮긴다 (원본 자리도 같이).
+    /// Moves the whole stroke (source too).
     mutating func move(by d: CGPoint) {
         targetX += d.x; targetY += d.y; sourceX += d.x; sourceY += d.y
         if var p = path {
@@ -42,11 +42,11 @@ struct RetouchSpot: Equatable, Hashable, Codable {
     }
 }
 
-/// 복구 브러시와 복제 도장. 형태 보정 전, 디코딩 직후에 건다.
+/// Healing brush and clone stamp. Applied right after decoding, before geometry.
 ///
-/// 복구: 원본 자리(source)의 세부(고주파)는 가져오고, 밝기와 색(저주파)은 대상 자리 **바깥 고리**에서 가져온다.
-/// 고리만 쓰는 이유: 대상 안쪽에는 지우려는 먼지·얼룩이 있어서 그 색이 되살아난다.
-/// 저주파는 고리 모양 가중치로 흐린 값을 가중치 흐림으로 나눠 구한다 (정규화 합성곱).
+/// Heal: takes detail (high frequencies) from the source position, and brightness/color (low frequencies) from a **ring outside** the target.
+/// Why only the ring: inside the target is the dust or blemish being removed, and its color would come back.
+/// Low frequencies come from a ring-weighted blur divided by the blurred weights (normalized convolution).
 enum Retouch {
     static func apply(_ spots: [RetouchSpot], to image: CIImage, scale: CGFloat) -> CIImage {
         var img = image
@@ -59,12 +59,12 @@ enum Retouch {
         let r = max(CGFloat(s.radius) * scale, 1)
         let t = CGPoint(x: s.targetX * scale, y: s.targetY * scale)
         let src = CGPoint(x: s.sourceX * scale, y: s.sourceY * scale)
-        // 계산은 점 둘레만. 고리와 흐림이 닿는 범위까지 넉넉히 잡는다.
+        // Compute only around the spot, with enough margin to cover the ring and blur.
         let region = CGRect(x: t.x - r * 3, y: t.y - r * 3, width: r * 6, height: r * 6).integral
             .intersection(img.extent)
         guard !region.isEmpty else { return img }
 
-        // 옮기는 거리는 정수 픽셀로. 소수 픽셀만큼 옮기면 보간 때문에 결이 흐려진다.
+        // Offsets are whole pixels. Fractional offsets blur texture through interpolation.
         let shifted = img.clampedToExtent()
             .transformed(by: .init(translationX: (t.x - src.x).rounded(), y: (t.y - src.y).rounded()))
             .cropped(to: region)
@@ -77,8 +77,8 @@ enum Retouch {
         case .clone:
             result = GPU.run("clone_apply", [local, shifted, mask], params: [Float(s.opacity)], extent: region)
         case .heal:
-            // 대상 둘레 고리 (반지름 r ~ 1.6r). 원본 자리의 고리도 같은 모양이다.
-            // (반지름 1.05r 바깥) × (1.6~2.0r 안쪽)
+            // Ring around the target (radius r – 1.6r). The source ring has the same shape.
+            // (outside radius 1.05r) × (inside 1.6–2.0r)
             let ring = radial(t, r * 0.95, r * 1.05, region)
                 .applyingFilter("CIColorInvert")
                 .applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: radial(t, r * 1.6, r * 2.0, region)])
@@ -93,9 +93,9 @@ enum Retouch {
         return result.composited(over: img).cropped(to: img.extent)
     }
 
-    // MARK: - 붓질 (전선·금 지우기)
+    // MARK: - Strokes (removing wires and cracks)
 
-    /// 획을 따라 복구·복제한다. 마스크는 굵은 선을 그려 흐리고, 저주파는 획 양옆 띠에서 가져온다.
+    /// Heals/clones along a stroke. The mask is a thick blurred line; low frequencies come from bands on both sides of the stroke.
     private static func applyStroke(_ s: RetouchSpot, to img: CIImage, scale: CGFloat) -> CIImage {
         let r = max(CGFloat(s.radius) * scale, 1)
         let pts = s.points.map { CGPoint(x: $0.x * scale, y: $0.y * scale) }
@@ -126,11 +126,11 @@ enum Retouch {
         return result.composited(over: img).cropped(to: img.extent)
     }
 
-    /// 획 마스크 두 장: 가운데(반지름 r)와 양옆 띠(1.15r ~ 1.9r). CPU로 그린다 (획이 바뀔 때만 다시 그리게 캐시).
+    /// Two stroke masks: center (radius r) and side bands (1.15r – 1.9r). Drawn on the CPU (cached, redrawn only when the stroke changes).
     private static var maskCache: [String: (CIImage, CIImage)] = [:]
     private static let maskLock = NSLock()
 
-    /// `closed`면 패치 올가미: 가운데는 채운 다각형, 띠는 다각형 바깥 1.15r ~ 1.9r.
+    /// With `closed`, a patch lasso: the center is the filled polygon, the band is 1.15r – 1.9r outside it.
     private static func strokeMasks(_ pts: [CGPoint], r: CGFloat, region: CGRect, closed: Bool = false) -> (core: CIImage, ring: CIImage) {
         let key = "\(pts.map { "\(Int($0.x)),\(Int($0.y))" }.joined(separator: ";"))|\(r)|\(region)|\(closed)"
         maskLock.lock(); defer { maskLock.unlock() }
@@ -167,12 +167,12 @@ enum Retouch {
         return result
     }
 
-    /// 획의 원본 자리: 획과 나란히 옆으로 옮긴 곳 중에서 양옆 띠가 가장 닮고, 옮긴 획 자리에 또 다른 선이 없는 곳.
-    /// 전선은 보통 곧게 뻗으므로 수직 방향 후보가 잘 맞는다.
+    /// Stroke source: among positions offset sideways along the stroke, the one whose side bands match best with no other line at the moved stroke.
+    /// Wires usually run straight, so perpendicular candidates work well.
     static func pickStrokeOffset(_ path: [CGPoint], radius: Double, in small: CIImage, scale: CGFloat) -> CGPoint {
         let r = max(radius * Double(scale), 1.2)
         let pts = path.map { CGPoint(x: $0.x * scale, y: $0.y * scale) }
-        // 획을 따라 r 간격으로 표본 점과 그 자리의 법선.
+        // Sample points at r intervals along the stroke with their normals.
         var samples: [(CGPoint, CGPoint)] = []
         for i in 0..<max(pts.count - 1, 1) {
             let a = pts[i], b = pts[min(i + 1, pts.count - 1)]
@@ -200,7 +200,7 @@ enum Retouch {
             let i = ((h - 1 - iy) * w + ix) * 4
             return SIMD3(px[i], px[i + 1], px[i + 2])
         }
-        // 평균 법선
+        // mean normal
         var nx = 0.0, ny = 0.0
         for (_, n) in samples { nx += Double(n.x); ny += Double(n.y) }
         let nl = max(hypot(nx, ny), 1e-6)
@@ -219,7 +219,7 @@ enum Retouch {
                             guard let a = value(q), let b = value(CGPoint(x: q.x + o.x, y: q.y + o.y)) else { continue }
                             let d = a - b; cost += (d * d).sum(); n += 1
                         }
-                        // 옮긴 획 자리 가운데가 둘레와 달라지면(또 다른 선) 벌점
+                        // Penalty if the moved stroke's center differs from its surroundings (another line)
                         if let ctr = value(CGPoint(x: p.x + o.x, y: p.y + o.y)),
                            let l = value(CGPoint(x: p.x + o.x + nrm.x * 1.4 * r, y: p.y + o.y + nrm.y * 1.4 * r)),
                            let rr = value(CGPoint(x: p.x + o.x - nrm.x * 1.4 * r, y: p.y + o.y - nrm.y * 1.4 * r)) {
@@ -237,7 +237,7 @@ enum Retouch {
         return best?.0 ?? fallback
     }
 
-    /// 안쪽 반지름까지 1, 바깥 반지름에서 0이 되는 원형 가중치 (흑백).
+    /// Radial weight, 1 up to the inner radius and 0 at the outer radius (grayscale).
     private static func radial(_ c: CGPoint, _ r0: CGFloat, _ r1: CGFloat, _ region: CGRect) -> CIImage {
         CIFilter(name: "CIRadialGradient", parameters: [
             "inputCenter": CIVector(cgPoint: c),
@@ -250,10 +250,10 @@ enum Retouch {
         a.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: weight]).cropped(to: a.extent)
     }
 
-    // MARK: - 원본 자리 자동 고르기
+    // MARK: - Automatic source selection
 
-    /// 대상 둘레 고리와 가장 닮은 고리를 가진 자리를 16곳 중에서 고른다. 1/8 미리보기로 CPU에서 비교한다.
-    /// `small`은 디코딩 이미지를 guideScale로 줄인 것 (리터칭 전).
+    /// Picks, out of 16 positions, the one whose ring best matches the ring around the target. Compared on the CPU using the 1/8 preview.
+    /// `small` is the decoded image scaled to guideScale (before retouching).
     static func pickSource(target: CGPoint, radius: Double, in small: CIImage, scale: CGFloat) -> CGPoint {
         let r = max(radius * Double(scale), 1.5)
         let t = CGPoint(x: target.x * scale, y: target.y * scale)
@@ -268,11 +268,11 @@ enum Retouch {
         func value(_ x: Double, _ y: Double) -> SIMD3<Float>? {
             let ix = Int(x - Double(box.minX)), iy = Int(y - Double(box.minY))
             guard ix >= 0, iy >= 0, ix < w, iy < h else { return nil }
-            // 렌더 결과는 위 줄부터 채워진다.
+            // Render output fills from the top row.
             let i = ((h - 1 - iy) * w + ix) * 4
             return SIMD3(px[i], px[i + 1], px[i + 2])
         }
-        // 고리 위 24점을 비교한다.
+        // Compare 24 points on the ring.
         let ringPts = (0..<24).map { k -> (Double, Double) in
             let a = Double(k) / 24 * 2 * .pi
             return (cos(a) * r * 1.3, sin(a) * r * 1.3)
@@ -286,7 +286,7 @@ enum Retouch {
                 let a = Double(k) / 8 * 2 * .pi + dist
                 let c = (Double(t.x) + cos(a) * r * dist, Double(t.y) + sin(a) * r * dist)
                 let ring = ringPts.compactMap { value(c.0 + $0.0, c.1 + $0.1) }
-                // 원본 자리 가운데도 봐야 한다 (가운데가 또 다른 먼지면 안 된다).
+                // The source center must be checked too (it must not be another dust spot).
                 guard ring.count == ringPts.count, let centre = value(c.0, c.1) else { continue }
                 var cost: Float = 0
                 for (p, q) in zip(tRing, ring) { let d = p - q; cost += (d * d).sum() }

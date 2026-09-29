@@ -1,10 +1,10 @@
 import AppKit
 import ImageIO
 
-/// 사진 관리 동작: 채택·거부, 키워드, IPTC 메타데이터·XMP 사이드카, 변형본, 일괄 이름 바꾸기,
-/// 촬영 시각 고치기, 원본 다시 잇기.
+/// Photo management actions: pick/reject, keywords, IPTC metadata / XMP sidecars, variants, batch rename,
+/// capture time fix, relink.
 extension MainWindowController {
-    // MARK: - 채택·거부
+    // MARK: - Pick / reject
 
     func flag(_ f: Int) {
         let items = targetItems
@@ -16,9 +16,9 @@ extension MainWindowController {
 
     @objc func flagFromMenu(_ sender: NSMenuItem) { flag(sender.tag) }
 
-    // MARK: - 키워드
+    // MARK: - Keywords
 
-    /// "여행, 장소>서울>종로" 처럼 쉼표로 여럿, ">"로 계층
+    /// Several separated by commas, hierarchy with ">", e.g. "Travel, Places>Seoul>Jongno"
     func addKeywords(_ text: String, to items: [PhotoItem]? = nil) {
         let items = items ?? targetItems
         let paths = text.split(whereSeparator: { $0 == "," || $0 == "\n" }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -34,9 +34,9 @@ extension MainWindowController {
         libraryMode.panel.show(libraryMode.grid.selectedItems, clipboard: batchClipboardName)
     }
 
-    // MARK: - 변형본
+    // MARK: - Variants
 
-    /// 고른 사진마다 변형본을 만든다. 지금 조정에서 시작한다 (복제).
+    /// Creates a variant for each selected photo, starting from the current adjustments (duplicate).
     @objc func makeVariant(_ sender: Any?) {
         let items = targetItems.filter { $0.id != 0 }
         guard !items.isEmpty else { NSSound.beep(); return }
@@ -63,9 +63,9 @@ extension MainWindowController {
         reloadSources()
     }
 
-    // MARK: - 일괄 이름 바꾸기
+    // MARK: - Batch rename
 
-    /// 이름 규칙: {이름} 원래 이름, {날짜} 촬영일 yyyyMMdd, {시각} HHmmss, {번호} 3자리 순번, {번호4} 4자리, {카메라}, {별점}
+    /// Naming rule: {이름} original name, {날짜} capture date yyyyMMdd, {시각} HHmmss, {번호} 3-digit sequence, {번호4} 4-digit, {카메라}, {별점}
     static func renamed(_ pattern: String, item: PhotoItem, index: Int, date: Date?, camera: String) -> String {
         let f = DateFormatter()
         var s = pattern
@@ -87,7 +87,7 @@ extension MainWindowController {
         return d.map { Date(timeIntervalSince1970: $0) }
     }
 
-    /// 파일 이름을 바꾼다 (원본·같은 이름의 사이드카 .xmp·.cos). 카탈로그 경로·조정값 열쇠도 옮긴다.
+    /// Renames files (source and same-named .xmp/.cos sidecars). Moves the catalog path and adjustment keys too.
     @discardableResult
     func renameFiles(_ items: [PhotoItem], pattern: String, start: Int = 1) -> (Int, [String]) {
         let fm = FileManager.default
@@ -103,7 +103,7 @@ extension MainWindowController {
             guard !fm.fileExists(atPath: dst.path) else { errors.append("\(dst.lastPathComponent) 이미 있음"); continue }
             do {
                 try fm.moveItem(at: src, to: dst)
-                // 사이드카
+                // sidecars
                 for ext in ["xmp", "XMP"] {
                     let side = src.deletingPathExtension().appendingPathExtension(ext)
                     if fm.fileExists(atPath: side.path) { try? fm.moveItem(at: side, to: dst.deletingPathExtension().appendingPathExtension(ext)) }
@@ -148,7 +148,7 @@ extension MainWindowController {
         }
     }
 
-    // MARK: - 촬영 시각 고치기
+    // MARK: - Capture time fix
 
     func shiftCaptureTime(_ items: [PhotoItem], by seconds: Double) {
         try? library.catalog.db.transaction {
@@ -178,14 +178,14 @@ extension MainWindowController {
         reloadAfterLibraryChange()
     }
 
-    // MARK: - XMP 사이드카
+    // MARK: - XMP sidecars
 
     static func xmlEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    /// XMP 사이드카 글 (표준 XMP·IPTC): 별점, 색 라벨, 채택·거부, 키워드(계층 포함), IPTC 핵심, 촬영 시각
+    /// XMP sidecar text (standard XMP/IPTC): rating, color label, pick/reject, keywords (with hierarchy), IPTC core, capture time
     func xmp(for item: PhotoItem) -> String { Self.xmp(for: item, catalog: library.catalog) }
 
     static func captureDate(_ item: PhotoItem, _ cat: Catalog) -> Date? {
@@ -249,7 +249,7 @@ extension MainWindowController {
         window?.subtitle = "XMP 사이드카 \(n)개 씀"
     }
 
-    /// XMP 사이드카 읽기: 별점·라벨·키워드·IPTC 핵심을 카탈로그로 (비어 있는 값만 채우지 않고 사이드카 값으로 바꾼다)
+    /// Reads XMP sidecars: rating, label, keywords, IPTC core into the catalog (replaced with sidecar values, not only filling blanks)
     func readXMP(_ url: URL, into item: PhotoItem) -> Bool { Self.readXMP(url, into: item, library: library) }
 
     static func readXMP(_ url: URL, into item: PhotoItem, library: Library) -> Bool {
@@ -292,7 +292,7 @@ extension MainWindowController {
         try? library.catalog.setMetadata(targetItems.map(\.id), key, value)
     }
 
-    // MARK: - 비교 보기
+    // MARK: - Compare view
 
     @objc func toggleCompare(_ sender: Any?) {
         if mode != .library { setMode(.library) }
@@ -303,9 +303,9 @@ extension MainWindowController {
         lm.showCompare(items, library: library)
     }
 
-    // MARK: - 원본 다시 잇기 (오프라인 사진)
+    // MARK: - Relink (offline photos)
 
-    /// 폴더(하위 포함)에서 오프라인 사진과 이름·크기가 같은 파일을 찾아 경로를 옮긴다
+    /// Finds files with the same name and size as offline photos in a folder (recursively) and moves the paths
     @discardableResult
     func relink(_ items: [PhotoItem], searchIn folder: URL) -> Int {
         var byName: [String: [URL]] = [:]

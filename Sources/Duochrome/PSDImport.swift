@@ -3,15 +3,15 @@ import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 
-/// PSD·PSB → Duochrome 문서. 맨 아래 배경 레이어가 원본 사진 자리(현상 단계)가 되고, 나머지는 레이어가 된다.
+/// PSD/PSB → Duochrome document. The bottom background layer takes the source photo's place (develop stage); the rest become layers.
 ///
-/// - 픽셀 레이어 → 이미지 레이어 (PNG, 16비트면 16비트 PNG)
-/// - 그룹 → 그룹 (통과 포함), 레이어 마스크·벡터 마스크 → 마스크 그림
-/// - 조정 레이어 → 조정 수식을 구운 LUT 조정 레이어 (PSDAdjust), 반전은 그대로
-/// - 칠 레이어(단색·그라디언트·패턴) → 칠 레이어
-/// - 글자 레이어 → 글자 레이어 (글자·글꼴·크기·색·자리, 모양은 파일에 든 그림을 고치기 전까지 쓴다)
-/// - 레이어 스타일 → Duochrome 레이어 스타일 (근사)
-/// - 스마트 오브젝트 → 품은 파일 + 스마트 필터(흐림·언샤프·노이즈 등)를 효과로. 모르는 필터가 있으면 파일에 든 결과 픽셀
+/// - Pixel layers → image layers (PNG; 16-bit PNG for 16-bit)
+/// - Groups → groups (including pass-through), layer masks and vector masks → mask images
+/// - Adjustment layers → LUT adjustment layers with the formula baked in (PSDAdjust); invert stays as is
+/// - Fill layers (solid, gradient, pattern) → fill layers
+/// - Text layers → text layers (text, font, size, color, position; the look uses the embedded image until edited)
+/// - Layer styles → Duochrome layer styles (approximate)
+/// - Smart objects → embedded file + smart filters (blur, unsharp, noise, etc.) as effects. With any unknown filter, the stored result pixels
 enum PSDImport {
     static let extensions: Set<String> = ["psd", "psb"]
 
@@ -20,14 +20,14 @@ enum PSDImport {
         var notes: [String] = []
     }
 
-    // MARK: - 그림 만들기
+    // MARK: - Building images
 
     static func colorSpace(_ f: PSD.File) -> CGColorSpace {
         if let icc = f.icc, let cs = CGColorSpace(iccData: icc as CFData), cs.model == .rgb || f.mode != 3 { return cs }
         return CGColorSpace(name: CGColorSpace.sRGB)!
     }
 
-    /// 평면 채널들 → RGBA CGImage (w×h). 알파가 없으면 불투명.
+    /// Planar channels → RGBA CGImage (w×h). Opaque without alpha.
     static func cgImage(_ f: PSD.File, color: [[UInt8]], alpha: [UInt8]?, width w: Int, height h: Int) -> CGImage? {
         let bps = f.depth == 32 ? 4 : (f.depth == 16 ? 2 : 1)
         guard w > 0, h > 0, !color.isEmpty else { return nil }
@@ -50,10 +50,10 @@ enum PSDImport {
             for i in 0 ..< n { for k in 0 ..< bps { buf[(i * 4 + comp) * bps + k] = one[k] } }
         }
         switch f.mode {
-        case 1, 8:   // 회색조·이중톤: 첫 채널을 세 번
+        case 1, 8:   // grayscale/duotone: first channel three times
             put(color[0], 0); put(color[0], 1); put(color[0], 2)
             space = CGColorSpace(name: CGColorSpace.sRGB)!
-        case 4:      // CMYK: 잉크값이 반전되어 있다. 맥 색 변환으로 RGB로
+        case 4:      // CMYK: ink values are inverted. Convert to RGB with macOS color conversion
             guard color.count >= 4, bps == 1 else { return nil }
             return cmykImage(f, color: color, alpha: alpha, width: w, height: h)
         case 9:      // Lab
@@ -110,7 +110,7 @@ enum PSDImport {
         switch f.mode { case 1, 8: return 1; case 4: return 4; default: return 3 }
     }
 
-    /// 레이어 픽셀 → CGImage (레이어 사각형 크기)
+    /// Layer pixels → CGImage (layer rect size)
     static func layerImage(_ l: PSD.Layer, _ f: PSD.File) -> CGImage? {
         let w = l.width, h = l.height
         guard w > 0, h > 0 else { return nil }
@@ -123,7 +123,7 @@ enum PSDImport {
         return cgImage(f, color: color, alpha: alpha, width: w, height: h)
     }
 
-    /// 합친 그림 (레이어가 없는 PSD)
+    /// Merged image (PSD without layers)
     static func mergedImage(_ f: PSD.File) -> CGImage? {
         let ch = PSD.mergedChannels(f)
         let nc = colorChannelCount(f)
@@ -132,7 +132,7 @@ enum PSDImport {
         return cgImage(f, color: Array(ch[0 ..< nc]), alpha: alpha, width: f.width, height: f.height)
     }
 
-    /// 픽셀 레이어만 표준 혼합으로 쌓은 그림 (스마트 오브젝트 속 문서는 합친 그림을 비워 두기도 한다)
+    /// Pixel layers only, stacked with normal blending (documents inside smart objects sometimes leave the merged image empty)
     static func flatten(_ f: PSD.File) -> CGImage? {
         let rect = CGRect(x: 0, y: 0, width: f.width, height: f.height)
         var out = CIImage(color: .clear).cropped(to: rect)
@@ -147,7 +147,7 @@ enum PSDImport {
         return Render.context.createCGImage(out.cropped(to: rect), from: rect, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
     }
 
-    /// 맨 아래 레이어가 배경으로 쓸 만한가 (캔버스 전체, 불투명, 표준, 마스크·효과 없음)
+    /// Whether the bottom layer can serve as the background (whole canvas, opaque, normal, no mask/effects)
     static func isBackground(_ l: PSD.Layer, _ f: PSD.File) -> Bool {
         guard l.left == 0, l.top == 0, l.width == f.width, l.height == f.height, l.visible, l.opacity == 255,
               l.blend == "norm", l.mask == nil, l.section == nil, l.channel(-1) == nil || l.name == "Background" else { return false }
@@ -155,7 +155,7 @@ enum PSDImport {
         return !l.blocks.contains { special.contains($0.key) || PSDAdjust.keys.contains($0.key) }
     }
 
-    /// 원본 사진 자리에 쓸 그림
+    /// Image to use in place of the source photo
     static func base(_ f: PSD.File) -> CIImage? {
         let rect = CGRect(x: 0, y: 0, width: f.width, height: f.height)
         if let first = f.layers.first, isBackground(first, f), let cg = layerImage(first, f) { return CIImage(cgImage: cg) }
@@ -163,7 +163,7 @@ enum PSDImport {
         return CIImage(color: .clear).cropped(to: rect)
     }
 
-    // MARK: - 파일로
+    // MARK: - To files
 
     static func writeImage(_ cg: CGImage, float: Bool = false) -> String? {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-psd-\(UUID().uuidString).\(float ? "tiff" : "png")")
@@ -174,7 +174,7 @@ enum PSDImport {
         return name
     }
 
-    /// 마스크 채널(자기 사각형) + 바깥 기본색 → 캔버스 전체 흑백 PNG
+    /// Mask channel (its own rect) + default color outside → whole-canvas grayscale PNG
     static func maskFile(_ l: PSD.Layer, _ f: PSD.File, vector: CGPath?) -> String? {
         let W = f.width, H = f.height
         var gray = [UInt8](repeating: 255, count: W * H)
@@ -199,13 +199,13 @@ enum PSDImport {
             any = true
             guard let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: W,
                                       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
-            // PSD 좌표(위가 0) → 그림 좌표
+            // PSD coordinates (top is 0) → image coordinates
             ctx.translateBy(x: 0, y: CGFloat(H)); ctx.scaleBy(x: 1, y: -1)
             ctx.setFillColor(gray: 1, alpha: 1)
             ctx.addPath(path)
             ctx.fillPath(using: .evenOdd)
             if let p = ctx.data?.bindMemory(to: UInt8.self, capacity: W * H) {
-                // CGContext 메모리는 위 줄부터
+                // CGContext memory starts at the top row
                 for i in 0 ..< W * H { gray[i] = UInt8((Int(gray[i]) * Int(p[i]) + 127) / 255) }
             }
         }
@@ -216,13 +216,13 @@ enum PSDImport {
         return writeImage(cg)
     }
 
-    /// 벡터 마스크 경로 (vmsk·vsms). 캔버스 픽셀, 위가 0.
+    /// Vector mask path (vmsk/vsms). Canvas pixels, top is 0.
     static func vectorPath(_ l: PSD.Layer, _ f: PSD.File) -> CGPath? {
         guard let d = l.block("vmsk") ?? l.block("vsms"), d.count > 8 else { return nil }
         var r = PSD.Reader(d)
         _ = try? r.u32()
         let flags = (try? r.u32()) ?? 0
-        if flags & 4 != 0 { return nil }   // 꺼 둠
+        if flags & 4 != 0 { return nil }   // disabled
         let path = CGMutablePath()
         var knots: [(CGPoint, CGPoint, CGPoint)] = []
         var closed = true
@@ -260,7 +260,7 @@ enum PSDImport {
         return path.isEmpty ? nil : path
     }
 
-    // MARK: - 레이어로 바꾸기
+    // MARK: - Converting to layers
 
     static func convert(_ f: PSD.File, progress: ((String) -> Void)? = nil) -> Result {
         var res = Result()
@@ -268,7 +268,7 @@ enum PSDImport {
         var list = f.layers
         if let first = list.first, isBackground(first, f) { list.removeFirst() }
         var groupStack: [String] = []
-        // 품은 파일 (스마트 오브젝트)
+        // embedded file (smart object)
         let linked = linkedFiles(f)
         for (idx, l) in list.enumerated() {
             progress?("레이어 \(idx + 1)/\(list.count): \(l.unicodeName)")
@@ -281,7 +281,7 @@ enum PSDImport {
             layer.clipped = l.clipping != 0
             if let io = l.block("iOpa"), let v = io.first { layer.fill = Float(v) / 255 }
             if let s = l.section, s == 1 || s == 2 {
-                // 그룹 머리 (자식 다음에 온다)
+                // group header (comes after its children)
                 layer.id = groupStack.popLast() ?? UUID().uuidString
                 layer.kind = "group"
                 layer.blend = (l.sectionBlend ?? l.blend) == "pass" ? Layers.passThroughKey : PSD.ourBlend(l.sectionBlend ?? l.blend)
@@ -293,7 +293,7 @@ enum PSDImport {
             layer.group = groupStack.last
             let adjKey = l.blocks.map(\.key).first { PSDAdjust.keys.contains($0) }
             if let key = adjKey, let data = l.block(key) {
-                // 조정 레이어
+                // adjustment layer
                 layer.kind = "adjust"
                 layer.psdBlock = key + ":" + data.base64EncodedString()
                 if let fn = PSDAdjust.function(key, data, blocks: l.blocks),
@@ -320,7 +320,7 @@ enum PSDImport {
                 layer.adjust.effects = rebuilt.1.isEmpty ? nil : rebuilt.1
                 layer.name += " (스마트)"
             } else {
-                // 픽셀 레이어
+                // pixel layer
                 guard let cg = layerImage(l, f), let file = writeImage(cg, float: f.depth == 32) else {
                     if l.width > 0 { res.notes.append("\(l.unicodeName): 픽셀을 읽지 못했습니다") }
                     continue
@@ -340,7 +340,7 @@ enum PSDImport {
         return res
     }
 
-    // MARK: - 칠
+    // MARK: - Fills
 
     private static func fill(_ layer: inout AdjustLayer, _ d: Data, key: String, f: PSD.File, notes: inout [String]) {
         guard let desc = PSD.versionedDescriptor(d) else { layer.fillColor = [0.5, 0.5, 0.5]; return }
@@ -353,14 +353,14 @@ enum PSDImport {
             let rev = desc["Rvrs"]?.bool ?? false
             let c0 = rev ? b : a, c1 = rev ? a : b
             layer.fillColor = [c0.x, c0.y, c0.z, c1.x, c1.y, c1.z]
-            // 각도 방향으로 캔버스를 가로지르는 선 (원본 좌표, 아래가 0 — PSD 각도도 반시계)
+            // A line crossing the canvas in the angle direction (source coordinates, bottom is 0 — PSD angles are counterclockwise too)
             let ang = (desc.double("Angl") ?? 90) * .pi / 180
             let cx = Double(f.width) / 2, cy = Double(f.height) / 2
             let half = (abs(cos(ang)) * Double(f.width) + abs(sin(ang)) * Double(f.height)) / 2
             layer.fillPoints = [cx - cos(ang) * half, cy - sin(ang) * half, cx + cos(ang) * half, cy + sin(ang) * half]
             if (desc["Type"]?.enumValue ?? "Lnr ") != "Lnr " { notes.append("\(layer.name): 선형이 아닌 그라디언트는 선형으로 바꿨습니다") }
         default:
-            // 패턴: 문서에 든 패턴(Patt)을 무늬 파일로
+            // Pattern: the document's pattern (Patt) as a pattern file
             let id = desc.obj("Ptrn")?["Idnt"]?.string
             if let id, let file = PresetFiles.documentPattern(f, id: id) {
                 layer.fillPatternFile = file
@@ -382,7 +382,7 @@ enum PSDImport {
         }
     }
 
-    // MARK: - 글자
+    // MARK: - Text
 
     static func text(_ d: Data, f: PSD.File) -> LayerText? {
         var r = PSD.Reader(d)
@@ -410,7 +410,7 @@ enum PSDImport {
         return t
     }
 
-    /// 글자 엔진 자료(포스트스크립트 비슷한 글)에서 필요한 값만 찾는다
+    /// Finds only the needed values in the text engine data (PostScript-like text)
     struct EngineData {
         let bytes: [UInt8]
         let text: String
@@ -454,7 +454,7 @@ enum PSDImport {
                     : String(decoding: raw, as: UTF8.self)
                 names.append(s)
                 pos = j
-                // 다음 글꼴 사전이 아니면 멈춘다
+                // stop if it's not the next font dictionary
                 if let close = find(Array("]".utf8), from: j), let next = find(key, from: j), next > close { break }
             }
             return names
@@ -470,7 +470,7 @@ enum PSDImport {
         }
     }
 
-    // MARK: - 레이어 스타일 (lfx2)
+    // MARK: - Layer styles (lfx2)
 
     static func styles(_ d: Data) -> LayerStyles? {
         var r = PSD.Reader(d)
@@ -532,9 +532,9 @@ enum PSDImport {
         return st
     }
 
-    // MARK: - 스마트 오브젝트
+    // MARK: - Smart objects
 
-    /// 문서에 품은 파일 (lnk2·lnkD·lnk3의 liFD): 고유 번호 → (파일 이름, 자료)
+    /// Files embedded in the document (liFD of lnk2/lnkD/lnk3): unique id → (file name, data)
     static func linkedFiles(_ f: PSD.File) -> [String: (String, Data)] {
         var out: [String: (String, Data)] = [:]
         for key in ["lnk2", "lnkD", "lnk3"] {
@@ -550,14 +550,14 @@ enum PSDImport {
                     if let data = try? r.bytes(Int(dl)) { out[id] = (name, Data(data)) }
                 }
                 r.pos = end
-                // 8바이트 경계로
+                // to an 8-byte boundary
                 while (r.pos - d.startIndex) % 4 != 0, r.pos < d.endIndex { r.pos += 1 }
             }
         }
         return out
     }
 
-    /// 스마트 필터 → 우리 효과. 하나라도 모르는 필터면 nil (파일에 든 픽셀을 쓴다)
+    /// Smart filters → our effects. nil if any filter is unknown (use the stored pixels)
     static func smartFilters(_ desc: PSD.Descriptor) -> [LayerEffect]? {
         guard let fx = desc.obj("filterFX"), fx["enab"]?.bool != false, let list = fx["filterFXList"]?.list else { return [] }
         var out: [LayerEffect] = []
@@ -587,7 +587,7 @@ enum PSDImport {
         guard (try? r.key()) != nil, (try? r.u32()) != nil, (try? r.u32()) != nil, let desc = try? PSD.descriptor(&r),
               let id = desc["Idnt"]?.string, let file = linked[id], let effects = smartFilters(desc),
               let tr = desc["Trnf"]?.list?.compactMap({ $0.double }), tr.count == 8 else { return nil }
-        // 품은 파일을 레이어 그림(PNG)으로. PSD·PSB는 우리 해독기로 합친 그림을, 나머지는 맥 그림 해독기로.
+        // Embedded file as a layer image (PNG). PSD/PSB via our decoder's merged image, others via the macOS image decoder.
         let ext = (file.0 as NSString).pathExtension.lowercased()
         var cg: CGImage?
         if extensions.contains(ext) || file.1.prefix(4) == Data("8BPS".utf8) {
@@ -597,7 +597,7 @@ enum PSDImport {
         }
         guard let cg, let name = writeImage(cg) else { return nil }
         let H = Double(f.height)
-        let p = (0 ..< 4).map { CGPoint(x: tr[$0 * 2], y: H - tr[$0 * 2 + 1]) }   // 왼위, 오른위, 오른아래, 왼아래
+        let p = (0 ..< 4).map { CGPoint(x: tr[$0 * 2], y: H - tr[$0 * 2 + 1]) }   // top-left, top-right, bottom-right, bottom-left
         let cx = p.map(\.x).reduce(0, +) / 4, cy = p.map(\.y).reduce(0, +) / 4
         let w = hypot(p[1].x - p[0].x, p[1].y - p[0].y), h = hypot(p[2].x - p[1].x, p[2].y - p[1].y)
         let rot = atan2(p[1].y - p[0].y, p[1].x - p[0].x) * 180 / .pi

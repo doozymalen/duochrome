@@ -1,17 +1,17 @@
 import AppKit
 
-// MARK: - 자동화: 동작 기록·재생, 일괄 처리, 애플스크립트, 단축어(URL)
+// MARK: - Automation: action record/playback, batch processing, AppleScript, Shortcuts (URL)
 
-/// 동작 한 단계: 바뀐 값들 (설정 JSON의 경로 → 새 값). 레이어는 더한 것과 자리별로 고친 것을 따로 둔다
+/// One action step: changed values (settings JSON path → new value). Layers keep additions and per-position edits separately
 struct ActionStep {
     var label: String
-    /// ([경로], 값) — 값은 JSON 값(숫자·문자·불·배열·사전·NSNull)
+    /// ([path], value) — value is a JSON value (number, string, bool, array, dict, NSNull)
     var patches: [([String], Any)] = []
-    /// 새로 더한 레이어 (JSON)
+    /// Newly added layers (JSON)
     var addedLayers: [[String: Any]] = []
-    /// 지운 레이어 수 (위에서부터)
+    /// Number of removed layers (from the top)
     var removedLayers = 0
-    /// 자리(아래에서부터 번호)별 레이어 고침
+    /// Layer edits by position (index from the bottom)
     var layerEdits: [(Int, [([String], Any)])] = []
 
     var json: [String: Any] {
@@ -37,7 +37,7 @@ struct ActionStep {
     }
 }
 
-/// 이름 붙인 동작
+/// A named action
 struct RecordedAction {
     var name: String
     var steps: [ActionStep]
@@ -68,9 +68,9 @@ struct RecordedAction {
 
     static func delete(_ name: String) { try? FileManager.default.removeItem(at: folder.appendingPathComponent(name + ".json")) }
 
-    // MARK: 차이 계산
+    // MARK: Diffing
 
-    /// 두 설정 사전의 차이 → 단계 (레이어는 따로)
+    /// Difference between two settings dictionaries → step (layers handled separately)
     static func step(label: String, before a: [String: Any], after b: [String: Any]) -> ActionStep {
         var st = ActionStep(label: label)
         for key in Set(a.keys).union(b.keys) where key != "layers" {
@@ -80,7 +80,7 @@ struct RecordedAction {
         let idsA = Set(la.compactMap { $0["id"] as? String }), idsB = Set(lb.compactMap { $0["id"] as? String })
         st.addedLayers = lb.filter { !idsA.contains($0["id"] as? String ?? "") }
         st.removedLayers = la.filter { !idsB.contains($0["id"] as? String ?? "") }.count
-        // 남은 레이어는 자리별로 고친 값만
+        // Remaining layers: only per-position changed values
         let kept = lb.filter { idsA.contains($0["id"] as? String ?? "") }
         for (i, l) in kept.enumerated() {
             guard let old = la.first(where: { ($0["id"] as? String) == (l["id"] as? String) }) else { continue }
@@ -102,7 +102,7 @@ struct RecordedAction {
         out.append((path, b ?? NSNull()))
     }
 
-    /// 설정 사전에 단계를 건다
+    /// Applies a step to a settings dictionary
     static func apply(_ st: ActionStep, to dict: inout [String: Any]) {
         for (path, v) in st.patches { set(&dict, path, v) }
         var layers = dict["layers"] as? [[String: Any]] ?? []
@@ -112,7 +112,7 @@ struct RecordedAction {
             for (path, v) in p { set(&l, path, v) }
             layers[i] = l
         }
-        // 더한 레이어는 새 id로 (그룹 안 자식은 새 그룹 id를 따라간다)
+        // Added layers get new ids (children follow their group's new id)
         var ids: [String: String] = [:]
         for l in st.addedLayers { if let id = l["id"] as? String { ids[id] = UUID().uuidString } }
         for var l in st.addedLayers {
@@ -135,7 +135,7 @@ struct RecordedAction {
     }
 }
 
-/// 기록 중인 동작
+/// Action being recorded
 final class ActionRecorder {
     static let shared = ActionRecorder()
     var recording: RecordedAction?
@@ -143,9 +143,9 @@ final class ActionRecorder {
 }
 
 extension MainWindowController {
-    // MARK: 기록
+    // MARK: Recording
 
-    /// recordHistory에서 부른다: 기록 중이면 바뀐 값을 단계로 남긴다
+    /// Called from recordHistory: while recording, stores changed values as a step
     func recordActionStep(from before: DevelopSettings, to after: DevelopSettings, label: String) {
         guard ActionRecorder.shared.isRecording, before != after else { return }
         let st = RecordedAction.step(label: label, before: settingsDict(before), after: settingsDict(after))
@@ -173,7 +173,7 @@ extension MainWindowController {
 
     @objc func stopActionRecording(_ sender: Any?) { finishRecording() }
 
-    /// 기록을 멈추고 저장한다 (저장한 동작을 돌려준다)
+    /// Stops recording and saves (returns the saved action)
     @discardableResult
     func finishRecording() -> RecordedAction? {
         guard let rec = ActionRecorder.shared.recording else { NSSound.beep(); return nil }
@@ -184,14 +184,14 @@ extension MainWindowController {
         return rec
     }
 
-    // MARK: 재생
+    // MARK: Playback
 
     @objc func playActionFromMenu(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String, let act = RecordedAction.load(name) else { NSSound.beep(); return }
         playAction(act)
     }
 
-    /// 연 사진에 동작을 건다 (되돌리기 한 번)
+    /// Applies an action to the open photo (one undo)
     func playAction(_ act: RecordedAction) {
         guard let doc = photo else { NSSound.beep(); return }
         var dict = settingsDict(doc.settings)
@@ -204,9 +204,9 @@ extension MainWindowController {
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    // MARK: 일괄 처리
+    // MARK: Batch processing
 
-    /// 사진 여러 장에 동작을 건다 (연 사진은 되돌리기 가능, 나머지는 카탈로그에 바로). 고친 장 수
+    /// Applies an action to many photos (undoable for the open one, others written straight to the catalog). Returns count changed
     @discardableResult
     func batchApply(_ act: RecordedAction, to items: [PhotoItem]) -> Int {
         var n = 0
@@ -231,7 +231,7 @@ extension MainWindowController {
         return n
     }
 
-    /// 일괄 처리 창: 동작을 고르고, 고른 사진에 건 뒤 내보낼지
+    /// Batch window: pick an action, apply it to selected photos, optionally export
     @objc func showBatchProcess(_ sender: Any?) {
         let items = mode == .library ? libraryMode.grid.selectedItems : (browser.selectedItems.isEmpty ? (photoItem.map { [$0] } ?? []) : browser.selectedItems)
         let names = RecordedAction.names()
@@ -262,10 +262,10 @@ extension MainWindowController {
 
     @objc func revealActions(_ sender: Any?) { NSWorkspace.shared.activateFileViewerSelecting([RecordedAction.folder]) }
 
-    // MARK: 단축어·다른 앱에서 (duochrome:// 주소)
+    // MARK: From Shortcuts / other apps (duochrome:// URLs)
 
     /// duochrome://open?path=… · duochrome://action?name=… · duochrome://style?name=… · duochrome://export?recipe=…&folder=…
-    /// 단축어 앱의 "URL 열기"나 터미널 `open`으로 부른다. 처리했으면 참.
+    /// Called via Shortcuts "Open URL" or `open` in Terminal. True if handled.
     @discardableResult
     func handleURL(_ url: URL) -> Bool {
         guard url.scheme == "duochrome", let host = url.host else { return false }
@@ -292,7 +292,7 @@ extension MainWindowController {
         return true
     }
 
-    /// 동작 메뉴 (사진 메뉴 아래)
+    /// Actions menu (under the Photo menu)
     func actionMenuItems(_ menu: NSMenu) {
         menu.removeAllItems()
         let rec = ActionRecorder.shared.isRecording
@@ -324,11 +324,11 @@ final class ActionMenuDelegate: NSObject, NSMenuDelegate {
     }
 }
 
-// MARK: - 애플스크립트 명령 (Duochrome.sdef)
+// MARK: - AppleScript commands (Duochrome.sdef)
 
 private var scriptWindow: MainWindowController? { NSApp.windows.compactMap { $0.windowController as? MainWindowController }.first }
 
-/// open photo "경로"
+/// open photo "path"
 @objc(OpenPhotoCommand)
 final class OpenPhotoCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
@@ -338,7 +338,7 @@ final class OpenPhotoCommand: NSScriptCommand {
     }
 }
 
-/// run action "이름"
+/// run action "name"
 @objc(RunActionCommand)
 final class RunActionCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
@@ -348,7 +348,7 @@ final class RunActionCommand: NSScriptCommand {
     }
 }
 
-/// apply style "이름"
+/// apply style "name"
 @objc(ApplyStyleCommand)
 final class ApplyStyleCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
@@ -358,7 +358,7 @@ final class ApplyStyleCommand: NSScriptCommand {
     }
 }
 
-/// export photo to "폴더" — 연 사진을 기본 레시피(또는 이름)로 내보내고 파일 경로를 돌려준다
+/// export photo to "folder" — exports the open photo with the default recipe (or named) and returns the file path
 @objc(ExportPhotoCommand)
 final class ExportPhotoCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
@@ -369,7 +369,7 @@ final class ExportPhotoCommand: NSScriptCommand {
     }
 }
 
-/// current photo — 연 사진 경로
+/// current photo — path of the open photo
 @objc(CurrentPhotoCommand)
 final class CurrentPhotoCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? { scriptWindow?.photo?.url.path ?? "" }

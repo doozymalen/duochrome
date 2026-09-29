@@ -2,20 +2,20 @@ import AppKit
 import CoreImage
 import simd
 
-/// 변형: 이미지 레이어를 자유 변형(원근·왜곡·기울이기), 뒤틀기 격자(4×4 베지어), 퍼펫 핀(MLS 강체 변형)으로
-/// 움직인다. 그림을 작은 칸(격자)으로 나눠 칸마다 원근 변환으로 붙인다 (칸이 작아 곡면도 매끄럽다).
+/// Transforms: moves image layers by free transform (perspective, distort, skew), warp grid (4×4 Bézier), or puppet pins (MLS rigid deformation).
+/// The image is split into small cells (a grid), each attached with a perspective transform (small cells keep curved surfaces smooth).
 struct LiquifyStroke: Equatable, Hashable, Codable {
-    /// 0 밀기, 1 부풀리기, 2 오목, 3 시계 방향 돌리기, 4 반시계, 5 되돌리기
+    /// 0 forward warp, 1 bloat, 2 pucker, 3 twirl clockwise, 4 counterclockwise, 5 reconstruct
     var tool: Int
-    var points: [Double]      // 원본 좌표 x, y 반복
+    var points: [Double]      // source coordinates x, y repeated
     var radius: Double
     var strength: Double = 0.5
 }
 
 enum Warp {
-    // MARK: - 원래 자리 (자리·크기·회전)
+    // MARK: - Original placement (position, size, rotation)
 
-    /// 그림 좌표(0~1) → 원본 좌표 (기본 자리)
+    /// Image coordinates (0–1) → source coordinates (default placement)
     static func basePoint(_ im: LayerImage, aspect: Double, _ u: Double, _ v: Double) -> CGPoint {
         let w = im.width, h = im.height ?? im.width * aspect
         let a = im.rotation * .pi / 180
@@ -23,13 +23,13 @@ enum Warp {
         return CGPoint(x: im.cx + x * cos(a) - y * sin(a), y: im.cy + x * sin(a) + y * cos(a))
     }
 
-    /// 네 모서리 (왼아래, 오른아래, 오른위, 왼위) — 자유 변형 틀의 처음 값
+    /// Four corners (bottom-left, bottom-right, top-right, top-left) — initial values of the free transform frame
     static func corners(_ im: LayerImage, aspect: Double) -> [CGPoint] {
         if let q = im.quad, q.count == 8 { return (0 ..< 4).map { CGPoint(x: q[$0 * 2], y: q[$0 * 2 + 1]) } }
         return [(0.0, 0.0), (1, 0), (1, 1), (0, 1)].map { basePoint(im, aspect: aspect, $0.0, $0.1) }
     }
 
-    /// 뒤틀기 격자의 처음 값 (4×4, 아래 줄부터): 지금 자리를 고르게 나눈 것 → 베지어 곡면이 그대로 평면
+    /// Initial warp grid (4×4, from the bottom row): the current placement evenly divided → the Bézier surface is flat as is
     static func identityMesh(_ im: LayerImage, aspect: Double) -> [Double] {
         var out: [Double] = []
         for j in 0 ..< 4 { for i in 0 ..< 4 {
@@ -44,7 +44,7 @@ enum Warp {
         switch i { case 0: return s * s * s; case 1: return 3 * t * s * s; case 2: return 3 * t * t * s; default: return t * t * t }
     }
 
-    /// 그림 좌표(0~1) → 원본 좌표 (자유 변형·뒤틀기·핀을 모두 건 자리)
+    /// Image coordinates (0–1) → source coordinates (with free transform, warp, and pins all applied)
     static func map(_ im: LayerImage, aspect: Double, _ u: Double, _ v: Double, useMesh: Bool = true, usePins: Bool = true) -> CGPoint {
         var p: CGPoint
         if useMesh, let m = im.mesh, m.count == 32 {
@@ -65,7 +65,7 @@ enum Warp {
         return p
     }
 
-    /// 움직이는 최소 제곱 강체 변형 (Schaefer 2006): 핀 (원래 x, y, 옮긴 x, y) 반복
+    /// Moving least squares rigid deformation (Schaefer 2006): pins (original x, y, moved x, y) repeated
     static func mls(_ v: CGPoint, _ pins: [Double]) -> CGPoint {
         let n = pins.count / 4
         guard n > 0 else { return v }
@@ -85,7 +85,7 @@ enum Warp {
         for k in 0 ..< n {
             let ph = SIMD2(pins[k * 4], pins[k * 4 + 1]) - ps, qh = SIMD2(pins[k * 4 + 2], pins[k * 4 + 3]) - qs
             let vp = vv - ps
-            // (ph, -ph⊥) (vp, -vp⊥)ᵀ 곱의 행
+            // rows of the (ph, -ph⊥) (vp, -vp⊥)ᵀ product
             let a = SIMD2(ph.x, ph.y), b = SIMD2(ph.y, -ph.x)
             let c = SIMD2(vp.x, vp.y), d = SIMD2(vp.y, -vp.x)
             let m00 = simd_dot(a, c), m01 = simd_dot(a, d), m10 = simd_dot(b, c), m11 = simd_dot(b, d)
@@ -99,20 +99,20 @@ enum Warp {
 
     static func needsMesh(_ im: LayerImage) -> Bool { im.quad != nil || im.mesh != nil || (im.pins?.count ?? 0) >= 4 }
 
-    /// 칸마다 원근 변환으로 붙인다. 결과는 원본 좌표 × scale.
-    /// canvas: 결과를 그릴 영역 (보통 원본 좌표 전체 × scale). 커널을 이 영역 전체에 걸고 바깥은 커널이 투명으로 낸다
-    /// (결과를 작은 사각형으로 자른 뒤 겹치면 코어 이미지가 가장자리를 바깥으로 늘여 그리는 일이 있었다)
+    /// Attaches each cell with a perspective transform. Result is in source coordinates × scale.
+    /// canvas: region to render into (usually the whole source × scale). The kernel runs over this whole region and outputs transparent outside
+    /// (cropping results into small rects and overlapping them sometimes made Core Image stretch edges outward)
     static func render(_ src: CIImage, _ im: LayerImage, scale: CGFloat, canvas: CGRect? = nil) -> CIImage {
         let e = src.extent
         let aspect = Double(e.height / max(e.width, 1))
-        // 자유 변형만이면 한 번에
+        // free transform only: in one pass
         if im.mesh == nil, (im.pins?.count ?? 0) < 4, let q = im.quad, q.count == 8 {
             let c = (0 ..< 4).map { CGPoint(x: q[$0 * 2] * scale, y: q[$0 * 2 + 1] * scale) }
             return src.applyingFilter("CIPerspectiveTransform", parameters: [
                 "inputBottomLeft": CIVector(cgPoint: c[0]), "inputBottomRight": CIVector(cgPoint: c[1]),
                 "inputTopRight": CIVector(cgPoint: c[2]), "inputTopLeft": CIVector(cgPoint: c[3])])
         }
-        // 격자를 역방향 UV 지도로 그려 한 번에 읽는다 (칸마다 붙이면 이음매가 보였다)
+        // Render the grid as an inverse UV map and read in one pass (attaching per cell showed seams)
         let n = 32
         var grid = [[CGPoint]](repeating: [], count: n + 1)
         for j in 0 ... n { for i in 0 ... n {
@@ -128,7 +128,7 @@ enum Warp {
         let mw = max(Int((box.width * mk).rounded(.up)), 2), mh = max(Int((box.height * mk).rounded(.up)), 2)
         var uvmap = [Float](repeating: 0, count: mw * mh * 4)
         func tri(_ a: (CGPoint, SIMD2<Float>), _ b: (CGPoint, SIMD2<Float>), _ c: (CGPoint, SIMD2<Float>)) {
-            // 지도 픽셀 좌표 (아래가 0)
+            // map pixel coordinates (bottom is 0)
             func m(_ p: CGPoint) -> SIMD2<Float> { SIMD2(Float((p.x - box.minX) * mk), Float((p.y - box.minY) * mk)) }
             let pa = m(a.0), pb = m(b.0), pc = m(c.0)
             let den = (pb.y - pc.y) * (pa.x - pc.x) + (pc.x - pb.x) * (pa.y - pc.y)
@@ -141,10 +141,10 @@ enum Warp {
                 let w0 = ((pb.y - pc.y) * (q.x - pc.x) + (pc.x - pb.x) * (q.y - pc.y)) / den
                 let w1 = ((pc.y - pa.y) * (q.x - pc.x) + (pa.x - pc.x) * (q.y - pc.y)) / den
                 let w2 = 1 - w0 - w1
-                // 가장자리 반 칸까지 넉넉히 (틈이 없게)
+                // generous half cell at the edges (no gaps)
                 guard w0 > -0.02, w1 > -0.02, w2 > -0.02 else { continue }
                 let uv = a.1 * w0 + b.1 * w1 + c.1 * w2
-                // 비트맵은 위 줄부터
+                // bitmap rows from the top
                 let i = ((mh - 1 - y) * mw + x) * 4
                 uvmap[i] = uv.x; uvmap[i + 1] = uv.y; uvmap[i + 3] = 1
             } }
@@ -177,12 +177,12 @@ enum Warp {
         }
         """)
 
-    // MARK: - 유동화
+    // MARK: - Liquify
 
     private static var fieldCache: [String: CIImage] = [:]
     private static let lock = NSLock()
 
-    /// 변위장 (원본 좌표를 cell로 나눈 칸마다 뒤로 읽을 양 dx, dy): 붓질을 차례로 쌓는다
+    /// Displacement field (backward read offset dx, dy per cell of source coordinates): strokes accumulate in order
     static func field(_ strokes: [LiquifyStroke], native: CGSize, cell: CGFloat) -> CIImage? {
         let key = "\(strokes.hashValue)|\(native)|\(cell)"
         lock.lock(); defer { lock.unlock() }
@@ -199,7 +199,7 @@ enum Warp {
         for s in strokes {
             let pts = stride(from: 0, to: s.points.count - 1, by: 2).map { CGPoint(x: s.points[$0], y: s.points[$0 + 1]) }
             guard let first = pts.first else { continue }
-            // 붓 간격: 반지름의 1/4마다 한 번
+            // brush spacing: once every 1/4 radius
             var dabs: [(CGPoint, CGPoint)] = [(first, .zero)]
             var prev = first
             for p in pts.dropFirst() {
@@ -215,7 +215,7 @@ enum Warp {
                     prev = p
                 }
             }
-            if s.tool != 0, pts.count == 1 { for _ in 0 ..< 6 { dabs.append((first, .zero)) } }   // 누르고 있기
+            if s.tool != 0, pts.count == 1 { for _ in 0 ..< 6 { dabs.append((first, .zero)) } }   // holding the button down
             let r = Float(s.radius / Double(cell)), st = Float(s.strength)
             for (c0, mv) in dabs {
                 let cx = Float(c0.x / cell), cy = Float(c0.y / cell)
@@ -228,7 +228,7 @@ enum Warp {
                     let d2 = (ox * ox + oy * oy) / (r * r)
                     guard d2 < 1 else { continue }
                     let fall = (1 - d2) * (1 - d2)
-                    var ux: Float = 0, uy: Float = 0   // 이 칸이 뒤로 읽을 추가량 (칸 단위)
+                    var ux: Float = 0, uy: Float = 0   // extra backward read for this cell (in cells)
                     switch s.tool {
                     case 0: ux = -Float(mv.x / cell) * fall * st * 1.6; uy = -Float(mv.y / cell) * fall * st * 1.6
                     case 1: ux = -ox * fall * st * 0.08; uy = -oy * fall * st * 0.08
@@ -237,13 +237,13 @@ enum Warp {
                         let a: Float = (s.tool == 3 ? 1 : -1) * fall * st * 0.06
                         ux = -oy * a; uy = ox * a
                     default:
-                        // 되돌리기: 원래로 끌어당긴다
+                        // reconstruct: pull back to the original
                         let i = y * w + x
                         ndx[i] = dx[i] * (1 - fall * st * 0.3); ndy[i] = dy[i] * (1 - fall * st * 0.3)
                         continue
                     }
                     let i = y * w + x
-                    // 새 변위 = 이번 이동 + (이동한 자리의) 예전 변위
+                    // new displacement = this move + old displacement (at the moved position)
                     ndx[i] = ux + sample(dx, Float(x) + ux, Float(y) + uy)
                     ndy[i] = uy + sample(dy, Float(x) + ux, Float(y) + uy)
                 } }
@@ -252,7 +252,7 @@ enum Warp {
         }
         var px = [Float](repeating: 0, count: w * h * 4)
         for i in 0 ..< w * h { px[i * 4] = dx[i] * Float(cell); px[i * 4 + 1] = dy[i] * Float(cell); px[i * 4 + 3] = 1 }
-        // CIImage 비트맵은 위 줄부터라 뒤집어 넣는다
+        // CIImage bitmaps start at the top row, so flip when inserting
         var flipped = [Float](repeating: 0, count: w * h * 4)
         for y in 0 ..< h { for x in 0 ..< w * 4 { flipped[(h - 1 - y) * w * 4 + x] = px[y * w * 4 + x] } }
         let data = flipped.withUnsafeBufferPointer { Data(buffer: $0) }
@@ -270,7 +270,7 @@ enum Warp {
         }
         """)
 
-    /// 원본 좌표 × scale 그림에 유동화를 건다
+    /// Applies liquify to an image in source coordinates × scale
     static func liquify(_ img: CIImage, strokes: [LiquifyStroke], native: CGSize, scale: CGFloat) -> CIImage {
         guard !strokes.isEmpty, let k = liquifyK else { return img }
         let cell = max(4, max(native.width, native.height) / 1200)

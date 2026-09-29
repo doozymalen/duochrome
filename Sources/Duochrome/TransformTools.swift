@@ -2,13 +2,13 @@ import AppKit
 import CoreImage
 import Vision
 
-/// 점을 끌어 모양을 바꾸는 층: 자유 변형 모서리, 뒤틀기 격자, 퍼펫 핀, 원근 자르기, 소실점 평면, 적응형 광각 선, 유동화 붓.
-/// 점은 모두 부르는 쪽 좌표(원본 또는 화면 이미지 좌표)이고, 뷰 좌표와의 변환은 toView·fromView가 한다.
+/// Point-drag layer for reshaping: free transform corners, warp grid, puppet pins, perspective crop, vanishing point planes, adaptive wide angle lines, liquify brush.
+/// All points are in the caller's coordinates (source or displayed image); toView/fromView convert to view coordinates.
 final class PointsOverlayView: NSView {
     enum Style { case quad, grid4, pins, strokes }
     var style: Style = .quad { didSet { needsDisplay = true } }
     var points: [CGPoint] = [] { didSet { needsDisplay = true } }
-    /// 핀의 원래 자리 (핀 방식에서 흐린 점으로)
+    /// Original pin positions (dimmed dots in pin mode)
     var anchors: [CGPoint] = []
     var strokes: [[CGPoint]] = [] { didSet { needsDisplay = true } }
     var hint = ""
@@ -20,12 +20,12 @@ final class PointsOverlayView: NSView {
     var onStroke: (([CGPoint], NSEvent.ModifierFlags) -> Void)?
     var onCommit: (() -> Void)?
     var onCancel: (() -> Void)?
-    /// 붓 반지름 (뷰 픽셀, 붓 방식 커서)
+    /// Brush radius (view pixels, brush-mode cursor)
     var brushRadius: CGFloat = 0
 
     private var grabbed: Int?
     private var current: [CGPoint] = []
-    /// 붓 방식: 마지막 붓질의 자리마다 압력 (마우스는 1)
+    /// Brush mode: pressure at each position of the last stroke (1 for a mouse)
     private(set) var lastPressures: [Double] = []
     private var pressures: [Double] = []
     private func pressure(_ e: NSEvent) -> Double { e.subtype == .tabletPoint ? Double(max(e.pressure, 0.02)) : 1 }
@@ -122,9 +122,9 @@ final class PointsOverlayView: NSView {
 }
 
 extension MainWindowController {
-    // MARK: - 공통: 점 층 띄우기
+    // MARK: - Shared: showing the point layer
 
-    /// 원본 좌표로 쓰는 점 층
+    /// Point layer in source coordinates
     func beginPoints(style: PointsOverlayView.Style, points: [CGPoint], hint: String, native: Bool = true) -> PointsOverlayView {
         let o = canvas.pointsOverlay
         o.style = style
@@ -157,7 +157,7 @@ extension MainWindowController {
         return (i, s.layers[i], Double(src.extent.height / max(src.extent.width, 1)))
     }
 
-    /// 편집 중에는 기록 없이 바꾸고, 확정할 때 "전 → 후" 한 번 기록
+    /// Changes without recording while editing; records "before → after" once on confirm
     private func liveEdit(_ before: DevelopSettings, _ f: (inout DevelopSettings) -> Void, dragging: Bool) {
         guard let doc = photo else { return }
         var s = doc.settings
@@ -175,9 +175,9 @@ extension MainWindowController {
         if keep { replaceSettings(after, recordUndo: true, label: label) } else { apply(before, dragging: false) }
     }
 
-    // MARK: - 자유 변형: 기울이기·왜곡·원근
+    // MARK: - Free transform: skew · distort · perspective
 
-    /// mode: 0 왜곡(모서리 자유), 1 원근(마주 보는 모서리가 대칭), 2 기울이기(변을 따라 미끄러짐)
+    /// mode: 0 distort (free corners), 1 perspective (opposite corners mirrored), 2 skew (slides along edges)
     @objc func distortLayer(_ sender: Any?) { quadTransform(0) }
     @objc func perspectiveLayer(_ sender: Any?) { quadTransform(1) }
     @objc func skewLayer(_ sender: Any?) { quadTransform(2) }
@@ -194,12 +194,12 @@ extension MainWindowController {
             let d = CGPoint(x: p.x - old.x, y: p.y - old.y)
             switch mode {
             case 1:
-                // 같은 가로 변의 다른 모서리를 거울로 (사다리꼴)
+                // mirror the other corner of the same horizontal edge (trapezoid)
                 let pair = [1, 0, 3, 2][k]
                 quad[k] = p
                 quad[pair] = CGPoint(x: quad[pair].x - d.x, y: quad[pair].y + d.y)
             case 2:
-                // 같은 변의 이웃 모서리도 같은 만큼 (평행사변형)
+                // move the neighboring corner of the same edge equally (parallelogram)
                 let pair = [3, 2, 1, 0][k]
                 quad[k] = p
                 quad[pair] = CGPoint(x: quad[pair].x + d.x, y: quad[pair].y + d.y)
@@ -213,7 +213,7 @@ extension MainWindowController {
         o.onCancel = { [weak self] in self?.finish(before, keep: false, label: "") }
     }
 
-    // MARK: - 뒤틀기 (4×4 격자)
+    // MARK: - Warp (4×4 grid)
 
     @objc func warpLayer(_ sender: Any?) {
         guard let doc = photo, let (i, layer, aspect) = selectedImageLayer(), let im = layer.image else { NSSound.beep(); return }
@@ -230,7 +230,7 @@ extension MainWindowController {
         o.onCancel = { [weak self] in self?.finish(before, keep: false, label: "") }
     }
 
-    // MARK: - 퍼펫 뒤틀기 (핀)
+    // MARK: - Puppet warp (pins)
 
     @objc func puppetWarp(_ sender: Any?) {
         guard let doc = photo, let (i, layer, _) = selectedImageLayer(), let im = layer.image else { NSSound.beep(); return }
@@ -251,12 +251,12 @@ extension MainWindowController {
         o.onCancel = { [weak self] in self?.finish(before, keep: false, label: "") }
     }
 
-    // MARK: - 원근 자르기
+    // MARK: - Perspective crop
 
     @objc func perspectiveCrop(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
         let before = doc.settings
-        // 원근을 풀고 틀 전체를 보이며 네 점을 고른다 (틀 좌표 = 화면 이미지 좌표)
+        // Undo perspective, show the whole frame, and pick four points (frame coordinates = displayed image coordinates)
         var bare = doc.settings
         bare.perspective = nil
         doc.settings = bare
@@ -291,7 +291,7 @@ extension MainWindowController {
         canvas.zoomToFit()
     }
 
-    // MARK: - 캔버스 크기·다듬기·이미지 크기
+    // MARK: - Canvas size · trim · image size
 
     @objc func canvasSize(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
@@ -320,7 +320,7 @@ extension MainWindowController {
         canvas.zoomToFit()
     }
 
-    /// 캔버스 다듬기: 투명한(없으면 왼쪽 위 모서리와 같은 색) 가장자리를 크롭으로 잘라 낸다
+    /// Trim: crops away transparent edges (or edges matching the top-left corner color if none)
     @objc func trimCanvas(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
         var s = doc.settings
@@ -344,7 +344,7 @@ extension MainWindowController {
         var x0 = w, x1 = -1, y0 = h, y1 = -1
         for y in 0 ..< h { for x in 0 ..< w where !empty(y * w + x) { x0 = min(x0, x); x1 = max(x1, x); y0 = min(y0, y); y1 = max(y1, y) } }
         guard x1 >= x0, y1 >= y0 else { NSSound.beep(); return }
-        // 비트맵은 위 줄부터
+        // bitmap rows from the top
         s.crop = CropRect(CGRect(x: Double(x0) / Double(w), y: Double(h - 1 - y1) / Double(h),
                                  width: Double(x1 - x0 + 1) / Double(w), height: Double(y1 - y0 + 1) / Double(h)))
         replaceSettings(s, recordUndo: true, label: "캔버스 다듬기")
@@ -372,7 +372,7 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: "이미지 크기")
     }
 
-    // MARK: - 내용 인식 비율
+    // MARK: - Content-aware scale
 
     @objc func contentAwareScale(_ sender: Any?) {
         guard photo != nil else { NSSound.beep(); return }
@@ -390,7 +390,7 @@ extension MainWindowController {
         window?.subtitle = "내용 인식 비율 계산 중…"
         guard let out = SeamCarver.scale(src, widthFactor: (Double(wf.stringValue) ?? 100) / 100, heightFactor: (Double(hf.stringValue) ?? 100) / 100),
               var l = imageLayer(from: out.composited(over: CIImage(color: .clear).cropped(to: src.extent)), name: "내용 인식 비율") else { return }
-        // 새 크기로 가운데에 놓는다
+        // center at the new size
         let n = photo!.nativeSize
         l.image?.width = out.extent.width
         l.image?.height = out.extent.height
@@ -406,7 +406,7 @@ extension MainWindowController {
         window?.subtitle = ""
     }
 
-    // MARK: - 적응형 광각: 곧아야 할 선을 따라 그리면 렌즈 왜곡을 찾는다
+    // MARK: - Adaptive wide angle: trace lines that should be straight to find lens distortion
 
     @objc func adaptiveWideAngle(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
@@ -425,7 +425,7 @@ extension MainWindowController {
             var s = before
             s.lensDistortion = Self.solveDistortion(lines, s, native: doc.nativeSize)
             self.endPoints()
-            // 세로선이 있으면 키스톤도 (선 끝점)
+            // With vertical lines, keystone too (line end points)
             if !verticals.isEmpty {
                 let segs = verticals.map { i -> (CGPoint, CGPoint) in
                     let l = lines[i].map { Self.undistort($0, from: before.lensDistortion, to: s.lensDistortion, native: doc.nativeSize) }
@@ -439,16 +439,16 @@ extension MainWindowController {
         o.onCancel = { [weak self] in self?.finish(before, keep: false, label: "") }
     }
 
-    /// 지금 왜곡(k0)으로 보정된 원본 좌표 점 → 다른 왜곡(k1)으로 보정했을 때의 자리
+    /// Source-coordinate point corrected with the current distortion (k0) → its position when corrected with another distortion (k1)
     static func undistort(_ p: CGPoint, from k0: Float, to k1: Float, native: CGSize) -> CGPoint {
         let c = CGPoint(x: native.width / 2, y: native.height / 2), R = hypot(native.width, native.height) / 2
         func params(_ k: Float) -> (Double, Double) { let kk = Double(k) / 100 * 0.15; return (kk, kk > 0 ? 1 / (1 + kk) : 1) }
-        // 보정된 자리 q → 찍힌(왜곡된) 자리 g = c + d(1 + k r²)·norm
+        // corrected position q → captured (distorted) position g = c + d(1 + k r²)·norm
         let (ka, na) = params(k0)
         let d = CGPoint(x: (p.x - c.x) / R, y: (p.y - c.y) / R)
         let r2 = Double(d.x * d.x + d.y * d.y)
         let g = CGPoint(x: Double(d.x) * (1 + ka * r2) * na, y: Double(d.y) * (1 + ka * r2) * na)
-        // g = e(1 + kb |e|²)·nb 를 e에 대해 푼다 (뉴턴 몇 번)
+        // Solve g = e(1 + kb |e|²)·nb for e (a few Newton steps)
         let (kb, nb) = params(k1)
         let gr = hypot(g.x, g.y)
         guard gr > 1e-9 else { return p }
@@ -461,13 +461,13 @@ extension MainWindowController {
         return CGPoint(x: c.x + g.x * s * R, y: c.y + g.y * s * R)
     }
 
-    /// 선들이 가장 곧아지는 왜곡 값 (−100~100을 넓게 → 좁게 찾는다)
+    /// Distortion value that makes the lines straightest (searches −100–100 coarse → fine)
     static func solveDistortion(_ lines: [[CGPoint]], _ s: DevelopSettings, native: CGSize) -> Float {
         func cost(_ k: Float) -> Double {
             var total = 0.0
             for l in lines {
                 let p = l.map { undistort($0, from: s.lensDistortion, to: k, native: native) }
-                // 끝점을 잇는 직선에서의 거리 제곱 평균 (길이로 나눔)
+                // mean squared distance from the line joining the end points (divided by length)
                 guard let a = p.first, let b = p.last else { continue }
                 let len = max(hypot(b.x - a.x, b.y - a.y), 1)
                 for q in p { let d = ((b.x - a.x) * (a.y - q.y) - (a.x - q.x) * (b.y - a.y)) / len; total += Double(d * d) / Double(len * len) }
@@ -484,7 +484,7 @@ extension MainWindowController {
         return best
     }
 
-    // MARK: - 소실점: 평면 안에서 원근을 맞춰 복제
+    // MARK: - Vanishing point: perspective-correct cloning within a plane
 
     @objc func vanishingPoint(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
@@ -500,7 +500,7 @@ extension MainWindowController {
             var s = before
             s.vanishingPlane = plane.flatMap { [$0.x, $0.y] }
             self.photo?.settings = s
-            // 2단계: 원본 자리(⌥ 누르기)와 붙일 자리(누르기)
+            // Two steps: source position (⌥-click) and destination (click)
             var source: CGPoint?
             let o2 = self.beginPoints(style: .pins, points: [], hint: "소실점 2/2: ⌥ 눌러 복제할 원본 자리 → 눌러 붙일 자리 (붓 크기 = 레이어 탭 붓 크기) · 리턴 끝")
             o2.onAdd = { [weak self] p in
@@ -523,16 +523,16 @@ extension MainWindowController {
         }
     }
 
-    /// 평면을 반듯하게 편 공간에서 원본 조각을 붙일 자리로 옮기고, 다시 원근으로 되돌려 이미지 레이어로 붙인다
+    /// Moves the source patch to the destination in the rectified plane space, then back into perspective, pasted as an image layer
     func vanishingClone(from a: CGPoint, to b: CGPoint, plane: [CGPoint], radius: Double) {
         guard let doc = photo, let base = rasterize(doc.settings.layers, withPhoto: true) else { return }
         let n = doc.nativeSize
-        // 평면 → 단위 정사각형 공간(크기 S)
+        // plane → unit square space (size S)
         let S: CGFloat = 2000
         let toFlat = Homography(from: plane, to: [CGPoint(x: 0, y: 0), CGPoint(x: S, y: 0), CGPoint(x: S, y: S), CGPoint(x: 0, y: S)])
         let fa = toFlat.apply(a), fb = toFlat.apply(b)
         let fromFlat = toFlat.inverse
-        // 평면 공간 이동 T = 옮김 (fb - fa) → 원본 공간의 합성 호모그래피: fromFlat · T · toFlat
+        // Plane-space translation T = (fb - fa) → composite homography in source space: fromFlat · T · toFlat
         let shift = Homography(m: [1, 0, Double(fb.x - fa.x), 0, 1, Double(fb.y - fa.y), 0, 0, 1])
         func mul(_ x: Homography, _ y: Homography) -> Homography {
             var m = [Double](repeating: 0, count: 9)
@@ -545,7 +545,7 @@ extension MainWindowController {
         let moved = base.applyingFilter("CIPerspectiveTransform", parameters: [
             "inputBottomLeft": CIVector(cgPoint: c[0]), "inputBottomRight": CIVector(cgPoint: c[1]),
             "inputTopRight": CIVector(cgPoint: c[2]), "inputTopLeft": CIVector(cgPoint: c[3])]).cropped(to: e)
-        // 붙일 자리 둘레만 (원근에 맞춰 찌그러진 원: 평면 공간의 원을 원본으로)
+        // Only around the destination (a circle distorted by perspective: a plane-space circle mapped to the source)
         let rf = radius * Double(S) / Double(max(hypot(plane[1].x - plane[0].x, plane[1].y - plane[0].y), 1))
         let ring = (0 ..< 48).map { i -> CGPoint in
             let t = Double(i) / 48 * 2 * .pi
@@ -562,9 +562,9 @@ extension MainWindowController {
         canvas.needsDisplay = true
     }
 
-    // MARK: - 픽셀 유동화
+    // MARK: - Liquify
 
-    /// tool: 0 밀기, 1 부풀리기, 2 오목, 3 돌리기(시계), 4 반시계, 5 되돌리기
+    /// tool: 0 forward warp, 1 bloat, 2 pucker, 3 twirl clockwise, 4 counterclockwise, 5 reconstruct
     func liquify(tool: Int) {
         guard photo != nil else { NSSound.beep(); return }
         let names = ["밀기", "부풀리기", "오목", "돌리기", "반시계 돌리기", "되돌리기"]
@@ -572,7 +572,7 @@ extension MainWindowController {
         o.brushRadius = CGFloat(layersTab.brushRadius) * canvas.zoom
         o.onStroke = { [weak self] pts, flags in
             guard let self, var s = self.photo?.settings else { return }
-            // 첫 붓질에서: 고른 레이어가 이미지 레이어가 아니면 지금 모습을 이미지 레이어로 만든다
+            // On the first stroke: if the selected layer isn't an image layer, make the current look into one
             if self.layersTab.selectedID.flatMap({ id in s.layers.first { $0.id == id && $0.isImage } }) == nil {
                 guard let img = self.rasterize(s.layers, withPhoto: true), let l = self.imageLayer(from: img, name: "유동화") else { return }
                 s.layers.append(l)
@@ -597,7 +597,7 @@ extension MainWindowController {
     @objc func liquifyTwirl(_ sender: Any?) { liquify(tool: 3) }
     @objc func liquifyReconstruct(_ sender: Any?) { liquify(tool: 5) }
 
-    /// 얼굴 인식 유동화: Vision 얼굴 특징점으로 눈 크기·얼굴 폭·턱·미소를 붓질로 만든다
+    /// Face-aware liquify: builds strokes for eye size, face width, chin, and smile from Vision face landmarks
     @objc func faceAwareLiquify(_ sender: Any?) {
         guard let doc = photo, var s = photo?.settings else { NSSound.beep(); return }
         let img = doc.nativePreview(scale: 0.25)
@@ -624,7 +624,7 @@ extension MainWindowController {
         let v = sliders.map { $0.0.doubleValue / 100 }
         let n = doc.nativeSize
         func nat(_ p: CGPoint, _ box: CGRect) -> CGPoint {
-            // 특징점은 얼굴 상자 안 0~1, 상자는 그림 안 0~1 (아래가 0)
+            // landmarks are 0–1 inside the face box; the box is 0–1 inside the image (bottom is 0)
             CGPoint(x: (box.minX + p.x * box.width) * n.width, y: (box.minY + p.y * box.height) * n.height)
         }
         var strokes: [LiquifyStroke] = []
@@ -643,7 +643,7 @@ extension MainWindowController {
                 }
             }
             if v[1] != 0, let contour = lm.faceContour?.normalizedPoints, contour.count > 4 {
-                // 볼 양옆을 가운데로(좁게) 또는 바깥으로(넓게) 민다
+                // Push both cheeks toward the center (narrower) or outward (wider)
                 let mid = nat(CGPoint(x: 0.5, y: 0.45), box)
                 for p in [contour[contour.count / 5], contour[contour.count * 4 / 5]] {
                     let q = nat(p, box)
@@ -683,15 +683,15 @@ extension Geometry {
     }
 }
 
-// MARK: - 심 카빙 (내용 인식 비율)
+// MARK: - Seam carving (content-aware scale)
 
 enum SeamCarver {
-    /// 작은 그림(긴 변 1200)에서 심을 찾아 남길 열 지도를 만들고, 원래 해상도는 그 지도로 다시 읽는다
+    /// Finds seams on a small image (1200 long side) to build a map of columns to keep; full resolution is re-read through that map
     static func scale(_ img: CIImage, widthFactor wf: Double, heightFactor hf: Double) -> CIImage? {
         var out = img
         if wf < 0.999 { guard let r = carve(out, factor: wf) else { return nil }; out = r }
         if hf < 0.999 {
-            // 세로는 90° 돌려 가로처럼
+            // Vertical is rotated 90° to work like horizontal
             let rot = out.transformed(by: CGAffineTransform(rotationAngle: .pi / 2))
             let moved = rot.transformed(by: .init(translationX: -rot.extent.minX, y: -rot.extent.minY))
             guard let r = carve(moved, factor: hf) else { return nil }
@@ -704,7 +704,7 @@ enum SeamCarver {
     static let remapK = try? CIKernel(source: """
         kernel vec4 k(sampler s, sampler m, float k, float mw) {
             vec2 p = destCoord();
-            // 작은 지도에서 이 열이 읽을 원래 열 (작은 좌표)
+            // original column this column reads in the small map (small coordinates)
             float sx = sample(m, samplerTransform(m, vec2(clamp(p.x * k, 0.5, mw - 0.5), p.y * k))).r;
             return sample(s, samplerTransform(s, vec2(sx / k, p.y)));
         }
@@ -721,15 +721,15 @@ enum SeamCarver {
         Render.context.render(small, toBitmap: &px, rowBytes: w * 16, bounds: sr, format: .RGBAf, colorSpace: Render.displaySpace)
         var lum = [Float](repeating: 0, count: w * h)
         for i in 0 ..< w * h { lum[i] = 0.3 * px[i * 4] + 0.59 * px[i * 4 + 1] + 0.11 * px[i * 4 + 2] }
-        // 행마다 남은 열의 원래 번호
-        // 중요도: 밝기 기울기를 넓게 퍼뜨린 것 (가장자리 가까운 곳도 지킨다) + 기울기 자체
+        // original index of the remaining columns per row
+        // Importance: broadly spread luminance gradient (protects areas near edges too) + the gradient itself
         var grad = [Float](repeating: 0, count: w * h)
         for y in 1 ..< h - 1 { for x in 1 ..< w - 1 {
             grad[y * w + x] = abs(lum[y * w + x + 1] - lum[y * w + x - 1]) + abs(lum[(y + 1) * w + x] - lum[(y - 1) * w + x])
         } }
         let rad = max(10, w / 30)
         var spread = grad
-        for _ in 0 ..< 2 {   // 가로·세로 상자 흐림 두 번 ≈ 부드러운 퍼짐
+        for _ in 0 ..< 2 {   // two horizontal/vertical box blurs ≈ smooth spread
             var t = spread
             for y in 0 ..< h { var acc: Float = 0
                 for x in 0 ..< w + rad { if x < w { acc += spread[y * w + x] }; if x - 2 * rad - 1 >= 0 { acc -= spread[y * w + x - 2 * rad - 1] }
@@ -744,7 +744,7 @@ enum SeamCarver {
         let remove = Int(Double(w) * (1 - factor))
         var cw = w
         for _ in 0 ..< remove {
-            // 에너지: 이웃 차이
+            // energy: neighbor differences
             var energy = [Float](repeating: 0, count: cw * h)
             for y in 0 ..< h { for x in 0 ..< cw {
                 let c = lum[y * w + cols[y][x]]
@@ -752,7 +752,7 @@ enum SeamCarver {
                 let u = y > 0 ? lum[(y - 1) * w + cols[y - 1][min(x, cw - 1)]] : c, d = y < h - 1 ? lum[(y + 1) * w + cols[y + 1][min(x, cw - 1)]] : c
                 energy[y * cw + x] = abs(l - r) + abs(u - d) + importance[y * w + cols[y][x]]
             } }
-            // 동적 계획
+            // dynamic programming
             var cost = energy
             var back = [Int](repeating: 0, count: cw * h)
             for y in 1 ..< h { for x in 0 ..< cw {
@@ -768,7 +768,7 @@ enum SeamCarver {
             }
             cw -= 1
         }
-        // 지도 그림 (위 줄부터 = 작은 그림 비트맵과 같은 순서) → CI는 위 줄이 큰 y
+        // Map image (top row first = same order as the small bitmap) → in CI the top row is large y
         var map = [Float](repeating: 0, count: cw * h * 4)
         for y in 0 ..< h { for x in 0 ..< cw { map[(y * cw + x) * 4] = Float(cols[y][x]) + 0.5; map[(y * cw + x) * 4 + 3] = 1 } }
         let data = map.withUnsafeBufferPointer { Data(buffer: $0) }

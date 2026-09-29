@@ -2,12 +2,12 @@ import AppKit
 import CoreImage
 import UniformTypeIdentifiers
 
-/// 색 조정을 LUT(.cube)로 굽기. 픽셀 하나만 보는 조정(노출·화이트 밸런스 차이·기본 모습·하이라이트·섀도·톤 곡선·레벨·
-/// 채도·컬러 밸런스·흑백·컬러 에디터)만 들어간다. 클래리티·디헤이즈·샤프닝·그레인·비네팅·레이어처럼 둘레를 보는 조정은 빠진다.
+/// Bakes color adjustments into a LUT (.cube). Only per-pixel adjustments are included (exposure, white balance delta, base look, highlights, shadows, tone curve, levels,
+/// saturation, color balance, B&W, color editor). Neighborhood adjustments like clarity, dehaze, sharpening, grain, vignette, and layers are left out.
 enum LUTExport {
     static func cube(_ doc: RawDocument, size n: Int = 33) -> String? {
         var s = SliderResponse.effective(doc.settings)
-        // 둘레를 보는 조정은 끈다
+        // Turn off neighborhood adjustments
         s.clarity = 0; s.structure = 0; s.dehaze = 0; s.hotPixels = 0
         s.sharpenAmount = 0; s.grainAmount = 0; s.vignette = 0; s.layers = []
         let w = n * n, h = n
@@ -21,7 +21,7 @@ enum LUTExport {
         let rect = CGRect(x: 0, y: 0, width: w, height: h)
         var img = CIImage(bitmapData: data, bytesPerRow: w * 16, size: rect.size, format: .RGBAf,
                           colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-        // RAW 단계 중 따라 할 수 있는 것: 노출(기록값 대비), 화이트 밸런스 차이, 기본 모습
+        // Reproducible RAW-stage parts: exposure (relative to as-shot), white balance delta, base look
         let shot = doc.asShot
         if s.exposure != shot.exposure { img = img.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: s.exposure - shot.exposure]) }
         if s.temperature != shot.temperature || s.tint != shot.tint {
@@ -38,7 +38,7 @@ enum LUTExport {
         var out = [Float](repeating: 0, count: w * h * 4)
         Render.context.render(img, toBitmap: &out, rowBytes: w * 16, bounds: rect, format: .RGBAf,
                               colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-        // 만들 때와 읽을 때 둘 다 위 줄부터라 그대로 읽는다
+        // Both writer and reader go from the top row, so read as is
         var text = "TITLE \"\(doc.url.deletingPathExtension().lastPathComponent) (Duochrome)\"\n"
         text += "# 픽셀 단위 조정만 들어 있습니다 (클래리티·디헤이즈·샤프닝·그레인·비네팅·레이어 제외). 입력·출력 sRGB.\n"
         text += "LUT_3D_SIZE \(n)\n"
@@ -50,13 +50,13 @@ enum LUTExport {
     }
 }
 
-/// 지금 결과를 선형 DNG로 저장한다 (디모자이크한 16비트 선형 ProPhoto RGB, PhotometricInterpretation = LinearRaw).
-/// 다른 RAW 프로그램에서 화이트 밸런스·노출을 다시 만질 수 있는 넓은 색 원본으로 넘길 때 쓴다.
+/// Saves the current result as a linear DNG (demosaiced 16-bit linear ProPhoto RGB, PhotometricInterpretation = LinearRaw).
+/// For handing a wide-gamut master to other RAW apps where white balance and exposure can be tweaked again.
 enum DNGWriter {
     /// ProPhoto RGB(D50) → XYZ
     static let proPhotoToXYZ: [Double] = [0.7976749, 0.1351917, 0.0313534, 0.2880402, 0.7118741, 0.0000857, 0, 0, 0.8252100]
 
-    /// 선형 ProPhoto (D50)
+    /// Linear ProPhoto (D50)
     static let linearProPhoto: CGColorSpace = {
         let m = proPhotoToXYZ
         let white: [CGFloat] = [0.9642, 1, 0.8249], black: [CGFloat] = [0, 0, 0], gamma: [CGFloat] = [1, 1, 1]
@@ -78,7 +78,7 @@ enum DNGWriter {
         try write(image: doc.image(scale: scale), to: url, camera: doc.info.camera)
     }
 
-    /// 작업 공간 그림 → DNG. baselineExposure(EV)는 읽는 프로그램이 밝힐 양 (HDR 합치기)
+    /// Working-space image → DNG. baselineExposure (EV) is how much the reader brightens (HDR merge)
     static func write(image img: CIImage, to url: URL, camera: String, baselineExposure: Double = 0) throws {
         let rect = img.extent.integral
         let W = Int(rect.width), H = Int(rect.height)
@@ -88,12 +88,12 @@ enum DNGWriter {
         pix.withUnsafeMutableBytes { p in
             Render.context.render(img, toBitmap: p.baseAddress!, rowBytes: W * 8, bounds: rect, format: .RGBA16, colorSpace: space)
         }
-        // RGB만 (알파 빼기)
+        // RGB only (drop alpha)
         var rgb = [UInt16](repeating: 0, count: W * H * 3)
         for i in 0 ..< W * H { rgb[i * 3] = pix[i * 4]; rgb[i * 3 + 1] = pix[i * 4 + 1]; rgb[i * 3 + 2] = pix[i * 4 + 2] }
         pix = []
 
-        // TIFF (작은 엔디언)
+        // TIFF (little-endian)
         var out = Data()
         func u16(_ v: UInt16) { out.append(UInt8(v & 0xff)); out.append(UInt8(v >> 8)) }
         func u32(_ v: UInt32) { for s in [0, 8, 16, 24] { out.append(UInt8((v >> UInt32(s)) & 0xff)) } }
@@ -108,7 +108,7 @@ enum DNGWriter {
 
         let rowsPerStrip = max(1, min(H, (1 << 20) / (W * 6)))
         let strips = (H + rowsPerStrip - 1) / rowsPerStrip
-        let camToXYZinv = invert(proPhotoToXYZ)   // XYZ → 카메라(ProPhoto)
+        let camToXYZinv = invert(proPhotoToXYZ)   // XYZ → camera (ProPhoto)
         let make = camera.isEmpty ? "Duochrome" : camera
         var entries: [Entry] = [
             Entry(tag: 254, type: 4, count: 1, data: longs([0])),
@@ -119,7 +119,7 @@ enum DNGWriter {
             Entry(tag: 262, type: 3, count: 1, data: shorts([34892])),
             Entry(tag: 271, type: 2, count: 0, data: ascii("Duochrome")),
             Entry(tag: 272, type: 2, count: 0, data: ascii(make)),
-            Entry(tag: 273, type: 4, count: UInt32(strips), data: Data()),   // 나중에 채운다
+            Entry(tag: 273, type: 4, count: UInt32(strips), data: Data()),   // filled in later
             Entry(tag: 274, type: 3, count: 1, data: shorts([1])),
             Entry(tag: 277, type: 3, count: 1, data: shorts([3])),
             Entry(tag: 278, type: 4, count: 1, data: longs([UInt32(rowsPerStrip)])),
@@ -138,15 +138,15 @@ enum DNGWriter {
             Entry(tag: 50940, type: 11, count: 4, data: floats([0, 0, 1, 1])),
         ]
         for i in entries.indices where entries[i].type == 2 { entries[i].count = UInt32(entries[i].data.count) }
-        // 배치: 머리(8) → IFD → 넘치는 값 → 그림 줄
+        // Layout: header (8) → IFD → overflow values → image strips
         let ifdSize = 2 + entries.count * 12 + 4
         var extraOffset = 8 + ifdSize
         var extras = Data()
-        // 줄 자리·크기 표 길이를 먼저 잡는다
+        // Reserve strip offset/size table lengths first
         let stripTable = strips * 4
         let offsetsPos = extraOffset, countsPos = extraOffset + stripTable
         extraOffset += stripTable * 2
-        var fields: [(Entry, UInt32)] = []   // (항목, 넘치면 자리)
+        var fields: [(Entry, UInt32)] = []   // (entry, offset if overflowing)
         for e in entries {
             if e.tag == 273 { fields.append((e, UInt32(strips > 1 ? offsetsPos : 0))); continue }
             if e.tag == 279 { fields.append((e, UInt32(strips > 1 ? countsPos : 0))); continue }

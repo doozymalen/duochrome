@@ -1,7 +1,7 @@
 import AppKit
 
-/// UI 시험 (DUOCHROME_UITEST=1): 실제 마우스 사건(누르기·끌기·떼기)을 만들어 각 뷰에 보내고 결과 설정을 확인한다.
-/// 사람이 마우스로 하는 조작을 대신 확인하려고 만들었다. 결과는 표준 출력에 "통과/실패"로 찍고 끝낸다.
+/// UI test (DUOCHROME_UITEST=1): synthesizes real mouse events (down, drag, up), sends them to each view, and checks the resulting settings.
+/// Built to verify mouse interactions a person would do. Prints "통과/실패" to stdout and quits.
 extension MainWindowController {
     func runUITests() {
         guard let doc = photo else { print("실패  사진이 열리지 않음"); exit(1) }
@@ -14,11 +14,11 @@ extension MainWindowController {
         canvas.zoomToFit()
         canvas.layoutSubtreeIfNeeded()
 
-        // 캔버스 위 이미지 좌표(화면 이미지 픽셀) → 뷰 좌표
+        // image coordinates on the canvas (displayed image pixels) → view coordinates
         func v(_ x: CGFloat, _ y: CGFloat) -> CGPoint { canvas.viewPoint(forImage: CGPoint(x: x, y: y)) }
         let W = doc.pixelSize.width, H = doc.pixelSize.height
 
-        // 1. 크롭: 오른위 손잡이를 안쪽으로 끈다
+        // 1. Crop: drag the top-right handle inward
         tools.select(tools.index(of: "형태"))
         enterTool(.crop)
         canvas.layoutSubtreeIfNeeded()
@@ -27,14 +27,14 @@ extension MainWindowController {
         let c = doc.settings.crop
         check("크롭 손잡이 끌기", abs(c.w - 0.8) < 0.02 && abs(c.h - 0.75) < 0.02 && c.x == 0 && c.y == 0,
               String(format: "크롭 x %.2f y %.2f w %.3f h %.3f (0.8×0.75 기대)", c.x, c.y, c.w, c.h))
-        // 가운데를 끌어 옮기기
+        // drag the center to move
         drag(canvas.overlay, from: v(fw * 0.4, fh * 0.4), to: v(fw * 0.5, fh * 0.45))
         let c2 = doc.settings.crop
         check("크롭 영역 옮기기", abs(c2.x - 0.1) < 0.02 && abs(c2.y - 0.05) < 0.02,
               String(format: "x %.3f y %.3f (0.1, 0.05 기대)", c2.x, c2.y))
         enterTool(.pan)
 
-        // 2. 수평: 기울어진 선(3°)을 따라 끈다 → 회전 +3°
+        // 2. Straighten: drag along a tilted line (3°) → rotation +3°
         let before = doc.settings.rotation
         enterTool(.straighten)
         let a = v(W * 0.2, H * 0.5), b = CGPoint(x: a.x + 300, y: a.y + 300 * tan(3 * .pi / 180))
@@ -43,14 +43,14 @@ extension MainWindowController {
               String(format: "회전 %.2f° → %.2f°", before, doc.settings.rotation))
         enterTool(.pan)
 
-        // 2-1. 키스톤 선 두 개: 위로 모이는 두 선(왼쪽은 오른쪽으로, 오른쪽은 왼쪽으로 기움)
+        // 2-1. Two keystone lines: converging upward (left leaning right, right leaning left)
         let kvBefore = doc.settings.keystoneV
         enterTool(.keystone)
         drag(canvas.overlay, from: v(W * 0.3, H * 0.2), to: v(W * 0.33, H * 0.8))
         drag(canvas.overlay, from: v(W * 0.7, H * 0.2), to: v(W * 0.67, H * 0.8))
         check("키스톤 선 긋기", doc.settings.keystoneV > kvBefore + 5,
               String(format: "세로 키스톤 %.1f → %.1f, 회전 %.2f°", kvBefore, doc.settings.keystoneV, doc.settings.rotation))
-        // 2-1b. 가로 방식: 오른쪽으로 모이는 두 선 → 가로 키스톤만 바뀐다
+        // 2-1b. Horizontal mode: two lines converging to the right → only horizontal keystone changes
         shape.selectKeystoneMode(.horizontal)
         let khBefore = doc.settings.keystoneH, kv2 = doc.settings.keystoneV
         drag(canvas.overlay, from: v(W * 0.2, H * 0.3), to: v(W * 0.8, H * 0.34))
@@ -60,8 +60,8 @@ extension MainWindowController {
         shape.selectKeystoneMode(.vertical)
         enterTool(.pan)
 
-        // 2-2. 화이트 밸런스 스포이트: 누르면 그 자리로 스포이트가 불리는지, 그 자리 계산이 값을 내는지.
-        // (실제 적용은 백그라운드 계산 뒤 주 큐로 돌아오는데, 이 시험 자체가 주 큐에서 돌아서 여기서는 기다릴 수 없다.)
+        // 2-2. White balance eyedropper: clicking calls the eyedropper at that spot, and that spot's computation yields values.
+        // (Actually applying returns to the main queue after a background computation, and this test runs on the main queue, so it can't wait here.)
         enterTool(.whiteBalance)
         let original = canvas.onPick
         var picked: CGPoint?
@@ -74,7 +74,7 @@ extension MainWindowController {
                      wb?.temperature ?? 0, wb?.tint ?? 0))
         enterTool(.pan)
 
-        // 3. 이동 도구로 끌기 (화면 이동)
+        // 3. Drag with the move tool (pan)
         canvas.zoomToActual()
         let p0 = canvas.imagePoint(at: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY))
         drag(canvas, from: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY),
@@ -82,7 +82,7 @@ extension MainWindowController {
         let p1 = canvas.imagePoint(at: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY))
         check("이동 도구 끌기", abs((p0.x - p1.x) - 100 / canvas.zoom) < 2,
               String(format: "가운데가 원본 %.0fpx 옮겨짐 (%.0f 기대)", p0.x - p1.x, 100 / canvas.zoom))
-        // 트랙패드 두 손가락 이동 = 스크롤 사건
+        // trackpad two-finger pan = scroll events
         if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 40, wheel3: 0),
            let e = NSEvent(cgEvent: cg) {
             let q0 = canvas.imagePoint(at: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY))
@@ -91,17 +91,17 @@ extension MainWindowController {
             check("스크롤로 이동", abs(q1.x - q0.x) > 0.5 || abs(q1.y - q0.y) > 0.5,
                   String(format: "(%.1f, %.1f) → (%.1f, %.1f)", q0.x, q0.y, q1.x, q1.y))
         }
-        // 트랙패드 손가락 모으기(확대) = 제스처 사건. 손가락 아래 사진 지점은 제자리에 남아야 한다.
+        // Trackpad pinch (zoom) = gesture events. The photo point under the fingers must stay put.
         canvas.zoomToFit()
         if let win = canvas.window, let cg = CGEvent(source: nil) {
             let viewPt = CGPoint(x: canvas.bounds.width * 0.3, y: canvas.bounds.height * 0.6)
             let screen = win.convertPoint(toScreen: canvas.convert(viewPt, to: nil))
             let mainH = NSScreen.screens.first?.frame.height ?? 0
-            cg.type = CGEventType(rawValue: 29)!                              // 제스처
-            cg.setIntegerValueField(CGEventField(rawValue: 110)!, value: 8)   // 확대
+            cg.type = CGEventType(rawValue: 29)!                              // gesture
+            cg.setIntegerValueField(CGEventField(rawValue: 110)!, value: 8)   // magnify
             cg.setDoubleValueField(CGEventField(rawValue: 113)!, value: 0.25)
             cg.setIntegerValueField(CGEventField(rawValue: 132)!, value: 2)
-            cg.location = CGPoint(x: screen.x, y: mainH - screen.y)           // CG 좌표는 위가 0
+            cg.location = CGPoint(x: screen.x, y: mainH - screen.y)           // CG coordinates: top is 0
             cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(win.windowNumber))
             cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(win.windowNumber))
             if let e = NSEvent(cgEvent: cg), e.type == .magnify {
@@ -117,7 +117,7 @@ extension MainWindowController {
         }
         canvas.zoomToFit()
 
-        // 4. 커브: 빈 곳을 눌러 점을 만들고 위로 끈다
+        // 4. Curves: click empty space to add a point and drag it up
         tools.select(tools.index(of: "조정"))
         inspector.reveal("curve")
         let ce = inspector.curveEditor
@@ -130,7 +130,7 @@ extension MainWindowController {
         check("커브 점 만들고 끌기", pts.count == 3 && mid.map { abs($0.y - 0.65) < 0.03 } == true,
               "점 \(pts.map { String(format: "(%.2f,%.2f)", $0.x, $0.y) }.joined(separator: " "))")
 
-        // 5. 컬러 밸런스: 섀도 휠을 파랑(240°) 방향 끝까지
+        // 5. Color balance: shadow wheel all the way toward blue (240°)
         if let wheel = inspector.wheel(1) {
             wheel.layoutSubtreeIfNeeded()
             let d = wheel.discRect.width
@@ -142,7 +142,7 @@ extension MainWindowController {
                   String(format: "색조 %.0f° 양 %.2f (240°, 0.8 기대)", sh.hue, sh.amount))
         }
 
-        // 7-1. 슬라이더: 숫자 입력, 두 번 누르면 기본값, 기본값 근처에서 달라붙기
+        // 7-1. Sliders: number entry, double-click to default, snapping near the default
         do {
             _ = inspector.view
             func rows(_ v: NSView) -> [SliderRow] { v.subviews.flatMap { ($0 as? SliderRow).map { [$0] } ?? rows($0) } }
@@ -151,11 +151,11 @@ extension MainWindowController {
                 field.stringValue = "1.5 EV"
                 ex.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: field))
                 let typed = doc.settings.exposure
-                // 두 번 누르기는 슬라이더 셀의 끌기 시작에서 받는다 (mouseDown·제스처 인식기는 실제 마우스에서 안 됐다): 셀 종류 + 그 동작
+                // Double-click is received at the slider cell's drag start (mouseDown and gesture recognizers didn't work with a real mouse): cell type + that behavior
                 let hasDouble = ex.slider.cell is PixelSliderCell
                 if hasDouble { ex.slider.doubleClicked() }
                 let reset = doc.settings.exposure
-                // 달라붙기는 설정 값에 따라 다르다 → 이 시험 동안만 기본값(켜기, 1.5%)으로
+                // Snapping depends on settings → default (on, 1.5%) only during this test
                 let savedSnap = (AppSettings.snapEnabled, AppSettings.snapPercent)
                 AppSettings.snapEnabled = true; AppSettings.snapPercent = 1.5
                 ex.slider.doubleValue = 0.08
@@ -173,7 +173,7 @@ extension MainWindowController {
             }
         }
 
-        // 7-2. 검색·스타일·격자·자동 조정 계산·칠 레이어
+        // 7-2. Search, styles, grid, auto adjust computation, fill layers
         do {
             let total = library.items.count
             library.query = (doc.url.deletingPathExtension().lastPathComponent)
@@ -212,7 +212,7 @@ extension MainWindowController {
             check("두 번째 화면에 보기", shown && secondViewer == nil, "같은 사진 \(shown), 끄면 닫힘 \(secondViewer == nil)")
         }
 
-        // 7-3. 레이어 우클릭 메뉴, 배경 복제(리터칭이 복제 레이어로), 자유 변형
+        // 7-3. Layer context menu, duplicate background (retouching goes into the copy), free transform
         do {
             let bgMenu = layerContextMenu(nil)
             duplicateBackground(nil)
@@ -229,7 +229,7 @@ extension MainWindowController {
             layersTab.removeLayer()
             enterTool(.pan)
 
-            // 자유 변형: 이미지 레이어 오른위 모서리를 바깥으로 끌면 커지고, 리턴으로 확정, 되돌리기로 원래대로
+            // Free transform: dragging an image layer's top-right corner outward enlarges it; Return confirms, undo restores
             let png = Render.context.pngRepresentation(of: CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 200, height: 100)),
                                                        format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)!
             let file = try! LayerImageStore.importData(png, ext: "png")
@@ -256,7 +256,7 @@ extension MainWindowController {
             layersTab.removeLayer()
         }
 
-        // 7-4. 단축키: 모드별 기본값, 바꾸기
+        // 7-4. Shortcuts: per-mode defaults, changing
         do {
             let rB = KeyMap.table(.bulk)[KeyCombo("@r")]?.id, lB = KeyMap.table(.bulk)[KeyCombo("l")]?.id
             let jS = KeyMap.table(.studio)[KeyCombo("j")]?.id, tS = KeyMap.table(.studio)[KeyCombo("@t")]?.id
@@ -272,11 +272,11 @@ extension MainWindowController {
                   "⌘R \(rB ?? "-"), L \(lB ?? "-"), 심화 J \(jS ?? "-"), ⌘T \(tS ?? "-"), 5: 심화 \(fiveS ?? "-") / 대량 \(fiveB ?? "-"), 바꾸기 \(moved), 되돌리기 \(back), 겹침 \(KeyMap.conflicts(.bulk).count + KeyMap.conflicts(.studio).count)")
         }
 
-        // 7-5. 레이어 단축키: 지우기(⌫)·맨 위/아래(⇧⌘]·⇧⌘[)·위/아래 고르기(⌥]·⌥[), 잠긴 레이어는 안 지워진다
+        // 7-5. Layer shortcuts: delete (⌫), front/back (⇧⌘] ⇧⌘[), select above/below (⌥] ⌥[); locked layers aren't deleted
         do {
             let before = doc.settings.layers.count
             for _ in 0..<3 { layersTab.addLayer(.full, native: doc.nativeSize) }
-            let ids = doc.settings.layers.suffix(3).map(\.id)   // 아래 → 위
+            let ids = doc.settings.layers.suffix(3).map(\.id)   // bottom → top
             layersTab.select(ids[0])
             layersTab.layerToEnd(top: true)
             let topOK = doc.settings.layers.last?.id == ids[0]
@@ -306,7 +306,7 @@ extension MainWindowController {
                   "맨 위 \(topOK), 맨 아래 \(bottomOK), 위 고르기 \(upOK), 배경까지 \(bgOK), 잠금 유지 \(lockedKept), 지우기 \(deleted), 키 \(keysOK)")
         }
 
-        // 8-00. 대량 보정 왼쪽 도구 탭을 바꿔도 창 크기·패널 폭이 그대로 (작은 창에서도)
+        // 8-00. Switching batch-edit left tool tabs keeps window size and panel widths (even in a small window)
         do {
             var changed: [String] = []
             let saved = window?.frame ?? .zero
@@ -328,7 +328,7 @@ extension MainWindowController {
             check("도구 탭 전환 창 크기 유지", changed.isEmpty, changed.isEmpty ? "여섯 탭 × 두 창 크기" : changed.joined(separator: ", "))
         }
 
-        // 8-01. 심화 보정 도구를 모두 돌려도 창 크기·패널 크기가 그대로 (작은 창에서도)
+        // 8-01. Cycling through all layer-edit tools keeps window and panel sizes (even in a small window)
         do {
             let saved = window?.frame ?? .zero
             let tool0 = studioMode.currentTool
@@ -352,7 +352,7 @@ extension MainWindowController {
             studioMode.selectTool(tool0)
             setMode(.edit)
             window?.setFrame(saved, display: true)
-            // 도구를 고르기만 해서는 조정값이 바뀌면 안 된다
+            // Just picking a tool must not change adjustments
             if let s0 = settings0, let s1 = photo?.settings {
                 let a = settingsDict(s0), b = settingsDict(s1)
                 let diff = Set(a.keys).union(b.keys).filter { k in
@@ -364,7 +364,7 @@ extension MainWindowController {
             check("심화 도구 전환 창 크기 유지", changed.isEmpty, changed.isEmpty ? "\(StudioTool.all.count - 2)개 도구 × 두 창 크기" : changed.prefix(8).joined(separator: ", "))
         }
 
-        // 8-02. 심화 보정: 레이어가 필요한 도구는 고를 때가 아니라 캔버스를 처음 누를 때 레이어를 만든다
+        // 8-02. Layer edit: tools needing a layer create it on the first canvas click, not on pick
         do {
             let s0 = photo?.settings
             setMode(.studio)
@@ -388,7 +388,7 @@ extension MainWindowController {
             if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
         }
 
-        // 8-03. 유리 배치: 패널 가장자리를 끌면 폭이 바뀌고, 패널을 접으면 맞춤 보기 자리가 넓어진다
+        // 8-03. Glass layout: dragging a panel edge changes its width, and collapsing a panel widens the fit area
         do {
             setMode(.edit)
             window?.layoutIfNeeded()
@@ -409,15 +409,15 @@ extension MainWindowController {
                   String(format: "폭 %.0f → 끌어서 %@, 맞춤 가림 %.0f → 접으면 %.0f", w0, dragged ? "+40" : "안 됨", inset0, insetHidden))
         }
 
-        // 8-04. 진짜 사건 경로(창 sendEvent → hitTest → 추적 고리)로 조정 슬라이더 끌기·도구 탭 누르기.
-        // 뷰에 바로 보내는 시험은 "슬라이더가 꺼져 있어 안 눌림"을 못 잡았다.
+        // 8-04. Real event path (window sendEvent → hitTest → tracking loop) for dragging an adjustment slider and clicking a tool tab.
+        // Tests sending straight to views missed "slider disabled, doesn't respond".
         do {
             setMode(.edit)
             tools.select(tools.index(of: "조정"))
             window?.layoutIfNeeded()
             let s0 = photo?.settings
             let sliders = inspector.view.allSubviews.compactMap { $0 as? SnapSlider }.filter { !$0.isHiddenOrHasHiddenAncestor }
-            let sl = sliders.first { $0.minValue == -4 && $0.maxValue == 4 }   // 노출
+            let sl = sliders.first { $0.minValue == -4 && $0.maxValue == 4 }   // exposure
             var moved = false, enabled = false, tabOK = false
             if let sl, let win = window {
                 enabled = sl.isEnabled
@@ -429,16 +429,16 @@ extension MainWindowController {
                     NSEvent.mouseEvent(with: t, location: pt, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                        windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: t == .leftMouseUp ? 0 : 1)!
                 }
-                // 슬라이더 끌기 자체는 시험 안에서 흉내 낼 수 없다 (추적 고리가 가짜 사건을 안 받음).
-                // 켜져 있는지 + 진짜 hitTest가 슬라이더에 닿는지까지만 본다. 실제 끌기는 앱에서 마우스로 확인.
+                // Dragging a slider can't be simulated inside the test (the tracking loop ignores synthetic events).
+                // Checks only that it's enabled and a real hitTest reaches the slider. Actual dragging was checked with a mouse in the app.
                 if let frame = win.contentView?.superview {
                     moved = frame.hitTest(frame.convert(p, from: nil)) === sl
                 }
                 _ = v0
                 let tab = tools.view.allSubviews.compactMap { $0 as? TabButton }[1]
                 let q = tab.convert(NSPoint(x: tab.bounds.midX, y: tab.bounds.midY), to: nil)
-                // 창 틀의 시스템 누르기 인식기 때문에 가짜 사건으로는 누름이 안정적으로 안 간다.
-                // 진짜 hitTest가 탭 단추(또는 그 안)에 닿는지까지 본다. 실제 누름은 앱에서 마우스로 확인함.
+                // The window frame's system click recognizers make synthetic clicks unreliable.
+                // Checks that a real hitTest reaches the tab button (or inside it). Actual clicks were checked with a mouse in the app.
                 if let frame = win.contentView?.superview, let h = frame.hitTest(frame.convert(q, from: nil)) {
                     tabOK = h === tab || h.isDescendant(of: tab)
                 }
@@ -449,22 +449,22 @@ extension MainWindowController {
             tools.select(tools.index(of: "조정"))
         }
 
-        // 8-05. 끌어 놓기 (DragDrop.swift): 레이어 순서·그룹, Finder 그림 → 레이어, 사진 → 앨범, 사진 → 사진 조정 복사, 도구 막대 넣기
+        // 8-05. Drag and drop (DragDrop.swift): layer order/groups, Finder image → layer, photo → album, photo → photo copy adjustments, adding to the tool strip
         do {
             setMode(.edit)
             let s0 = photo?.settings
-            // 레이어 나무 규칙
+            // layer tree rules
             var ls = [AdjustLayer(name: "A"), AdjustLayer(name: "B"), AdjustLayer(name: "C")]
             ls[2].kind = "group"
             let a = ls[0].id, b = ls[1].id, g = ls[2].id
-            LayerTree.drop(&ls, from: 0, onto: 2, .into)          // A를 그룹 C 안으로
+            LayerTree.drop(&ls, from: 0, onto: 2, .into)          // A into group C
             let intoOK = ls.first { $0.id == a }?.group == g && ls.firstIndex { $0.id == a }! < ls.firstIndex { $0.id == g }!
-            LayerTree.drop(&ls, from: ls.firstIndex { $0.id == b }!, onto: ls.firstIndex { $0.id == g }!, .above)  // B를 그룹 위로
+            LayerTree.drop(&ls, from: ls.firstIndex { $0.id == b }!, onto: ls.firstIndex { $0.id == g }!, .above)  // B above the group
             let aboveOK = ls.last?.id == b && ls.last?.group == nil
-            let selfBlocked = !LayerTree.drop(&ls, from: ls.firstIndex { $0.id == g }!, onto: ls.firstIndex { $0.id == a }!, .above)  // 그룹을 자기 자식 위로 X
-            LayerTree.drop(&ls, from: ls.firstIndex { $0.id == g }!, onto: nil, .above)   // 그룹 덩어리를 맨 아래로
+            let selfBlocked = !LayerTree.drop(&ls, from: ls.firstIndex { $0.id == g }!, onto: ls.firstIndex { $0.id == a }!, .above)  // group onto its own child: no
+            LayerTree.drop(&ls, from: ls.firstIndex { $0.id == g }!, onto: nil, .above)   // group block to the bottom
             let bottomOK = ls.first?.id == a && ls[1].id == g && ls.last?.id == b
-            // 창에서: 레이어 둘 + 그룹 → 끌어서 그룹 안으로
+            // In the window: two layers + a group → drag into the group
             layersTab.addLayer(.full, native: photo?.nativeSize)
             layersTab.addLayer(.full, native: photo?.nativeSize)
             let ids = photo?.settings.layers.map(\.id) ?? []
@@ -472,7 +472,7 @@ extension MainWindowController {
             let grp = photo?.settings.layers.first { $0.isGroup }?.id
             if let last = ids.last, let grp { dropLayer(last, onto: grp, .into) }
             let winOK = grp != nil && photo?.settings.layers.first { $0.id == ids.last }?.group == grp
-            // Finder 그림 → 이미지 레이어 (캔버스에 놓기)
+            // Finder image → image layer (drop on canvas)
             let png = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-drop-test.png")
             let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 32, pixelsHigh: 32, bitsPerSample: 8, samplesPerPixel: 4,
                                        hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
@@ -482,16 +482,16 @@ extension MainWindowController {
             let took = canvas.onDropFiles?([png]) ?? false
             let imgOK = took && photo?.settings.layers.count == n0 + 1 && photo?.settings.layers.filter(\.isImage).count == i0 + 1
             if !imgOK { NSLog("DBG 그림 놓기 받음 %d, 레이어 %d → %d", took ? 1 : 0, n0, photo?.settings.layers.count ?? -1) }
-            // RAW는 레이어가 아니다
+            // RAW isn't a layer
             let rawIsLayer = DragFiles.isLayerImage(URL(fileURLWithPath: "/tmp/x.CR3"))
             if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
-            // 사진 → 앨범 (시험 카탈로그)
+            // photo → album (test catalog)
             var albumOK = false
             if let cur = photoItem, let album = try? library.catalog.addAlbum("끌기 시험 \(Int(Date().timeIntervalSince1970))") {
                 dropPhotos([cur.url.path], toAlbum: album)
                 albumOK = ((try? library.catalog.count(.album(album))) ?? 0) == 1
             }
-            // 사진 → 사진: 지금 사진의 노출을 옆 사진에 붙인다
+            // photo → photo: paste the current photo's exposure onto the neighbor
             var adjOK = false
             if let cur = photoItem, let other = library.items.first(where: { $0 !== cur && !$0.offline }) {
                 let had = library.rawSettings(for: other.url)
@@ -503,7 +503,7 @@ extension MainWindowController {
                 else { library.removeSettings(for: other.url) }
                 if let s0 { replaceSettings(s0, recordUndo: false, label: "시험 되돌림") }
             }
-            // 도구 막대 사용자화: 끌어 놓은 자리에 넣기·옮기기
+            // Tool strip customization: insert and move at the drop position
             let sheet = ToolCustomizeSheet()
             var list: [String] = []
             sheet.onDone = { list = $0 }
@@ -516,7 +516,7 @@ extension MainWindowController {
                   "그룹 안 \(intoOK) 위 \(aboveOK) 자기막기 \(selfBlocked) 맨아래 \(bottomOK) 창 \(winOK) 그림 \(imgOK) RAW제외 \(!rawIsLayer) 앨범 \(albumOK) 조정 \(adjOK) 도구막대 \(stripOK)")
         }
 
-        // 8-06. 카탈로그 백업: 시험 카탈로그를 임시 폴더에 백업하고, 백업본을 열어 조정 개수가 같은지
+        // 8-06. Catalog backup: back up the test catalog to a temp folder, open the backup, and check the adjustment count matches
         do {
             let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-backup-test-\(Int(Date().timeIntervalSince1970))")
             var ok = false, detail = ""
@@ -533,7 +533,7 @@ extension MainWindowController {
             check("카탈로그 백업", ok, detail)
         }
 
-        // 8-07. 효과: 심화 보정 효과 도구에서 고르면 효과 레이어가 생기고 결과가 바뀐다. 편집기로 값을 바꾸고 끈다
+        // 8-07. Effects: picking in the layer-edit effects tool creates an effect layer and changes the result. Change values in the editor and toggle off
         do {
             let s0 = photo?.settings
             layersTab.select(nil)
@@ -543,12 +543,12 @@ extension MainWindowController {
             studioEffects.browser.onPick?("mosaic")
             let added = photo?.settings.layers.last
             let made = photo?.settings.layers.count == before + 1 && added?.adjust.fx.first?.kind == "mosaic"
-            // 값 바꾸기 (편집기) → 저장
+            // change values (editor) → save
             var list = added?.adjust.fx ?? []
             if !list.isEmpty { list[0].params["size"] = 80 }
             studioEffects.editor.onChange?(list, false)
             let changed = photo?.settings.layers.last?.adjust.fx.first?.value("size") == 80
-            // 렌더가 달라졌는가 (모자이크 칸)
+            // did the render change (mosaic cells)
             var differs = false
             if let doc = photo {
                 let a = doc.image(scale: Develop.guideScale)
@@ -569,7 +569,7 @@ extension MainWindowController {
             check("효과 도구: 고르기·값·렌더", made && changed && differs, "레이어 \(made), 값 \(changed), 렌더 바뀜 \(differs)")
         }
 
-        // 8-08. 레이어 고급: 혼합 조건, 무늬 칠, 레이어 구성, 스냅샷, 정렬·연결, 병합·도장, 연결된 이미지
+        // 8-08. Advanced layers: Blend If, pattern fill, layer comps, snapshots, align/link, merge/stamp, linked images
         do {
             setMode(.edit)
             let s0 = photo?.settings
@@ -581,7 +581,7 @@ extension MainWindowController {
                 return px[0] + px[1] + px[2]
             }
             guard let doc = photo else { check("레이어 고급", false, "사진 없음"); return }
-            // 혼합 조건: 노출 +2 전체 레이어를 어두운 곳에만(아래 밝기 0~0.3) → 전체에 건 것보다 덜 밝다
+            // Blend If: a full exposure +2 layer only on dark areas (below brightness 0–0.3) → less bright than applied everywhere
             var s = doc.settings
             var l = AdjustLayer(name: "밝게"); l.mask.kind = .full; l.adjust.exposure = 2
             s.layers.append(l); apply(s, dragging: false)
@@ -590,7 +590,7 @@ extension MainWindowController {
             apply(s, dragging: false)
             let limited = avg(doc.image(scale: Develop.guideScale))
             if !(limited < full - 0.05) { notes.append("혼합 조건 \(limited) vs \(full)") }
-            // 무늬 칠
+            // pattern fill
             s = doc.settings
             var f = AdjustLayer(name: "무늬"); f.kind = "fill"; f.fillColor = [1, 0, 0, 0, 0, 1]; f.fillPattern = 0; f.fillScale = 200
             s.layers = [f]; apply(s, dragging: false)
@@ -599,13 +599,13 @@ extension MainWindowController {
             let e = pat.extent
             Render.context.render(pat, toBitmap: &px, rowBytes: 32, bounds: CGRect(x: e.minX + 2, y: e.minY + 2, width: 2, height: 1), format: .RGBAf, colorSpace: nil)
             if !(px[0] > 0.5 || px[2] > 0.5) { notes.append("무늬 칠 색 \(px)") }
-            // 레이어 구성: 보임 끔을 기억했다가 되돌린다
+            // Layer comps: remember hidden visibility and restore it
             layersTab.select(f.id)
             saveLayerComp(nil)
             s = doc.settings; s.layers[0].enabled = false; replaceSettings(s, recordUndo: true, label: "끄기")
             applyLayerComp(0)
             if doc.settings.layers[0].enabled != true || doc.settings.layerComps?.count != 1 { notes.append("레이어 구성") }
-            // 스냅샷: 만들고, 바꾸고, 되돌리기 + 저장/불러오기
+            // Snapshots: create, change, revert + save/load
             makeSnapshot(named: "시험 스냅샷")
             s = doc.settings; s.exposure += 1; replaceSettings(s, recordUndo: true, label: "바꿈")
             restoreSnapshot(history.snapshots.count - 1)
@@ -613,7 +613,7 @@ extension MainWindowController {
             var h2 = AdjustHistory()
             let restored = history.encoded().map { h2.restore($0, current: doc.settings) } ?? false
             if !snapOK || !restored || h2.snapshots.last?.label != "시험 스냅샷" { notes.append("스냅샷 \(snapOK) \(restored) \(h2.snapshots.count)") }
-            // 이미지 레이어 둘(작은 PNG) → 연결 → 왼쪽 정렬 → 둘 다 움직임, 아래 레이어와 병합 → 하나
+            // two image layers (small PNG) → link → align left → both move; merge down → one
             let png = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-k-test.png")
             let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 16, pixelsHigh: 16, bitsPerSample: 8, samplesPerPixel: 4,
                                        hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
@@ -631,12 +631,12 @@ extension MainWindowController {
                 layersTab.select(ids[1]); mergeDown(nil)
                 if doc.settings.layers.count != 1 || doc.settings.layers.first?.isImage != true { notes.append("아래 레이어와 병합 \(doc.settings.layers.count)") }
             } else { notes.append("이미지 레이어 \(ids.count)") }
-            // 도장 찍기: 레이어 하나 더 (원본 크기 이미지), 보이는 레이어 병합: 레이어 하나만
+            // Stamp: one more layer (full-size image); merge visible: only one layer
             stampVisible(nil)
             let stamped = doc.settings.layers.count == 2 && doc.settings.layers.last?.image?.width == Double(doc.nativeSize.width)
             mergeVisible(nil)
             if !stamped || doc.settings.layers.count != 1 { notes.append("도장·병합 \(stamped) \(doc.settings.layers.count)") }
-            // 연결된 이미지: 파일을 바꾸면 레이어 그림도 바뀐다
+            // Linked image: changing the file changes the layer image
             let linked = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-linked.png")
             try? FileManager.default.removeItem(at: linked)
             try? FileManager.default.copyItem(at: png, to: linked)
@@ -653,7 +653,7 @@ extension MainWindowController {
             check("레이어 고급", notes.isEmpty, notes.isEmpty ? "혼합 조건·무늬 칠·구성·스냅샷·정렬·연결·병합·도장·연결된 이미지" : notes.joined(separator: " / "))
         }
 
-        // 8-09. 선택: 자동 선택·행·색상·빠른 선택·초점 영역·다각형·자석·합치기·다듬기·알파 채널·퀵 마스크
+        // 8-09. Selection: magic wand, row, color range, quick selection, focus area, polygon, magnetic, combine, refine, alpha channels, quick mask
         do {
             setMode(.studio)
             let s0 = photo?.settings
@@ -667,26 +667,26 @@ extension MainWindowController {
                 Render.context.render(d, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
                 return px[0]
             }
-            // 앞 시험의 크롭·회전을 되돌린다 (하늘·모서리가 잘려 나가면 안 된다)
+            // Undo the previous test's crop/rotation (sky and corners must not be cut off)
             var s = doc.settings; s.layers = []; s.adoptGeometry(from: doc.asShot); replaceSettings(s, recordUndo: false)
             layersTab.select(nil)
-            // 자동 선택: 왼쪽 위 하늘
+            // magic wand: sky at top left
             studioMode.selectTool("selWand")
             wandSelect(at: CGPoint(x: n.width * 0.06, y: n.height * 0.9), flags: [])
             guard let wid = layersTab.selectedID else { check("선택", false, "자동 선택 레이어 없음"); return }
             let sky = maskAvg(wid)
             if !(sky > 0.01 && sky < 0.6) { notes.append("자동 선택 \(sky)") }
-            // 반전 → 1 − 값
+            // invert → 1 − value
             invertSelection(nil)
             if abs(maskAvg(wid) - (1 - sky)) > 0.02 { notes.append("반전") }
             invertSelection(nil)
-            // 확장 → 커진다, 테두리 → 줄어든다
+            // expand → larger, border → smaller
             expandSelection(nil)
             let grown = maskAvg(wid)
             if !(grown > sky) { notes.append("확장 \(grown) ≤ \(sky)") }
             borderSelection(nil)
             if !(maskAvg(wid) < grown) { notes.append("테두리") }
-            // 새 선택 레이어: 사각형 → ⇧ 타원 더하기 → ⌥ 다각형 빼기
+            // New selection layer: rectangle → ⇧ add ellipse → ⌥ subtract polygon
             layersTab.select(nil)
             var r = LayerMask(); r.kind = .rect; r.box = [0, 0, n.width * 0.3, n.height * 0.3]
             commitSelection(r, flags: [], label: "사각형")
@@ -699,31 +699,31 @@ extension MainWindowController {
             commitSelection(p, flags: .option, label: "빼기")
             let a2 = maskAvg(rid)
             if !(a1 > a0 + 0.05 && a2 < a1) || doc.settings.layers.last?.mask.combos?.count != 2 { notes.append("합치기 \(a0) \(a1) \(a2)") }
-            // 알파 채널로 저장 → 해제 → 불러오기
+            // save as alpha channel → deselect → load
             saveSelection(nil)
             deselectAll(nil)
             let cleared = maskAvg(rid)
             loadSelection(0, op: nil)
             if abs(cleared - 1) > 0.01 || abs(maskAvg(rid) - a2) > 0.01 { notes.append("알파 채널 \(cleared) \(maskAvg(rid))") }
-            // 행 선택: 높이 1
+            // row selection: height 1
             layersTab.select(nil)
             rowColumnSelect(at: CGPoint(x: 100, y: n.height / 2), column: false, flags: [])
             let box = doc.settings.layers.last?.mask.box ?? []
             if box.count != 4 || abs(box[3] - box[1]) != 1 || box[2] - box[0] != Double(n.width) { notes.append("행 선택 \(box)") }
-            // 색상 범위
+            // color range
             layersTab.select(nil)
             colorRangeSelect(at: CGPoint(x: n.width * 0.06, y: n.height * 0.9), flags: [])
             if let cid = layersTab.selectedID, !(maskAvg(cid) > 0.01 && maskAvg(cid) < 0.8) { notes.append("색상 범위 \(maskAvg(cid))") }
-            // 빠른 선택: 하늘을 칠하면 번진다
+            // Quick selection: painting the sky spreads
             layersTab.select(nil)
             layersTab.brushRadius = 60
             quickSelect([CGPoint(x: n.width * 0.05, y: n.height * 0.9), CGPoint(x: n.width * 0.08, y: n.height * 0.88)], flags: [])
             if let qid = layersTab.selectedID, !(maskAvg(qid) > 0.003) { notes.append("빠른 선택 \(maskAvg(qid))") }
-            // 초점 영역
+            // focus area
             layersTab.select(nil)
             selectFocusArea(nil)
             if let fid = layersTab.selectedID, !(maskAvg(fid) > 0.02 && maskAvg(fid) < 0.98) { notes.append("초점 영역 \(maskAvg(fid))") }
-            // 자석: 가장자리 옆의 점이 옮겨진다
+            // Magnetic: a point beside an edge moves
             if ProcessInfo.processInfo.environment["DUOCHROME_DEBUG_E"] != nil {
                 print("E 레이어:", doc.settings.layers.map { "\($0.name)[\($0.kind) \($0.enabled) m\($0.mask.kind.rawValue)]" })
             }
@@ -732,7 +732,7 @@ extension MainWindowController {
                 let sn = eng.snap(q, radius: 80)
                 if sn == q { notes.append("자석 붙기 없음") }
             } else { notes.append("선택 엔진 없음") }
-            // 선택 및 마스크: 가장자리 다듬기로 값이 바뀐다
+            // Select and Mask: refine edge changes the values
             if let id = layersTab.selectedID {
                 let before = maskAvg(id)
                 editSelected("다듬기") { $0.refine = 30; $0.contrast = 40 }
@@ -747,7 +747,7 @@ extension MainWindowController {
             check("선택", notes.isEmpty, notes.isEmpty ? "자동·반전·확장·테두리·합치기 3·알파 채널·행·색상·빠른·초점·자석·다듬기·퀵 마스크" : notes.joined(separator: " / "))
         }
 
-        // 8-0. 모드를 오가도 창 크기가 그대로
+        // 8-0. Switching modes keeps the window size
         do {
             let f0 = window?.frame ?? .zero
             var changed: [String] = []
@@ -755,7 +755,7 @@ extension MainWindowController {
                 setMode(m)
                 if window?.frame != f0 { changed.append("\(m.title) \(NSStringFromRect(window?.frame ?? .zero))") }
             }
-            // 왼쪽 패널 폭도 모드마다 같아야 한다 (대량 보정 → 테더링 → 심화 보정)
+            // Left panel width must match across modes too (batch edit → tethering → layer edit)
             var lefts: [String] = []
             for m in [AppMode.edit, .tether, .studio, .edit] {
                 setMode(m)
@@ -768,7 +768,7 @@ extension MainWindowController {
             check("모드 전환 창 크기 유지", changed.isEmpty, changed.isEmpty ? NSStringFromRect(f0) : changed.joined(separator: ", "))
         }
 
-        // M. 동작 기록·재생·일괄 처리·duochrome:// 주소
+        // M. Action record/playback, batch processing, duochrome:// URLs
         do {
             let s0 = doc.settings
             RecordedAction.delete("시험 동작")
@@ -781,12 +781,12 @@ extension MainWindowController {
             replaceSettings(st, recordUndo: true, label: "레이어 조정")
             let rec = finishRecording()
             let recOK = rec != nil && (rec?.steps.count ?? 0) >= 2 && RecordedAction.names().contains("시험 동작")
-            // 처음 상태로 되돌리고 재생
+            // reset to the initial state and play back
             replaceSettings(s0, recordUndo: false, label: "시험")
             if let a = RecordedAction.load("시험 동작") { playAction(a) }
             let played = doc.settings.exposure == 0.7 && doc.settings.contrast == 25 && doc.settings.layers.count == s0.layers.count + 1
                 && doc.settings.layers.last?.adjust.exposure == -0.4 && doc.settings.layers.last?.id != st.layers.last?.id
-            // 일괄 처리: 열지 않은 다른 사진 한 장
+            // Batch: one other photo that isn't open
             var batchOK = false
             let source0 = library.source
             if library.items.count < 2 { library.show(.all); browser.reload() }
@@ -799,7 +799,7 @@ extension MainWindowController {
                 if let raw0, let dict = try? JSONSerialization.jsonObject(with: raw0) as? [String: Any] { library.saveRawSettings(dict, for: other.url) }
                 else { library.removeSettings(for: other.url) }
             }
-            // 주소로 재생
+            // play back via URL
             replaceSettings(s0, recordUndo: false, label: "시험")
             let urlOK = handleURL(URL(string: "duochrome://action?name=" + "시험 동작".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)!) && doc.settings.exposure == 0.7
             replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
@@ -809,7 +809,7 @@ extension MainWindowController {
                   "기록 \(recOK) (\(rec?.steps.count ?? 0)단계), 재생 \(played), 일괄 \(batchOK), 주소 \(urlOK)")
         }
 
-        // 미리보기만 쓰기: 대량 보정은 미리보기, 심화 보정은 원본. 내보내기는 대량 보정에서도 원본 크기
+        // Preview-only: batch edit uses previews, layer edit full size. Export is full size even from batch edit
         do {
             let bulkPO = photo?.previewOnly == true
             setMode(.studio)
@@ -818,7 +818,7 @@ extension MainWindowController {
             let backPO = photo?.previewOnly == true
             var sharpOK = false, exportOK = false
             if let d = photo {
-                // 100% 조각: 미리보기만이면 원본보다 부드럽다 (늘린 것), 원본 크기는 날카롭다 — 가장자리 세기로 비교
+                // 100% tile: preview-only is softer than full size (upscaled), full size is sharp — compared by edge strength
                 let r = CGRect(x: 3000, y: 2000, width: 256, height: 256)
                 func detail(_ img: CIImage) -> Float {
                     let e = img.cropped(to: r).applyingFilter("CIEdges", parameters: [kCIInputIntensityKey: 4])
@@ -842,7 +842,7 @@ extension MainWindowController {
                   "대량 \(bulkPO), 심화 원본 \(studioFull), 되돌아와 \(backPO), 100% 미리보기가 원본보다 부드러움 \(sharpOK), 내보내기 원본 크기 \(exportOK)")
         }
 
-        // 8. 심화 보정 모드: 같은 캔버스·같은 패널을 옮겨 붙이고, 돌아오면 되찾는가
+        // 8. Layer-edit mode: moves over the same canvas and panels, and takes them back on return
         do {
             let spots0 = doc.settings.spots.count
             setMode(.studio)
@@ -865,13 +865,13 @@ extension MainWindowController {
             st.selectTool("smartErase")
             check("심화 보정: AI 스마트 지우기 도구 (붓질을 AI로 넘김)", canvas.tool == .mask && canvas.maskOverlay.quickOverride != nil && st.options.toolID == "smartErase",
                   "캔버스 도구 \(canvas.tool)")
-            // J. 펜·패스 패널·모양·벡터 마스크·글자 (가로·세로·단락·뒤틀기·패스 위·스타일)
+            // J. Pen, Paths panel, shapes, vector masks, text (horizontal, vertical, paragraph, warp, on path, styles)
             do {
                 let N = doc.nativeSize
                 func nv(_ fx: CGFloat, _ fy: CGFloat) -> CGPoint { canvas.viewPoint(forImage: doc.toDisplay(CGPoint(x: N.width * fx, y: N.height * fy))) }
                 let o = canvas.pathOverlay
                 let paths0 = doc.settings.paths?.count ?? 0
-                // 펜: 세 점 + 첫 점 → 닫힌 패스
+                // Pen: three points + the first point → closed path
                 VectorToolState.shared.penKind = 0; VectorToolState.shared.penTarget = 0
                 st.selectTool("pen")
                 newPath()
@@ -879,25 +879,25 @@ extension MainWindowController {
                 let p1 = doc.settings.paths?.last
                 let penOK = canvas.tool == .path && (doc.settings.paths?.count ?? 0) == paths0 + 1 && p1?.closed == true && p1?.anchors.count == 3
                     && p1.map { !$0.anchors[1].isCorner } == true
-                // 직접 선택: 첫 점을 끌어 옮긴다
+                // Direct selection: drag the first point to move it
                 VectorToolState.shared.penKind = 3
                 startVectorTool("pen")
                 let a0 = doc.settings.paths?.last?.anchors.first?.point ?? .zero
                 drag(o, from: nv(0.3, 0.3), to: nv(0.25, 0.25))
                 let a1 = doc.settings.paths?.last?.anchors.first?.point ?? .zero
                 let directOK = a1.x < a0.x - N.width * 0.03
-                // 곡률 펜: 네 점을 누르고 첫 점을 누르면 닫힌 매끄러운 패스
+                // Curvature pen: click four points then the first → closed smooth path
                 VectorToolState.shared.penKind = 2
                 startVectorTool("pen"); newPath()
                 for (x, y) in [(0.55, 0.55), (0.75, 0.6), (0.7, 0.8), (0.55, 0.75)] as [(CGFloat, CGFloat)] { click(o, at: nv(x, y)) }
                 click(o, at: nv(0.55, 0.55))
                 let c = doc.settings.paths?.last
                 let curvOK = c?.closed == true && c?.anchors.count == 4 && c.map { $0.anchors.allSatisfy { !$0.isCorner } } == true
-                // 패스 패널: 선택으로 → 올가미 마스크 레이어
+                // Paths panel: make selection → lasso mask layer
                 let n0 = doc.settings.layers.count
                 pathToSelection()
                 let selOK = doc.settings.layers.count == n0 + 1 && (doc.settings.layers.last?.mask.polygon.count ?? 0) > 20
-                // 모양 도구: 끌어서 사각형 모양 레이어 → 가운데는 칠해지고 바깥은 투명
+                // Shape tool: drag a rectangle shape layer → filled inside, transparent outside
                 VectorToolState.shared.preset = .ellipse; VectorToolState.shared.customPathID = nil
                 VectorToolState.shared.fillOn = true; VectorToolState.shared.fill = [1, 0, 0]; VectorToolState.shared.strokeOn = true
                 st.selectTool("shape")
@@ -912,11 +912,11 @@ extension MainWindowController {
                     Render.context.render(img, toBitmap: &qx, rowBytes: 16, bounds: CGRect(x: N.width * k * 0.11, y: N.height * k * 0.29, width: 1, height: 1), format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
                     shapeOK = shapeOK && px[3] > 0.99 && px[0] > 0.9 && px[1] < 0.1 && qx[3] < 0.05
                 }
-                // 모양 옵션을 바꾸면 고른 모양 레이어에 걸린다
+                // Changing shape options applies to the selected shape layer
                 VectorToolState.shared.fill = [0, 0, 1]
                 applyShapeOptionsToSelection()
                 let restyled = doc.settings.layers.last?.vector?.fill == [0, 0, 1]
-                // 벡터 마스크: 고른(모양) 레이어에 곡률 패스를 벡터 마스크로
+                // Vector mask: a curvature path as the vector mask of the selected (shape) layer
                 VectorToolState.shared.pathID = c?.id
                 pathToVectorMask()
                 var vmaskOK = false
@@ -928,7 +928,7 @@ extension MainWindowController {
                     Render.context.render(m, toBitmap: &outside, rowBytes: 16, bounds: CGRect(x: N.width * k * 0.2, y: N.height * k * 0.2, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
                     vmaskOK = inside[0] > 0.9 && outside[0] < 0.1 && LayerThumbs.hasMask(l)
                 }
-                // 글자: 누르면 한 줄 글자, 끌면 단락 상자
+                // Text: click for single-line text, drag for a paragraph box
                 st.selectTool("text")
                 click(o, at: nv(0.5, 0.5))
                 let tl = doc.settings.layers.last
@@ -950,7 +950,7 @@ extension MainWindowController {
                 let box = doc.settings.layers.last?.text
                 let bImg = box.flatMap { TextRender.image($0, scale: 0.2) }
                 let boxOK = box?.boxWidth != nil && (bImg?.extent.width ?? 1e9) < (CGFloat(box?.boxWidth ?? 0) + CGFloat(box?.size ?? 0) * 1.3) * 0.2 && (bImg?.extent.height ?? 0) > CGFloat(box?.size ?? 0) * 0.2 * 2
-                // 문자 스타일 저장·입히기, 글꼴 대체
+                // save/apply character styles, font substitution
                 var t = LayerText(string: "a"); t.font = "NoSuchFont-Bold"; t.size = 77; t.tracking = 30
                 let saved = TextStyle.saved
                 TextStyle.saved = saved + [TextStyle(name: "시험", from: t)]
@@ -963,7 +963,7 @@ extension MainWindowController {
                       "펜 \(penOK), 직접 \(directOK), 곡률 \(curvOK), 선택 \(selOK), 모양 \(shapeOK)/\(restyled), 벡터 마스크 \(vmaskOK), 글자 \(textOK), 세로 \(verticalOK), 뒤틀기 \(warpOK), 패스 위 \(onPathOK), 단락 \(boxOK), 스타일 \(styleOK)")
                 enterTool(.pan)
             }
-            // L. 화면 프로파일·HDR 보기·32비트 내보내기·CMYK 내보내기·채널 분리·합치기·견본
+            // L. Display profile, HDR view, 32-bit export, CMYK export, split/merge channels, swatches
             do {
                 let s0 = doc.settings
                 let screenSpace = (canvas.window?.screen ?? NSScreen.main)?.colorSpace?.cgColorSpace
@@ -983,13 +983,13 @@ extension MainWindowController {
                 r.format = .tiff8
                 let fc = try? Exporter.export(doc, recipe: r, name: "cmyk")
                 let imgC = fc.flatMap { CGImageSourceCreateWithURL($0 as CFURL, nil) }.flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
-                // 채널: RGB로 되돌려 셋으로 나누고 다시 합친다
+                // Channels: back to RGB, split into three, then merge again
                 replaceSettings(s0, recordUndo: false, label: "시험")
                 let files = (try? writeChannels(to: dir)) ?? []
                 let n0 = doc.settings.layers.count
                 mergeChannelFiles(files)
                 let merged = doc.settings.layers.count == n0 + 1 && doc.settings.layers.last?.isImage == true
-                // 견본: 칠하기 붓 색이 된다
+                // Swatch: becomes the paint brush color
                 pickerView.swatches.onPick?([0.1, 0.2, 0.3])
                 let swatchOK = PaintBrush.current.color == [0.1, 0.2, 0.3]
                 replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
@@ -998,45 +998,45 @@ extension MainWindowController {
                       displayOK && hdrOK && img32?.bitsPerComponent == 32 && imgC?.colorSpace?.model == .cmyk && files.count == 3 && merged && swatchOK,
                       "화면 \(displayOK), HDR \(hdrOK) (EDR 화면 \(edrScreen)), 32비트 \(img32?.bitsPerComponent ?? 0), CMYK \(imgC?.colorSpace?.model == .cmyk), 채널 \(files.count), 합치기 \(merged), 견본 \(swatchOK)")
             }
-            // O. 눈금자·안내선·스냅·측정·계수·초점 확인·작업 공간·레이어 종류 거르기
+            // O. Rulers, guides, snapping, measure, count, focus loupe, workspaces, layer kind filter
             do {
                 let s0 = doc.settings
                 let size = doc.pixelSize
                 canvas.showRulers = true
                 let rulersOK = !canvas.rulerTop.isHidden && canvas.rulerTop.frame.height == RulerView.thickness
-                // 눈금자에서 끌어 세로 안내선 (사진 가운데)
+                // drag from the ruler for a vertical guide (photo center)
                 guideDragged(vertical: true, at: size.width * 0.4, dragging: true)
                 let pendingOK = canvas.guidesOverlay.pending != nil
                 guideDragged(vertical: true, at: size.width * 0.4, dragging: false)
-                guideDragged(vertical: false, at: -50, dragging: false)   // 사진 밖에 놓으면 안 만든다
+                guideDragged(vertical: false, at: -50, dragging: false)   // not created when dropped outside the photo
                 let guidesOK = pendingOK && doc.settings.guidesV?.count == 1 && doc.settings.guidesH == nil && canvas.guidesOverlay.vertical.count == 1
-                // 스냅: 안내선 근처 점이 붙는다
+                // Snapping: a point near a guide snaps
                 UserDefaults.standard.set(true, forKey: "view.snap")
                 let near = doc.toNative(CGPoint(x: size.width * 0.4 + 2 / max(canvas.zoom, 0.01), y: size.height * 0.3))
                 let snapped = doc.toDisplay(snapNative(near))
                 let snapOK = abs(snapped.x - size.width * 0.4) < 0.5
-                // 측정
+                // measure
                 startMeasure()
                 canvas.guidesOverlay.onMeasure?(CGPoint(x: 100, y: 100), CGPoint(x: 400, y: 500), false)
                 let measureOK = canvas.guidesOverlay.tool == .measure && GuidesOverlayView.measureText(CGPoint(x: 100, y: 100), CGPoint(x: 400, y: 500)).contains("500.0 px")
-                // 계수: 둘 찍고 ⌥로 하나 지우기
+                // Count: place two and remove one with ⌥
                 startCount()
                 canvas.guidesOverlay.onCount?(CGPoint(x: 200, y: 200), false)
                 canvas.guidesOverlay.onCount?(CGPoint(x: 800, y: 600), false)
                 canvas.guidesOverlay.onCount?(CGPoint(x: 801, y: 601), true)
                 let countOK = doc.settings.countMarks?.count == 2 && canvas.guidesOverlay.counts.count == 1
                 canvas.guidesOverlay.tool = .none
-                // 초점 확인: 100% 조각
+                // focus loupe: 100% tile
                 let loupe = FocusLoupe()
                 let loupeOK = loupe.show(doc, at: CGPoint(x: size.width / 2, y: size.height / 2))
-                // 작업 공간 저장·적용
+                // save/apply workspace
                 let right0 = split.showsRight
                 saveWorkspace("시험 공간")
                 split.showsRight = !right0
                 applyWorkspace("시험 공간")
                 let wsOK = split.showsRight == right0 && MainWindowController.workspaces["시험 공간"] != nil
                 var ws = MainWindowController.workspaces; ws["시험 공간"] = nil; MainWindowController.workspaces = ws
-                // 레이어 종류 거르기: 모양만
+                // layer kind filter: shapes only
                 var st = doc.settings
                 var shapeL = AdjustLayer(name: "거르기 모양"); shapeL.kind = "shape"; shapeL.vector = VectorShape(path: .preset(.rect, in: CGRect(x: 10, y: 10, width: 50, height: 50)))
                 st.layers.append(shapeL)
@@ -1057,7 +1057,7 @@ extension MainWindowController {
                       rulersOK && guidesOK && snapOK && measureOK && countOK && loupeOK && wsOK && filterOK,
                       "눈금자 \(rulersOK), 안내선 \(guidesOK), 스냅 \(snapOK), 측정 \(measureOK), 계수 \(countOK), 초점 \(loupeOK), 작업 공간 \(wsOK), 거르기 \(filterOK) (\(rows)줄)")
             }
-            // Q. 배치 도구(크기·회전·가운데), 프리셋 보기, 반반 비교, 사진 탭
+            // Q. Arrange tool (size, rotation, center), preset view, split compare, photo tabs
             do {
                 let s0 = doc.settings
                 var st = doc.settings
@@ -1079,12 +1079,12 @@ extension MainWindowController {
                 arrangeOptions.perform(Selector(("centerH")))
                 let mid = doc.toNative(CGPoint(x: doc.pixelSize.width / 2, y: doc.pixelSize.height / 2))
                 let centerOK = abs(bounds().midX - mid.x) < 1
-                // 프리셋 보기 (앞 시험에서 저장한 스타일)
+                // preset view (styles saved in earlier tests)
                 studioMode.selectTool("adjust")
                 let hasStyle = !MainWindowController.styleNames().isEmpty
                 let preview = MainWindowController.styleNames().first.flatMap { stylePreview($0) }
                 let presetOK = !hasStyle || (preview != nil && inspector.view.isDescendant(of: adjustContainer))
-                // 반반 비교
+                // split compare
                 let split0 = canvas.splitCompare
                 studioMode.options.onSplit?()
                 let splitOK = canvas.splitCompare != split0
@@ -1108,8 +1108,8 @@ extension MainWindowController {
             var s = doc.settings; s.spots.removeLast(); apply(s, dragging: false)
         }
 
-        // 5-1. 컬러 에디터 스포이트: 하늘(왼쪽 위)을 집으면 파란 범위가 하나 더해진다
-        // 앞 시험의 키스톤·회전·크롭을 되돌려 하늘 자리가 원래대로 오게 한다.
+        // 5-1. Color editor eyedropper: picking the sky (top left) adds one blue range
+        // Undo the previous test's keystone/rotation/crop so the sky is back in place.
         var flat = doc.settings
         flat.adoptGeometry(from: doc.asShot)
         inspector.adoptGeometry(flat)
@@ -1127,7 +1127,7 @@ extension MainWindowController {
         check("스킨 톤 스포이트", doc.settings.color.skin.enabled && doc.settings.color.skin.hueAmount > 0,
               String(format: "기준 색조 %.0f°, 채도 %.2f", doc.settings.color.skin.hue, doc.settings.color.skin.sat))
 
-        // 5-2. 새 컬러 에디터: 고급 탭에 더한 범위가 고른 상태, 목록 체크를 끄면 계산에서 빠짐, 색조 분포, 범위 보기
+        // 5-2. New color editor: a range added in the advanced tab is selected, unchecking it in the list drops it from computation, hue distribution, range view
         do {
             let ed = inspector.colorEditor
             let last = doc.settings.color.editor.count - 1
@@ -1144,13 +1144,13 @@ extension MainWindowController {
             var px = [Float](repeating: 0, count: 4)
             let r = CGRect(x: small.extent.midX, y: small.extent.midY, width: 1, height: 1)
             Render.context.render(viewed, toBitmap: &px, rowBytes: 16, bounds: r, format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-            // 가운데(콘크리트 벽)는 파란 범위 밖 → 회색
+            // The center (concrete wall) is outside the blue range → gray
             let grayOK = abs(px[0] - px[1]) < 0.02 && abs(px[1] - px[2]) < 0.02
             check("컬러 에디터 (고급 범위·체크 끄기·색조 분포·범위 보기)", selectedOK && offOK && onOK && bins.contains { $0 > 0 } && grayOK,
                   "고른 범위 \(selectedOK), 끄기 \(offOK)/\(onOK), 분포 \(bins.filter { $0 > 0 }.count)칸, 범위 밖 회색 \(grayOK)")
         }
 
-        // 6. 리터칭: 누르면 점, 끌면 붓질, 흰 원 끌어 옮기기, Delete로 지우기
+        // 6. Retouching: click for a spot, drag for a stroke, drag the white circle to move, Delete to remove
         tools.select(tools.index(of: "리터칭"))
         canvas.layoutSubtreeIfNeeded()
         let ro = canvas.retouchOverlay
@@ -1159,11 +1159,11 @@ extension MainWindowController {
         check("리터칭 점 찍기", doc.settings.spots.count == n0 + 1 && !(doc.settings.spots.last?.isStroke ?? true),
               "점 \(doc.settings.spots.count)개")
         let spot = doc.settings.spots.last!
-        // 리터칭 점은 원본 좌표다. 크롭·회전을 거친 화면 좌표로 바꿔서 누른다.
+        // Retouch spots are in source coordinates. Click at view coordinates mapped through crop/rotation.
         let from = canvas.viewPoint(forImage: doc.toDisplay(spot.target))
         drag(ro, from: from, to: CGPoint(x: from.x + 40, y: from.y))
         let moved = doc.settings.spots.last!
-        // 기대값: 끈 거리(뷰 40pt)를 같은 좌표 변환으로 원본 좌표로 바꾼 것 (회전 확대·크롭 반영)
+        // Expected: the drag distance (40 pt in view) converted to source coordinates with the same mapping (rotation scale and crop included)
         let want = doc.toNative(canvas.imagePoint(at: CGPoint(x: from.x + 40, y: from.y)))
         check("리터칭 점 옮기기", hypot(moved.targetX - want.x, moved.targetY - want.y) < 3,
               String(format: "(%.0f, %.0f) → (%.0f, %.0f), 기대 (%.0f, %.0f)", spot.targetX, spot.targetY,
@@ -1175,7 +1175,7 @@ extension MainWindowController {
         key(ro, code: 51)
         check("고른 점 Delete로 지우기", doc.settings.spots.count == n0 + 1, "남은 점 \(doc.settings.spots.count)개")
 
-        // 6-1. 패치: 올가미를 두르면 닫힌 패치가 생기고, 초록 올가미(원본)를 끌면 원본만 옮겨진다
+        // 6-1. Patch: drawing a lasso makes a closed patch; dragging the green lasso (source) moves only the source
         retouch.brush.patch = true
         let lasso = [v(W * 0.3, H * 0.3), v(W * 0.36, H * 0.3), v(W * 0.36, H * 0.36), v(W * 0.3, H * 0.36), v(W * 0.3, H * 0.305)]
         ro.mouseDown(with: event(.leftMouseDown, ro, lasso[0]))
@@ -1193,7 +1193,7 @@ extension MainWindowController {
                      patch.offset.x, patch.offset.y, patched.offset.x, patched.offset.y))
         retouch.brush.patch = false
 
-        // 7. 마스크: 브러시 레이어에 칠하기, 선형 레이어 끌기
+        // 7. Masks: paint on a brush layer, drag a linear layer
         tools.select(tools.index(of: "레이어"))
         layersTab.addLayer(.brush, native: doc.nativeSize)
         enterTool(.mask)
@@ -1207,7 +1207,7 @@ extension MainWindowController {
         drag(canvas.maskOverlay, from: v(W * 0.5, H * 0.9), to: v(W * 0.5, H * 0.5))
         let lin = doc.settings.layers.last?.mask.linear ?? []
         check("선형 그라디언트 끌기", lin.count == 4 && lin[1] > lin[3], String(format: "시작 y %.0f → 끝 y %.0f", lin[1], lin[3]))
-        // 7-1. 잠금: 잠긴 레이어에는 칠해지지 않는다
+        // 7-1. Lock: locked layers can't be painted
         var locked = doc.settings
         locked.layers[locked.layers.count - 2].locked = true
         replaceSettings(locked, recordUndo: true, label: "시험: 잠금")
@@ -1216,7 +1216,7 @@ extension MainWindowController {
         drag(canvas.maskOverlay, from: v(W * 0.2, H * 0.4), to: v(W * 0.4, H * 0.4), steps: 5)
         check("잠긴 레이어에 칠하기 막기", doc.settings.layers[locked.layers.count - 2].mask.strokes.count == beforeLock,
               "붓질 \(beforeLock)개 그대로")
-        // 7-2. [ ] 로 붓 크기
+        // 7-2. brush size with [ ]
         let r0 = layersTab.brushRadius
         brushLarger(nil); brushLarger(nil)
         check("] 두 번 붓 크게", abs(layersTab.brushRadius - r0 * 1.5625) < 0.5,
@@ -1224,7 +1224,7 @@ extension MainWindowController {
         brushSmaller(nil); brushSmaller(nil)
         enterTool(.pan)
 
-        // 8. 작업 내역: 되돌리기·다시 실행·특정 시점으로
+        // 8. History: undo, redo, jump to a point
         let count = history.labels.count
         let last = doc.settings
         undoAdjust(nil)
@@ -1235,7 +1235,7 @@ extension MainWindowController {
         check("내역 첫 줄로 가기", doc.settings == doc.asShot || history.index == 0, "지금 \(history.index)번째 · \(history.labels.prefix(5).joined(separator: " / "))")
         historyTab.onJump?(count - 1)
 
-        // 9. 골라 붙이기: 화이트 밸런스만
+        // 9. Selective paste: white balance only
         var src = doc.settings
         src.temperature = 3200; src.exposure = 1.7
         let keepExposure = doc.settings.exposure
@@ -1243,7 +1243,7 @@ extension MainWindowController {
         check("골라 붙이기 (화이트 밸런스만)", doc.settings.temperature == 3200 && doc.settings.exposure == keepExposure,
               String(format: "색온도 %.0f, 노출 %.2f (그대로 %.2f)", doc.settings.temperature, doc.settings.exposure, keepExposure))
 
-        // 8-10. 자동 정렬·혼합 레이어: 사진을 옮긴 이미지 레이어를 제자리로, 그리고 마스크
+        // 8-10. Auto-align/blend layers: move a shifted image layer back into place, and masks
         do {
             var s0 = doc.settings
             s0.layers = []
@@ -1266,7 +1266,7 @@ extension MainWindowController {
             replaceSettings(s0, recordUndo: true)
         }
 
-        // 8-11. 변형: 점 층을 거쳐 기울이기·뒤틀기·퍼펫·원근 자르기·유동화
+        // 8-11. Transforms: skew, warp, puppet, perspective crop, liquify through the point layer
         do {
             var s0 = doc.settings
             s0.layers = []
@@ -1278,48 +1278,48 @@ extension MainWindowController {
                 layersTab.select(l.id)
                 let o = canvas.pointsOverlay
                 var notes: [String] = []
-                // 왜곡: 오른위 모서리를 안쪽으로
+                // distort: top-right corner inward
                 distortLayer(nil)
                 o.onChange?(2, CGPoint(x: n.width * 0.8, y: n.height * 0.85), false); o.onCommit?()
                 if doc.settings.layers.last?.image?.quad?.count != 8 { notes.append("왜곡") }
-                // 원근: 오른아래를 옮기면 왼아래가 거울로
+                // perspective: moving bottom right mirrors bottom left
                 perspectiveLayer(nil)
                 let q0 = doc.settings.layers.last?.image?.quad ?? []
                 o.onChange?(1, CGPoint(x: q0[2] - 200, y: q0[3]), false); o.onCommit?()
                 let q1 = doc.settings.layers.last?.image?.quad ?? []
                 if !(q1.count == 8 && abs(q1[0] - (q0[0] + 200)) < 1) { notes.append("원근 \(q0.prefix(4)) → \(q1.prefix(4))") }
-                // 뒤틀기: 가운데 점 하나
+                // warp: one center point
                 warpLayer(nil)
                 o.onChange?(5, CGPoint(x: n.width * 0.45, y: n.height * 0.4), false); o.onCommit?()
                 if doc.settings.layers.last?.image?.mesh?.count != 32 { notes.append("뒤틀기") }
-                // 퍼펫: 핀 둘, 하나 옮기기
+                // puppet: two pins, move one
                 puppetWarp(nil)
                 o.onAdd?(CGPoint(x: n.width * 0.3, y: n.height * 0.5)); o.onAdd?(CGPoint(x: n.width * 0.7, y: n.height * 0.5))
                 o.onChange?(1, CGPoint(x: n.width * 0.7, y: n.height * 0.6), false); o.onCommit?()
                 if (doc.settings.layers.last?.image?.pins?.count ?? 0) != 8 { notes.append("퍼펫 \(doc.settings.layers.last?.image?.pins ?? [])") }
-                // 그림이 비지 않았나
+                // image not empty
                 let e = doc.image(scale: 1.0 / 8)
                 var avg = [Float](repeating: 0, count: 4)
                 Render.context.render(e.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: e.extent)]), toBitmap: &avg, rowBytes: 16,
                                       bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
                 if !(avg[0] > 0.01) { notes.append("그림 비었음") }
-                // 유동화 붓질
+                // liquify stroke
                 liquify(tool: 1)
                 o.onStroke?([CGPoint(x: n.width * 0.5, y: n.height * 0.5)], []); o.onCommit?()
                 if (doc.settings.layers.last?.liquify?.count ?? 0) != 1 { notes.append("유동화") }
-                // 원근 자르기
+                // perspective crop
                 perspectiveCrop(nil)
                 let f = doc.frameSize
                 o.onChange?(2, CGPoint(x: f.width * 0.85, y: f.height * 0.95), false); o.onCommit?()
                 if doc.settings.perspective?.count != 8 || doc.pixelSize.width >= f.width { notes.append("원근 자르기 \(doc.pixelSize)") }
                 clearPerspectiveCrop(nil)
-                // 소실점 복제: 평면 안에서 옮긴 조각이 레이어로
+                // Vanishing point clone: a patch moved within the plane becomes a layer
                 let plane = [CGPoint(x: n.width * 0.2, y: n.height * 0.2), CGPoint(x: n.width * 0.8, y: n.height * 0.25),
                              CGPoint(x: n.width * 0.8, y: n.height * 0.75), CGPoint(x: n.width * 0.2, y: n.height * 0.8)]
                 let cnt = doc.settings.layers.count
                 vanishingClone(from: CGPoint(x: n.width * 0.3, y: n.height * 0.5), to: CGPoint(x: n.width * 0.6, y: n.height * 0.5), plane: plane, radius: 200)
                 if doc.settings.layers.count != cnt + 1 || doc.settings.layers.last?.mask.kind != .polygon { notes.append("소실점") }
-                // 캔버스 크기 → 다듬기: 투명 여백을 더했다가 잘라 낸다
+                // Canvas size → trim: add a transparent margin, then trim it away
                 var sp = doc.settings; sp.layers = []; sp.canvasPad = [0.1, 0.1, 0.1, 0.1]
                 replaceSettings(sp, recordUndo: true)
                 let padded = doc.pixelSize
@@ -1331,7 +1331,7 @@ extension MainWindowController {
             replaceSettings(s0, recordUndo: true)
         }
 
-        // 8-12. 칠하기
+        // 8-12. Painting
         do {
             var s0 = doc.settings; s0.layers = []
             replaceSettings(s0, recordUndo: true)
@@ -1343,25 +1343,25 @@ extension MainWindowController {
             o.onStroke?([CGPoint(x: n.width * 0.2, y: n.height * 0.5), CGPoint(x: n.width * 0.8, y: n.height * 0.5)], [])
             o.onCommit?()
             if doc.settings.layers.last?.kind != "paint" || doc.settings.layers.last?.paint?.count != 1 { notes.append("칠하기") }
-            // 칠 레이어 안에서 지우개
+            // eraser inside a paint layer
             startPainting(mode: 1)
             o.onStroke?([CGPoint(x: n.width * 0.5, y: n.height * 0.5)], []); o.onCommit?()
             if doc.settings.layers.last?.paint?.last?.brush.mode != 1 { notes.append("칠 레이어 지우개") }
-            // 이미지 레이어에서 지우개 → 마스크
+            // eraser on an image layer → mask
             if let img = rasterize([], withPhoto: true), let l = imageLayer(from: img, name: "지울 그림") {
                 var s1 = doc.settings; s1.layers.append(l); replaceSettings(s1, recordUndo: true); layersTab.select(l.id)
                 paintStroke([CGPoint(x: n.width * 0.3, y: n.height * 0.3)], pressures: [1], erase: true)
                 if doc.settings.layers.last?.mask.brushWhite != true || doc.settings.layers.last?.mask.strokes.last?.erase != true { notes.append("마스크 지우개") }
-                // 배경 지우개: 누른 색과 비슷한 곳
+                // background eraser: areas similar to the clicked color
                 layersTab.brushRadius = 300
                 backgroundErase([CGPoint(x: n.width * 0.05, y: n.height * 0.9), CGPoint(x: n.width * 0.1, y: n.height * 0.9)])
                 if doc.settings.layers.last?.mask.kind != .image { notes.append("배경 지우개") }
             }
-            // 작업 내역 브러시
+            // history brush
             let cnt = doc.settings.layers.count
             historyBrush(nil)
             if doc.settings.layers.count != cnt + 1 || doc.settings.layers.last?.mask.kind != .brush { notes.append("작업 내역 브러시") }
-            // 적목: 빨간 점을 가진 칠 레이어 위에서
+            // red-eye: over a paint layer with a red dot
             var sr = doc.settings; sr.layers = []
             var red = AdjustLayer(name: "빨간 눈"); red.kind = "fill"; red.fillColor = [0.9, 0.05, 0.05]
             red.mask = LayerMask(kind: .ellipse, box: [n.width * 0.5 - 40, n.height * 0.5 - 40, n.width * 0.5 + 40, n.height * 0.5 + 40])
@@ -1369,17 +1369,17 @@ extension MainWindowController {
             replaceSettings(sr, recordUndo: true)
             fixRedEye(at: CGPoint(x: n.width * 0.5, y: n.height * 0.5), radius: 120)
             if doc.settings.layers.last?.name != "적목 현상 제거" { notes.append("적목") }
-            // 페인트 통
+            // paint bucket
             paintBucket(at: CGPoint(x: n.width * 0.05, y: n.height * 0.9))
             if doc.settings.layers.last?.name != "페인트 통" || doc.settings.layers.last?.mask.kind != .image { notes.append("페인트 통") }
             check("칠하기 도구", notes.isEmpty, notes.isEmpty ? "칠하기·지우개(칠·마스크)·배경 지우개·작업 내역 브러시·적목·페인트 통" : notes.joined(separator: " / "))
             replaceSettings(s0, recordUndo: true)
         }
 
-        // Q. 사진 탭 (다른 사진을 열어 문서가 바뀌므로 맨 끝에서)
+        // Q. Photo tabs (last, since opening another photo changes the document)
         do {
             setMode(.studio)
-            // 사진 탭: 다른 사진을 열면 탭이 둘, 앞 탭을 누르면 돌아온다
+            // Photo tabs: opening another photo makes two tabs; clicking the first tab returns
             var tabsOK = false
             let first = photoItem
             if library.items.count < 2 { library.show(.all); browser.reload() }
@@ -1399,7 +1399,7 @@ extension MainWindowController {
         exit(failures == 0 ? 0 : 1)
     }
 
-    // MARK: 사건 만들기
+    // MARK: Synthesizing events
 
     private func event(_ type: NSEvent.EventType, _ view: NSView, _ p: CGPoint, clicks: Int = 1,
                        flags: NSEvent.ModifierFlags = []) -> NSEvent {

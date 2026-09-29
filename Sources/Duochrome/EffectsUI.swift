@@ -1,12 +1,12 @@
 import AppKit
 
-/// 레이어 효과 편집기: 효과 더하기(분류별 메뉴), 효과마다 켜기·순서·지우기와 값 슬라이더.
-/// 대량 보정 레이어 탭의 "효과" 카드와 심화 보정 효과 도구의 옵션 패널에서 같이 쓴다.
+/// Layer effects editor: add effects (menu by category), per-effect enable/order/delete, and value sliders.
+/// Shared by the "Effects" card in the batch-edit layers tab and the layer-edit effects tool options panel.
 final class EffectsEditor: NSStackView {
-    /// (새 효과 목록, 끄는 중인지)
+    /// (new effect list, dragging)
     var onChange: (([LayerEffect], Bool) -> Void)?
     private(set) var effects: [LayerEffect] = []
-    private var structure: [String] = []           // 줄 구성 (id·종류) — 같으면 값만 바꾼다
+    private var structure: [String] = []           // Row structure (id, kind) — if unchanged, only update values
     private var rows: [String: [String: SliderRow]] = [:]
     private var switches: [String: NSSwitch] = [:]
     private var expanded: Set<String> = []
@@ -40,7 +40,7 @@ final class EffectsEditor: NSStackView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 밖에서 목록을 넣는다 (레이어를 고르거나 값이 바뀌었을 때)
+    /// Sets the list from outside (when a layer is selected or values changed)
     func show(_ list: [LayerEffect]) {
         effects = list
         let s = list.map { "\($0.id):\($0.kind)" }
@@ -155,8 +155,8 @@ final class EffectsEditor: NSStackView {
     }
 }
 
-/// 효과 고르기 창 (심화 보정 효과 도구): 분류별로 지금 사진에 건 작은 미리보기.
-/// 누르면 고른 레이어에 효과를 더한다.
+/// Effect picker (layer-edit effects tool): small previews applied to the current photo, by category.
+/// Clicking adds the effect to the selected layer.
 final class EffectsBrowser: NSStackView {
     var onPick: ((String) -> Void)?
     private let categoryPopup = NSPopUpButton()
@@ -185,7 +185,7 @@ final class EffectsBrowser: NSStackView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 미리보기에 쓸 그림 (지금 사진을 작게)
+    /// Image used for previews (current photo, downscaled)
     func setSource(_ img: CIImage?) {
         source = img.map { i in
             let k = 96 / max(i.extent.width, i.extent.height)
@@ -220,7 +220,7 @@ final class EffectsBrowser: NSStackView {
 
     private func preview(_ s: EffectSpec) -> NSImage? {
         guard let src = source else { return nil }
-        // 작은 그림에서도 차이가 보이게 반경을 크게 잡는다 (실제 사진 배율보다 과장된 미리보기)
+        // Use a large radius so differences show on a small image (exaggerated compared to the real photo scale)
         let out = Effects.apply([LayerEffect(kind: s.kind)], src, scale: 0.12)
         guard let cg = Render.context.createCGImage(out, from: src.extent.integral, format: .RGBA8, colorSpace: Render.displaySpace) else { return nil }
         return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))

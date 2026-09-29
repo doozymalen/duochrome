@@ -2,7 +2,7 @@ import AppKit
 import CoreImage
 import ImageIO
 
-// MARK: - 합치기 명령 (사진 → 합치기)
+// MARK: - Merge commands (Photo → Merge)
 
 extension MainWindowController {
     enum MergeKind { case hdr, panorama(Merge.Projection), focus, median, mean }
@@ -48,7 +48,7 @@ extension MainWindowController {
                 var result: CIImage?
                 switch kind {
                 case .hdr:
-                    // 가운데 노출을 기준으로 맞추고 합친다
+                    // Align to the middle exposure and merge
                     let order = frames.indices.sorted { frames[$0].exposure < frames[$1].exposure }
                     let ref = order[order.count / 2]
                     let aligned = Merge.alignAll(frames, reference: ref, exposureAware: true)
@@ -85,13 +85,13 @@ extension MainWindowController {
         }
     }
 
-    // MARK: - 자동 정렬 레이어·자동 혼합 레이어
+    // MARK: - Auto-align layers · auto-blend layers
 
     private var imageLayerIDs: [String] {
         (photo?.settings.layers ?? []).filter { $0.isImage && $0.image != nil }.map(\.id)
     }
 
-    /// 이미지 레이어들을 배경(사진)에 맞춘다: 호모그래피를 옮김·회전·크기로 근사해 레이어 자리에 적는다
+    /// Aligns image layers to the background (photo): approximates the homography as move/rotate/scale and writes it to the layer position
     @objc func autoAlignLayers(_ sender: Any?) {
         guard let doc = photo, var s = photo?.settings, !imageLayerIDs.isEmpty else { NSSound.beep(); return }
         let n = doc.nativeSize
@@ -102,7 +102,7 @@ extension MainWindowController {
             var solo = s.layers[i]; solo.mask = LayerMask(); solo.opacity = 1; solo.blend = "normal"; solo.group = nil; solo.clipped = false; solo.enabled = true
             guard let content = rasterize([solo], withPhoto: false),
                   let h = Merge.align(content.composited(over: CIImage(color: .black).cropped(to: CGRect(origin: .zero, size: n))), to: bg) else { continue }
-            // 레이어 가운데와 가로 한 점이 어디로 가는지로 옮김·회전·크기를 구한다
+            // Derive move/rotate/scale from where the layer center and one horizontal point go
             let c = CGPoint(x: im.cx, y: im.cy)
             let rx = CGPoint(x: im.cx + 100, y: im.cy)
             let c2 = Merge.apply(h, c), r2 = Merge.apply(h, rx)
@@ -119,8 +119,8 @@ extension MainWindowController {
         window?.subtitle = "자동 정렬: 레이어 \(moved)개"
     }
 
-    /// 자동 혼합: 쌓기(가장 선명한 곳) 또는 파노라마(가장자리를 부드럽게 이어 붙이기)로 레이어마다 마스크를 만든다.
-    /// 위로 쌓이는 순서라 마스크 = 이 레이어 무게 ÷ (아래 모든 무게 + 이 무게)이면 결과가 무게 평균이 된다.
+    /// Auto blend: builds a mask per layer for stacking (sharpest areas) or panorama (edges blended smoothly).
+    /// Layers stack upward, so mask = this weight ÷ (all weights below + this weight) yields a weighted average.
     @objc func autoBlendLayers(_ sender: Any?) {
         guard let doc = photo, var s = photo?.settings, !imageLayerIDs.isEmpty else { NSSound.beep(); return }
         let a = NSAlert()
@@ -143,7 +143,7 @@ extension MainWindowController {
             contents.append(small(rasterize([solo], withPhoto: false) ?? CIImage(color: .clear).cropped(to: rect)))
         }
         let sr = CGRect(x: 0, y: 0, width: (n.width * k).rounded(), height: (n.height * k).rounded())
-        // 무게: 쌓기는 선명도^4 × 알파, 파노라마는 알파를 흐려 가장자리로 갈수록 작게
+        // Weights: stacking uses sharpness^4 × alpha; panorama blurs alpha so it shrinks toward edges
         let weights: [CIImage] = contents.map { c in
             let alpha = LayerStyles.alphaGray(c)
             if stack {
@@ -173,12 +173,12 @@ extension MainWindowController {
 }
 
 extension Merge {
-    /// 무게 비 (마스크)
+    /// Weight ratio (mask)
     static let ratioK = CIColorKernel(source: """
         kernel vec4 k(__sample w, __sample c) { float v = c.r > 1e-5 ? clamp(w.r / c.r, 0.0, 1.0) : 0.0; return vec4(v, v, v, 1.0); }
         """)
 
-    /// 선명도 무게 지도 (초점 스태킹과 같은 것)
+    /// Sharpness weight map (same as focus stacking)
     static func focusWeights(_ img: CIImage, scale: CGFloat) -> CIImage {
         let g = img.applyingFilter("CILinearToSRGBToneCurve")
         let lap = g.applyingFilter("CIConvolution3X3", parameters: ["inputWeights": CIVector(values: [0, 1, 0, 1, -4, 1, 0, 1, 0], count: 9), "inputBias": 0.5])
@@ -189,17 +189,17 @@ extension Merge {
     static let powK = CIColorKernel(source: "kernel vec4 k(__sample s) { float v = pow(s.r * 20.0, 4.0) + 1e-6; return vec4(v, v, v, 1.0); }")
 }
 
-// MARK: - LCC (평면 보정: 색 편차·빛 균일화·먼지)
+// MARK: - LCC (flat-field correction: color cast, light falloff, dust)
 
 enum LCC {
-    struct Profile: Codable, Equatable { var name: String; var file: String; var dust: [Double] }   // dust: x, y, 반지름 (원본 좌표) 반복
+    struct Profile: Codable, Equatable { var name: String; var file: String; var dust: [Double] }   // dust: x, y, radius (source coordinates) repeated
 
     static var profiles: [Profile] {
         get { (UserDefaults.standard.data(forKey: "lcc.profiles").flatMap { try? JSONDecoder().decode([Profile].self, from: $0) }) ?? [] }
         set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "lcc.profiles") }
     }
 
-    /// LCC 사진(흰 확산판을 대고 찍은 것) → 가운데 기준 비율 지도(선형, 부동소수 TIFF)와 먼지 자리
+    /// LCC photo (shot through a white diffuser) → ratio map relative to the center (linear, float TIFF) and dust positions
     static func make(from doc: RawDocument) -> Profile? {
         var s = doc.asShot
         s.filmCurve = 0; s.look = 0
@@ -210,7 +210,7 @@ enum LCC {
         doc.settings = saved
         let e = img.extent
         let smooth = img.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 12]).cropped(to: e)
-        // 가운데 값으로 나눈다
+        // divide by the center value
         let c = CGRect(x: e.midX - 8, y: e.midY - 8, width: 16, height: 16)
         var px = [Float](repeating: 0, count: 4)
         let avg = smooth.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: c)])
@@ -223,7 +223,7 @@ enum LCC {
         let r = CGRect(origin: .zero, size: e.size)
         guard let cg = Render.context.createCGImage(map, from: r, format: .RGBAh, colorSpace: Render.workingSpace),
               let file = PSDImport.writeImage(cg, float: true) else { return nil }
-        // 먼지: 1/4 해상도에서 둘레보다 3% 넘게 어두운 작은 점
+        // Dust: small spots more than 3% darker than their surroundings at 1/4 resolution
         let dimg = doc.nativePreview(scale: 0.25)
         var ds = doc.asShot; ds.filmCurve = 0
         let de = dimg.extent
@@ -238,7 +238,7 @@ enum LCC {
         for y in stride(from: 4, to: h - 4, by: 1) { for x in stride(from: 4, to: w - 4, by: 1) {
             let i = y * w + x
             guard !taken[i], b[i * 4] > 0.02, a[i * 4] < b[i * 4] * 0.97 else { continue }
-            // 작은 덩어리만 (넓게 어두운 것은 빛 차이)
+            // Small blobs only (broad dark areas are light falloff)
             var cnt = 0, sx = 0, sy = 0
             for yy in max(0, y - 10) ..< min(h, y + 10) { for xx in max(0, x - 10) ..< min(w, x + 10) {
                 let j = yy * w + xx
@@ -253,7 +253,7 @@ enum LCC {
         return Profile(name: doc.url.deletingPathExtension().lastPathComponent, file: file, dust: dust)
     }
 
-    /// 사진에 건다 (원본 좌표, 형태 보정 전). mode: 1 색 편차, 2 빛 균일화
+    /// Applies to a photo (source coordinates, before geometry). mode: 1 color cast, 2 light uniformity
     static func apply(_ img: CIImage, file: String, mode: Int, scale: CGFloat) -> CIImage {
         guard let map = Layers.sourceImage(file), map.extent.width > 0 else { return img }
         let e = img.extent
@@ -304,7 +304,7 @@ extension MainWindowController {
         let mode = (color.state == .on ? 1 : 0) | (light.state == .on ? 2 : 0)
         for item in targetItems {
             func edit(_ s: inout DevelopSettings) {
-                s.spots.removeAll { $0.opacity == 0.999 }   // 전에 넣은 LCC 먼지 점
+                s.spots.removeAll { $0.opacity == 0.999 }   // LCC dust spots added earlier
                 s.lcc = prof?.file
                 s.lccMode = prof == nil ? nil : mode
                 if let p = prof, dust.state == .on {

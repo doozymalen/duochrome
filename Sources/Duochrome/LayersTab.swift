@@ -1,11 +1,11 @@
 import AppKit
 
-/// 레이어 탭: 조정 레이어 목록(위가 위 레이어), 고른 레이어의 혼합·불투명도·마스크·조정.
-/// 마스크는 커서 도구의 마스크(B)로 캔버스에서 그린다.
+/// Layers tab: adjustment layer list (top is the top layer), blend/opacity/mask/adjustments of the selected layer.
+/// Masks are painted on the canvas with the cursor tool's mask (B).
 final class LayersTabController: NSViewController {
     var current: (() -> DevelopSettings?)?
     var onChange: ((DevelopSettings, Bool) -> Void)?
-    /// 고른 레이어가 바뀌었을 때 (마스크 보기·캔버스 도구가 따라온다).
+    /// When the selected layer changes (mask view and canvas tool follow).
     var onSelect: ((String?) -> Void)?
     var onShowMask: ((Bool) -> Void)?
 
@@ -15,7 +15,7 @@ final class LayersTabController: NSViewController {
     var brushFlow: Double = 1
     var erase = false
 
-    /// 레이어 목록 (끌어서 순서·그룹 바꾸기, Finder 그림 놓기 — DragDrop.swift)
+    /// Layer list (drag to reorder/regroup, drop Finder images — DragDrop.swift)
     let dropList = LayerDropList()
     private var list: FlippedStackView { dropList }
     private let detail = FlippedStackView()
@@ -28,12 +28,12 @@ final class LayersTabController: NSViewController {
     private let rotRow = SliderRow(label: "회전", min: -180, max: 180, format: "%+.1f°")
     private var placeCard: Card!
     private var listCard: Card!
-    /// 심화 보정 모드에서는 왼쪽 레이어 패널이 목록을 보여 주므로 이 탭의 목록은 숨긴다.
+    /// In layer-edit mode the left layers panel shows the list, so this tab's list is hidden.
     var listHidden = false { didSet { if isViewLoaded { listCard.isHidden = listHidden } } }
     private var adjustCard: Card!
-    /// 이미지 레이어 파일 고르기 창을 띄운다 (창이 있는 쪽에서).
+    /// Shows the file picker for image layers (from the window side).
     var onPlaceImage: (() -> Void)?
-    /// 레이어 우클릭 메뉴 (nil = 배경)
+    /// Layer context menu (nil = background)
     var rowMenu: ((String?) -> NSMenu)?
     private let maskKind = NSTextField(labelWithString: "")
     private let invert = NSButton(checkboxWithTitle: "마스크 반전", target: nil, action: nil)
@@ -53,21 +53,21 @@ final class LayersTabController: NSViewController {
     private var radialViews: [NSView] = []
     private var adjustRows: [(WritableKeyPath<LocalAdjust, Float>, SliderRow)] = []
     private var detailCards: [Card] = []
-    /// 레이어 효과 편집기 (심화 보정 효과 도구도 이걸 쓴다)
+    /// Layer effects editor (the layer-edit effects tool uses it too)
     let effectsEditor = EffectsEditor()
     private var effectsCard: Card?
     let stylesEditor = LayerStylesEditor()
     private var stylesCard: Card?
     private let fillPatternPopup = NSPopUpButton()
-    /// 가져온 프리셋 (.grd·.pat·.aco·.abr)
+    /// Imported presets (.grd, .pat, .aco, .abr)
     private let fillPresetGradient = NSPopUpButton()
     private let fillPresetPattern = NSPopUpButton()
     private let fillSwatches = NSPopUpButton()
     private let gradientPreset = NSPopUpButton()
     private let brushTipPopup = NSPopUpButton()
-    /// 마스크 붓 끝 (가져온 브러시, nil이면 둥근 붓)
+    /// Mask brush tip (imported brush; nil for a round brush)
     var brushTip: PresetFiles.Brush?
-    // 글자 레이어
+    // text layer
     private var textCard: Card!
     private let textField = NSTextField()
     private let textFont = NSPopUpButton()
@@ -94,7 +94,7 @@ final class LayersTabController: NSViewController {
         return [Float(s.redComponent), Float(s.greenComponent), Float(s.blueComponent)]
     }
 
-    // MARK: 프리셋·글자
+    // MARK: Presets · text
 
     func reloadPresets() {
         let lib = PresetFiles.library
@@ -201,7 +201,7 @@ final class LayersTabController: NSViewController {
             guard var t = l.text else { return }
             f(&t)
             l.text = t
-            l.image = nil   // 고치면 파일에 든 그림 대신 우리가 그린다
+            l.image = nil   // Once edited, we render it instead of the embedded image
         }
     }
 
@@ -222,7 +222,7 @@ final class LayersTabController: NSViewController {
         edit(false) { l in
             l.fillPattern = i == 0 ? nil : i - 1
             l.fillPatternFile = nil
-            // 무늬는 두 색이 필요하다
+            // Patterns need two colors
             if i > 0, l.fillColor.count < 6 { l.fillColor = (l.fillColor + [0.5, 0.5, 0.5]).prefix(3) + [0.15, 0.15, 0.15] }
         }
     }
@@ -239,7 +239,7 @@ final class LayersTabController: NSViewController {
         }
     }
 
-    /// 칠 레이어를 더한다. 그라디언트면 위에서 아래로.
+    /// Adds a fill layer. Gradients run top to bottom.
     func addFillLayer(colors: [Float], gradient: Bool) {
         addLayer(.full)
         guard var s = current?(), let i = s.layers.indices.last else { return }
@@ -253,7 +253,7 @@ final class LayersTabController: NSViewController {
     }
 
     @objc private func addSolidFill() { addFillLayer(colors: [0.5, 0.5, 0.5], gradient: false) }
-    /// 글자 레이어를 사진 가운데에 더한다
+    /// Adds a text layer at the center of the photo
     @objc func addTextLayer() {
         addLayer(.full)
         guard var s = current?(), let i = s.layers.indices.last else { return }
@@ -290,7 +290,7 @@ final class LayersTabController: NSViewController {
         root.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 16, right: 12)
         root.translatesAutoresizingMaskIntoConstraints = false
 
-        // 목록 카드
+        // list card
         listCard = Card(title: "레이어")
         listCard.hideToggle()
         let addMenu = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -332,7 +332,7 @@ final class LayersTabController: NSViewController {
         }
         listCard.applyCollapse()
 
-        // 레이어 설정
+        // layer settings
         let layerCard = Card(title: "혼합과 불투명도")
         for (key, name, _) in AdjustLayer.blendModes {
             blendPopup.addItem(withTitle: name)
@@ -354,7 +354,7 @@ final class LayersTabController: NSViewController {
         add(fillRow, to: layerCard)
         fillRow.onChange = { [weak self] v, d in self?.edit(d) { $0.fill = Float(v) } }
 
-        // 이미지 레이어 자리
+        // image layer position
         placeCard = Card(title: "이미지 자리")
         for r in [posX, posY, sizeRow, rotRow] { add(r, to: placeCard) }
         let placeHint = NSTextField(wrappingLabelWithString: "마스크 도구(B)로 사진 위에서 끌어 옮길 수도 있습니다 (마스크가 전체일 때).")
@@ -366,7 +366,7 @@ final class LayersTabController: NSViewController {
         sizeRow.onChange = { [weak self] v, d in guard let n = self?.nativeSizeHint else { return }; self?.edit(d) { $0.image?.width = v / 100 * n.width } }
         rotRow.onChange = { [weak self] v, d in self?.edit(d) { $0.image?.rotation = v } }
 
-        // 마스크
+        // mask
         let maskCard = Card(title: "마스크")
         maskKind.font = .systemFont(ofSize: 11)
         maskKind.textColor = .secondaryLabelColor
@@ -389,7 +389,7 @@ final class LayersTabController: NSViewController {
         brushHard.onChange = { [weak self] v, _ in self?.brushHardness = v }
         brushFlowRow.onChange = { [weak self] v, _ in self?.brushFlow = v }
 
-        // 조정
+        // adjustments
         adjustCard = Card(title: "레이어 조정")
         let specs: [(String, WritableKeyPath<LocalAdjust, Float>, Double, Double, String)] = [
             ("노출", \.exposure, -4, 4, "%+.2f"), ("대비", \.contrast, -100, 100, "%+.0f"),
@@ -406,7 +406,7 @@ final class LayersTabController: NSViewController {
         }
         adjustCard.onReset = { [weak self] in self?.edit(false) { $0.adjust = LocalAdjust() } }
 
-        // 색 조정
+        // color adjustments
         let colorCard = Card(title: "색 조정")
         let colorSpecs: [(String, WritableKeyPath<LocalAdjust, Float>, Double, Double, String, Double?)] = [
             ("활기", \.vibrance, -100, 100, "%+.0f", nil), ("색조 돌리기", \.hue, -180, 180, "%+.0f°", nil),
@@ -437,7 +437,7 @@ final class LayersTabController: NSViewController {
                 l.adjust.posterize = 0; l.adjust.threshold = 0; l.adjust.invert = 0; l.adjust.gradientMap = []; l.adjust.gradientStops = nil
             }
         }
-        // 채널 혼합
+        // channel mixer
         let mixCard = Card(title: "채널 혼합")
         add(NSStackView(views: [mixerBox]), to: mixCard)
         for (i, name) in ["빨강 ← 빨강", "빨강 ← 초록", "빨강 ← 파랑", "초록 ← 빨강", "초록 ← 초록", "초록 ← 파랑",
@@ -453,7 +453,7 @@ final class LayersTabController: NSViewController {
             add(row, to: mixCard)
         }
         mixCard.onReset = { [weak self] in self?.edit(false) { $0.adjust.mixer = [] } }
-        // 필터
+        // filters
         let filterCard = Card(title: "필터")
         let fSpecs: [(String, WritableKeyPath<LocalAdjust, Float>, Double, Double, String)] = [
             ("가우시안 흐림 (원본 픽셀)", \.blur, 0, 300, "%.1f"), ("동작 흐림 거리", \.motionBlur, 0, 500, "%.0f"),
@@ -479,7 +479,7 @@ final class LayersTabController: NSViewController {
         }
         extraCards = [colorCard, mixCard, filterCard]
 
-        // 칠 레이어
+        // fill layer
         fillCard = Card(title: "칠")
         for w in [fillWell1, fillWell2] {
             w.target = self; w.action = #selector(fillChanged)
@@ -491,7 +491,7 @@ final class LayersTabController: NSViewController {
         fillHint.font = .systemFont(ofSize: 11)
         fillHint.textColor = .tertiaryLabelColor
         add(fillHint, to: fillCard)
-        // 무늬 칠 (칠 레이어 패턴): 두 색으로 체크·줄무늬·구름·점
+        // Pattern fill (fill layer pattern): checker, stripes, clouds, dots in two colors
         fillPatternPopup.addItems(withTitles: ["무늬 없음 (단색·그라디언트)", "체크", "줄무늬", "구름", "점"])
         fillPatternPopup.controlSize = .small
         fillPatternPopup.target = self; fillPatternPopup.action = #selector(fillPatternChanged)
@@ -510,7 +510,7 @@ final class LayersTabController: NSViewController {
         reloadPresets()
         NotificationCenter.default.addObserver(forName: PresetFiles.changed, object: nil, queue: .main) { [weak self] _ in self?.reloadPresets() }
 
-        // 글자 레이어
+        // text layer
         textCard = Card(title: "글자")
         textField.placeholderString = "글자"
         textField.usesSingleLineMode = false
@@ -537,7 +537,7 @@ final class LayersTabController: NSViewController {
         textHint.textColor = .tertiaryLabelColor
         add(textHint, to: textCard)
 
-        // 혼합 조건
+        // Blend If
         let biCard = Card(title: "혼합 조건")
         let biNames = ["이 레이어 · 검정 시작", "이 레이어 · 검정 끝", "이 레이어 · 흰색 시작", "이 레이어 · 흰색 끝",
                        "아래 레이어 · 검정 시작", "아래 레이어 · 검정 끝", "아래 레이어 · 흰색 시작", "아래 레이어 · 흰색 끝"]
@@ -548,7 +548,7 @@ final class LayersTabController: NSViewController {
                 self?.edit(d) { l in
                     var b = l.blendIf ?? [0, 0, 1, 1, 0, 0, 1, 1]
                     b[k] = Float(v)
-                    // 시작 ≤ 끝을 지킨다
+                    // keep start ≤ end
                     if k % 2 == 0 { b[k + 1] = max(b[k + 1], b[k]) } else { b[k - 1] = min(b[k - 1], b[k]) }
                     l.blendIf = b == [0, 0, 1, 1, 0, 0, 1, 1] ? nil : b
                 }
@@ -562,12 +562,12 @@ final class LayersTabController: NSViewController {
         add(biHint, to: biCard)
         blendIfCard = biCard
 
-        // 레이어 효과 (스마트 필터처럼 쌓는 효과, Effects.swift)
+        // Layer effects (stacked like smart filters, Effects.swift)
         let fxCard = Card(title: "효과")
         add(effectsEditor, to: fxCard)
         effectsEditor.onChange = { [weak self] list, d in self?.edit(d) { $0.adjust.effects = list.isEmpty ? nil : list } }
         effectsCard = fxCard
-        // 레이어 스타일 (LayerStyles.swift)
+        // Layer styles (LayerStyles.swift)
         let stCard = Card(title: "스타일")
         add(stylesEditor, to: stCard)
         stylesEditor.onChange = { [weak self] st, d in self?.edit(d) { $0.styles = st.isActive ? st : nil } }
@@ -590,7 +590,7 @@ final class LayersTabController: NSViewController {
             root.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
         ])
         view = scroll
-        // 사진이 탭보다 먼저 열렸으면 그 사진의 레이어로 채운다 (늦게 만들어진 탭이 "사진 없음"으로 남았다)
+        // If the photo opened before the tab, fill with its layers (a late-created tab stayed on "no photo")
         sync(current?())
     }
 
@@ -606,14 +606,14 @@ final class LayersTabController: NSViewController {
         v.widthAnchor.constraint(equalTo: card.body.widthAnchor).isActive = true
     }
 
-    // MARK: - 값 바꾸기
+    // MARK: - Changing values
 
     private var selectedIndex: Int? {
         guard let id = selectedID else { return nil }
         return current?()?.layers.firstIndex { $0.id == id }
     }
 
-    /// 고른 레이어 하나를 고친다. 잠긴 레이어는 바꾸지 않는다 (잠금 풀기만 된다).
+    /// Edits the one selected layer. Locked layers aren't changed (only unlocking works).
     private func edit(_ dragging: Bool, allowLocked: Bool = false, _ f: (inout AdjustLayer) -> Void) {
         guard var s = current?(), let i = selectedIndex else { return }
         if s.layers[i].locked && !allowLocked { NSSound.beep(); sync(s); return }
@@ -640,7 +640,7 @@ final class LayersTabController: NSViewController {
         addLayer(kind)
     }
 
-    /// 새 레이어를 맨 위에 더하고 고른다. 그라디언트는 사진 가운데에 기본 모양을 둔다.
+    /// Adds a new layer on top and selects it. Gradients get a default shape at the photo center.
     func addLayer(_ kind: LayerMask.Kind, native: CGSize? = nil) {
         guard let s0 = current?() else { return }
         let names: [LayerMask.Kind: String] = [.brush: "브러시", .linear: "선형 그라디언트", .radial: "원형 그라디언트", .full: "전체",
@@ -666,7 +666,7 @@ final class LayersTabController: NSViewController {
 
     @objc func duplicateLayer() {
         guard let i = selectedIndex, let s = current?() else { return }
-        // 그룹이면 자손까지 새 id로 복제한다.
+        // For a group, duplicate descendants with new ids too.
         let r = LayerTree.block(s.layers, i)
         var ids: [String: String] = [:]
         var copies = Array(s.layers[r])
@@ -689,7 +689,7 @@ final class LayersTabController: NSViewController {
         editAll { LayerTree.moveDown(&$0.layers, i) }
     }
 
-    /// 맨 위로 / 맨 아래로 (⇧⌘] / ⇧⌘[): 한 칸씩 더 움직이지 않을 때까지
+    /// Bring to front / send to back (⇧⌘] / ⇧⌘[): step until it can't move further
     func layerToEnd(top: Bool) {
         guard let id = selectedID, selectedIndex != nil else { return }
         editAll { s in
@@ -702,7 +702,7 @@ final class LayersTabController: NSViewController {
         }
     }
 
-    /// 위 / 아래 레이어 고르기 (⌥] / ⌥[). 맨 아래 아래는 배경.
+    /// Select the layer above / below (⌥] / ⌥[). Below the bottom is the background.
     func selectNeighbor(up: Bool) {
         guard let layers = current?()?.layers, !layers.isEmpty else { return }
         let next: String?
@@ -717,11 +717,11 @@ final class LayersTabController: NSViewController {
         select(next)
     }
 
-    /// 고른 레이어 지우기 (⌫). 잠긴 레이어는 삐 소리만. 지운 게 있으면 참.
+    /// Delete the selected layer (⌫). Locked layers just beep. True if something was deleted.
     func deleteSelectedLayer() -> Bool {
         guard let i = selectedIndex, let s = current?() else { return false }
         if s.layers[i].locked { NSSound.beep(); return true }
-        // 지운 뒤에는 바로 아래 레이어를 고른다 (그룹이면 그룹 블록 아래)
+        // After deleting, select the layer right below (below the group block for groups)
         let below = LayerTree.block(s.layers, i).lowerBound - 1
         let next = below >= 0 ? s.layers[below].id : nil
         removeLayer()
@@ -731,7 +731,7 @@ final class LayersTabController: NSViewController {
 
     @objc private func placeImageMenu() { onPlaceImage?() }
 
-    /// .cube LUT를 전체 조정 레이어로 더한다 (불투명도로 강도를 조절).
+    /// Adds a .cube LUT as a full adjustment layer (strength via opacity).
     @objc func importLUTMenu() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.init(filenameExtension: "cube") ?? .data]
@@ -758,18 +758,18 @@ final class LayersTabController: NSViewController {
     }
     @objc private func pasteImageMenu() { pasteImage() }
 
-    /// 그림 파일을 이미지 레이어로 더한다. 사진 가운데에 사진 너비의 절반 크기로 놓는다.
+    /// Adds an image file as an image layer, centered at half the photo width.
     func addImageLayer(file: String, name: String) {
         guard let s0 = current?(), let src = Layers.sourceImage(file) else { NSSound.beep(); return }
         let n = nativeSizeHint
         var width = n.width * 0.5
-        // 세로로 긴 그림은 사진 높이의 절반을 넘지 않게
+        // Tall images don't exceed half the photo height
         let h = width * src.extent.height / max(src.extent.width, 1)
         if h > n.height * 0.5 { width *= n.height * 0.5 / h }
         var layer = AdjustLayer(name: "\(name) \(s0.layers.count + 1)")
         layer.kind = "image"
         layer.image = LayerImage(file: file, cx: n.width / 2, cy: n.height / 2, width: width)
-        // 고른 레이어가 그룹 안이면 같은 그룹에, 고른 레이어 바로 위에 넣는다.
+        // If the selected layer is in a group, insert into the same group right above it.
         let at = selectedIndex.map { $0 + 1 } ?? s0.layers.count
         if let i = selectedIndex { layer.group = s0.layers[i].isGroup ? s0.layers[i].id : s0.layers[i].group }
         let insertAt = selectedIndex.flatMap { s0.layers[$0].isGroup ? $0 : nil } ?? at
@@ -778,7 +778,7 @@ final class LayersTabController: NSViewController {
         onSelect?(layer.id)
     }
 
-    /// 클립보드의 그림을 이미지 레이어로 (⌘V).
+    /// Clipboard image as an image layer (⌘V).
     func pasteImage() {
         let pb = NSPasteboard.general
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
@@ -824,7 +824,7 @@ final class LayersTabController: NSViewController {
 
     func setShowMask(_ on: Bool) { showMask.state = on ? .on : .off }
 
-    // MARK: - 보이기
+    // MARK: - Display
 
     func sync(_ s: DevelopSettings?) {
         guard isViewLoaded else { return }
@@ -933,7 +933,7 @@ final class LayersTabController: NSViewController {
         mixerBox.state = a.mixer.count == 9 ? .on : .off
         let mix = a.mixer.count == 9 ? a.mixer : [1, 0, 0, 0, 1, 0, 0, 0, 1]
         for (row, v) in zip(mixerRows, mix) { row.value = Double(v) }
-        // 이미지·그룹 레이어에는 조정 카드를 숨긴다
+        // Hide adjustment cards for image and group layers
         extraCards.forEach { $0.isHidden = layer.kind != "adjust" }
     }
 }
@@ -984,41 +984,41 @@ final class LayerListRow: DraggableLayerRow {
     }
 }
 
-/// 캔버스 위 마스크 도구. 고른 레이어의 마스크 종류에 따라 칠하기·선형·원형으로 동작한다.
+/// Mask tool on the canvas. Behaves as paint/linear/radial by the selected layer's mask type.
 final class MaskOverlayView: NSView {
     weak var canvas: CanvasView?
-    /// 고른 조정 레이어 (NSView의 layer와 이름이 겹쳐 adjustLayer로 쓴다).
+    /// Selected adjustment layer (named adjustLayer since `layer` clashes with NSView's).
     var adjustLayer: AdjustLayer? { didSet { needsDisplay = true } }
     var brushRadius: Double = 120
     var toView: ((CGPoint) -> CGPoint)?
     var fromView: ((CGPoint) -> CGPoint)?
-    /// 끝낸 붓질 (원본 좌표, 지우개인지).
+    /// Finished brush stroke (source coordinates, whether eraser).
     var onStroke: (([CGPoint], Bool) -> Void)?
-    /// 그라디언트를 새로 끌었을 때 (원본 좌표 시작, 끝, 끄는 중인지).
+    /// When a new gradient is dragged (source coordinates start, end, dragging).
     var onGradient: ((CGPoint, CGPoint, Bool) -> Void)?
-    /// 올가미 선택을 다 그렸을 때 (원본 좌표 점들).
+    /// When a lasso selection is finished (source coordinate points).
     var onPolygon: (([CGPoint]) -> Void)?
-    /// 이미지 레이어 옮기기 (원본 좌표 시작, 지금, 끄는 중인지).
+    /// Moving an image layer (source coordinates start, current, dragging).
     var onMoveImage: ((CGPoint, CGPoint, Bool) -> Void)?
-    /// 누르기 방식 선택 도구: 한 번 누르기(행·열·자동 선택·색상), 다각형(누를 때마다 꼭짓점),
-    /// 자석(가장자리에 붙는 올가미), 빠른 선택(칠하면 비슷한 곳이 번진다)
+    /// Click-based selection tools: single click (row, column, magic wand, color), polygon (a vertex per click),
+    /// magnetic (lasso snapping to edges), quick selection (painting spreads to similar areas)
     enum ClickMode { case none, point, polygonClicks, magnetic, quick }
     var clickMode: ClickMode = .none { didSet { clicks = []; drawing = []; needsDisplay = true } }
     var onPoint: ((CGPoint, NSEvent.ModifierFlags) -> Void)?
-    /// 뷰 좌표 점을 가장자리로 옮긴다 (자석 올가미)
+    /// Snaps a view-coordinate point to an edge (magnetic lasso)
     var snapView: ((CGPoint) -> CGPoint)?
     var onQuickStroke: (([CGPoint], NSEvent.ModifierFlags) -> Void)?
-    /// 빠른 선택 대신 붓질을 넘겨받을 도구 (AI 지우기·개체 선택)
+    /// Tool receiving strokes instead of quick selection (AI erase, object selection)
     var quickOverride: (([CGPoint], NSEvent.ModifierFlags) -> Void)?
     var onPolygonFlags: (([CGPoint], NSEvent.ModifierFlags) -> Void)?
     private var clicks: [CGPoint] = []
     private var polyFlags: NSEvent.ModifierFlags = []
-    /// 지금 끌기를 시작할 때의 수정 키와 끌기 번호 (선택 더하기·빼기)
+    /// Modifier keys and drag id at drag start (selection add/subtract)
     private(set) var startFlags: NSEvent.ModifierFlags = []
     private(set) var gesture = 0
 
-    /// 캔버스를 처음 누를 때 한 번 할 일 (심화 보정: 도구를 고를 때가 아니라 처음 쓸 때 레이어를 만든다).
-    /// 참을 돌려주면 그 누름은 여기서 끝낸다 (칠 레이어·AI 선택처럼 한 번에 끝나는 것).
+    /// One-time work on the first canvas click (layer edit: create the layer on first use, not on tool pick).
+    /// Returning true ends that click here (one-shot things like fill layers and AI selection).
     var prepare: (() -> Bool)?
     private var movesImage: Bool { adjustLayer.map { ($0.isImage || $0.isText || $0.kind == "shape") && $0.mask.kind == .full } ?? false }
 
@@ -1130,7 +1130,7 @@ final class MaskOverlayView: NSView {
             p.close()
             selectionStroke(p)
         case .full:
-            // 이미지 레이어: 그림 테두리
+            // image layer: picture border
             if let im = layer.image {
                 let hw = im.width / 2
                 let src = Layers.sourceImage(im.file)
@@ -1149,7 +1149,7 @@ final class MaskOverlayView: NSView {
         }
     }
 
-    /// 선택 테두리: 흰 선 위에 검은 점선 (어느 바탕에서도 보이게).
+    /// Selection outline: black dashes over a white line (visible on any background).
     private func selectionStroke(_ p: NSBezierPath) {
         p.lineWidth = 1.5
         NSColor.white.setStroke()

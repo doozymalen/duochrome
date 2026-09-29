@@ -1,18 +1,18 @@
 import AppKit
 
-/// 리퀴드 글래스 배치: 가운데 내용이 창 전체(창 막대 밑까지)에 깔리고,
-/// 왼쪽·오른쪽 패널이 그 위에 맑은 유리로 뜬다. 대량 보정·테더링·라이브러리가 같이 쓴다 (심화 보정도 같은 모양).
-/// 패널 폭은 안쪽 가장자리를 끌어 바꾸고, 모드마다 따로 기억한다.
+/// Liquid Glass layout: the center content spans the whole window (under the toolbar),
+/// with left/right panels floating above as clear glass. Shared by batch edit, tethering, and library (layer edit has the same look).
+/// Panel width changes by dragging the inner edge and is remembered per mode.
 final class GlassLayoutController: NSViewController {
     static let gap: CGFloat = 8
-    /// 대량 보정·테더링·심화 보정이 같이 쓰는 패널 폭 (모드를 옮겨도 좌우 패널 크기가 같다)
+    /// Panel width shared by batch edit, tethering, and layer edit (side panels keep their size across modes)
     static let sharedKey = "main"
     static let leftRange: ClosedRange<CGFloat> = 288...428
     static let rightRange: ClosedRange<CGFloat> = leftRange
     static var sharedLeft: CGFloat {
         min(max(UserDefaults.standard.object(forKey: "glass.\(sharedKey).left") as? CGFloat ?? 288, leftRange.lowerBound), leftRange.upperBound)
     }
-    /// 오른쪽 패널은 왼쪽과 같은 폭 (좌우 대칭)
+    /// The right panel matches the left width (symmetric)
     static var sharedRight: CGFloat { sharedLeft }
 
     let content: NSViewController
@@ -21,10 +21,10 @@ final class GlassLayoutController: NSViewController {
     private let key: String
     private let leftRange: ClosedRange<CGFloat>
     private let rightRange: ClosedRange<CGFloat>
-    /// 좌우 폭을 묶는다 (한쪽을 끌면 양쪽이 같이 변한다). 공통 키를 쓰는 모드는 켠다.
+    /// Links left/right widths (dragging one resizes both). On for modes using the shared key.
     private var linked: Bool { key == Self.sharedKey }
 
-    /// 패널을 뺀 작업 영역이 바뀔 때 (왼쪽·오른쪽에서 가려진 폭, 여백 포함)
+    /// When the work area minus panels changes (width covered on left/right, including margins)
     var onInsetsChange: ((_ left: CGFloat, _ right: CGFloat) -> Void)?
 
     private let leftPanel = GlassPanel()
@@ -51,7 +51,7 @@ final class GlassLayoutController: NSViewController {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 패널 폭 (유리 패널 자체의 폭)
+    /// Panel width (of the glass panel itself)
     var leftWidth: CGFloat {
         didSet {
             leftWidth = min(max(leftWidth, leftRange.lowerBound), leftRange.upperBound)
@@ -73,7 +73,7 @@ final class GlassLayoutController: NSViewController {
     var showsLeft: Bool { didSet { UserDefaults.standard.set(showsLeft, forKey: "glass.\(key).showLeft"); applyShown(animated: true) } }
     var showsRight: Bool { didSet { UserDefaults.standard.set(showsRight, forKey: "glass.\(key).showRight"); applyShown(animated: true) } }
 
-    /// 작업 영역 왼쪽·오른쪽 가림 폭
+    /// Work area width covered on left/right
     var insets: (left: CGFloat, right: CGFloat) {
         (showsLeft && left != nil ? Self.gap + leftWidth : 0, showsRight && right != nil ? Self.gap + rightWidth : 0)
     }
@@ -85,7 +85,7 @@ final class GlassLayoutController: NSViewController {
         addChild(content)
         content.view.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(content.view)
-        // 내용은 창 막대 밑까지 (safe area가 아니라 맨 위에)
+        // Content extends under the toolbar (to the very top, not the safe area)
         NSLayoutConstraint.activate([
             content.view.topAnchor.constraint(equalTo: root.topAnchor),
             content.view.bottomAnchor.constraint(equalTo: root.bottomAnchor),
@@ -129,12 +129,12 @@ final class GlassLayoutController: NSViewController {
         applyShown(animated: false)
     }
 
-    /// 패널 안쪽 가장자리를 끌어 폭을 바꾸는 손잡이
+    /// Handle to resize by dragging the panel's inner edge
     private func addHandle(to panel: NSView, in root: NSView, trailing: Bool, drag: @escaping (CGFloat) -> Void) {
         let h = ResizeHandle()
         h.onDrag = drag
         h.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(h)   // loadView 안이라 view는 아직 없다 (view를 부르면 loadView가 되풀이돼 죽었다)
+        root.addSubview(h)   // Inside loadView, so view doesn't exist yet (calling view recursed into loadView and crashed)
         NSLayoutConstraint.activate([
             h.topAnchor.constraint(equalTo: panel.topAnchor, constant: 16),
             h.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -16),
@@ -175,9 +175,9 @@ final class GlassLayoutController: NSViewController {
     }
 }
 
-/// 유리 패널: 리퀴드 글래스 배경 + 둥근 모서리 안으로 자른 내용
+/// Glass panel: Liquid Glass background + content clipped to rounded corners
 final class GlassPanel: NSView {
-    /// 패널·막대 위는 보통 화살표 (아래 사진 화면의 편집 포인터가 비치지 않게)
+    /// Plain arrow over panels and bars (so the photo view's edit cursor doesn't show through)
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
     private let clip = NSView()
@@ -203,7 +203,7 @@ final class GlassPanel: NSView {
     func embed(_ v: NSView) {
         v.translatesAutoresizingMaskIntoConstraints = false
         clip.addSubview(v)
-        // 내용의 최소 폭이 패널 폭을 밀지 못하게 오른쪽·아래는 한 단계 낮게 (ToolPanel의 교훈)
+        // Right/bottom at lower priority so content minimum width can't push the panel width (lesson from ToolPanel)
         let t = v.trailingAnchor.constraint(equalTo: clip.trailingAnchor)
         let b = v.bottomAnchor.constraint(equalTo: clip.bottomAnchor)
         t.priority = .init(999); b.priority = .init(999)
@@ -215,7 +215,7 @@ final class GlassPanel: NSView {
     }
 }
 
-/// 패널 폭 손잡이: 가장자리에 커서를 올리면 ↔, 끌면 폭이 바뀐다
+/// Panel width handle: ↔ cursor on hover at the edge, drag to resize
 final class ResizeHandle: NSView {
     var onDrag: ((CGFloat) -> Void)?
     private var last: CGFloat?
@@ -231,10 +231,10 @@ final class ResizeHandle: NSView {
     override func mouseUp(with event: NSEvent) { last = nil }
 }
 
-/// 창 막대 뒤 반투명 띠: 창 막대 밑까지 깔린 사진이 맑은 유리 너머로 비치고(색은 그대로, 살짝 흐림),
-/// 아래에 가는 선을 그어 막대가 구분되게 한다. (불투명한 창 막대 재질은 사진을 가려 싫다)
+/// Translucent strip behind the toolbar: the photo under the toolbar shows through clear glass (color intact, slightly blurred),
+/// with a hairline below to separate the bar. (The opaque toolbar material hides the photo, which is unwanted)
 final class TitleBand: NSView {
-    /// 패널·막대 위는 보통 화살표 (아래 사진 화면의 편집 포인터가 비치지 않게)
+    /// Plain arrow over panels and bars (so the photo view's edit cursor doesn't show through)
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
     private let line = NSBox()
@@ -243,7 +243,7 @@ final class TitleBand: NSView {
         super.init(frame: .zero)
         let back: NSView
         if #available(macOS 26, *) {
-            // 좌우 패널과 같은 유리 (.regular). .clear는 어두운 바탕 위에서 불투명한 띠처럼 보였다.
+            // Same glass as the side panels (.regular). .clear looked like an opaque strip over dark backgrounds.
             let glass = NSGlassEffectView()
             glass.style = .regular
             glass.cornerRadius = 0
@@ -273,7 +273,7 @@ final class TitleBand: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 창 막대에 가려진 높이(safe area 위쪽)만큼 root 맨 위에 붙인다. 내용 위, 패널 아래에 둔다.
+    /// Pinned to the top of root for the height covered by the toolbar (safe area top). Above content, below panels.
     static func install(in root: NSView, above content: NSView) {
         let band = TitleBand()
         band.translatesAutoresizingMaskIntoConstraints = false

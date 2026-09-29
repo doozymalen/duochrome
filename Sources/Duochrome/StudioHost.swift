@@ -1,6 +1,6 @@
 import AppKit
 
-/// 심화 보정 모드를 창에 붙이는 부분: 모드 들고 나기, 도구를 캔버스 도구로 옮기기, 창 막대.
+/// Attaching layer-edit mode to the window: entering/leaving the mode, mapping tools to canvas tools, toolbar.
 extension MainWindowController {
     func setupStudio() {
         let m = studioMode
@@ -13,7 +13,7 @@ extension MainWindowController {
         panel.onSelect = { [weak self] id in
             guard let self else { return }
             self.layersTab.select(id)
-            // 레이어를 고르면 마스크·배치 도구가 그 레이어를 따라간다.
+            // Selecting a layer makes the mask/arrange tools follow it.
             if ["maskPaint", "arrange"].contains(m.currentTool) { m.restoreTool() }
             if m.currentTool == "effects" { self.syncStudioEffects() }
             if m.currentTool == "style" { self.syncStudioStyles() }
@@ -33,7 +33,7 @@ extension MainWindowController {
         panel.onToggleMask = { [weak self] in self?.toggleMaskView(nil) }
         panel.rowMenu = { [weak self] id in self?.layerContextMenu(id) ?? NSMenu() }
         layersTab.rowMenu = { [weak self] id in self?.layerContextMenu(id) ?? NSMenu() }
-        // 창 막대의 확대 조절은 지금 보이는 캔버스를 따른다 (테더링은 자기 캔버스가 따로 있다)
+        // The toolbar zoom control follows the visible canvas (tethering has its own canvas)
         viewer.onZoom = { [weak self] z in if self?.mode != .tether { self?.studioZoomChanged(z) } }
         tetherMode.viewer.onZoom = { [weak self] z in if self?.mode == .tether { self?.studioZoomChanged(z) } }
         installKeyMap()
@@ -46,16 +46,16 @@ extension MainWindowController {
         studioMode.restoreTool()
         viewer.canvas.zoomToFit()
         window?.makeFirstResponder(viewer.canvas)
-        // 창이 처음 뜰 때 검색칸이 초점을 가져가지 않게 한 번 더.
+        // Once more so the search field doesn't grab focus when the window first appears.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.mode == .studio else { return }
             self.window?.makeFirstResponder(self.viewer.canvas)
         }
     }
 
-    /// 레이어 목록의 배경 썸네일: 지금 현상 결과를 작게 (사진이 바뀌거나 조정이 바뀌면 다시).
-    /// 배경(현상 결과) 썸네일: 기억해 둔 것이 있으면 바로, 없으면 뒤에서 그리고 끝나면 레이어 목록을 다시 그린다.
-    /// (주 스레드에서 그리면 레이어 목록을 새로 그릴 때마다 — 편집할 때마다 — 1초 가까이 멈췄다)
+    /// Background thumbnail in the layer list: the current develop result, small (redone when the photo or adjustments change).
+    /// Background (develop result) thumbnail: cached one right away; otherwise render in the background and redraw the layer list when done.
+    /// (rendering on main stalled close to a second every time the layer list redrew — i.e. every edit)
     func studioThumbnail(_ doc: RawDocument) -> NSImage? {
         if let c = studioThumbCache, c.url == doc.url, c.settings == doc.settings { return c.image }
         let settings = doc.settings, url = doc.url
@@ -73,7 +73,7 @@ extension MainWindowController {
                 self.studioThumbPending = nil
                 self.studioThumbCache = (url, settings, ns)
                 LayerThumbs.backgroundThumb = ns
-                // 지금 설정과 같을 때만 목록을 다시 (다르면 다음 새로 그리기에서 또 요청된다)
+                // Redraw the list only if it still matches the current settings (otherwise the next redraw requests again)
                 if self.photo?.settings == settings {
                     self.layersTab.sync(self.photo?.settings)
                     if self.mode == .studio { self.studioMode.layersPanel.reload() }
@@ -83,27 +83,27 @@ extension MainWindowController {
         return stale
     }
 
-    /// 심화 보정 모드를 떠날 때: 캔버스와 옮겨 간 패널을 대량 보정 화면으로 되돌린다.
+    /// Leaving layer-edit mode: returns the canvas and moved panels to the batch-edit view.
     func leaveStudio() {
         viewer.canvas.maskOverlay.prepare = nil
         viewer.canvas.maskOverlay.clickMode = .none
         viewer.canvas.maskOverlay.quickOverride = nil
         viewer.reclaimCanvas()
         layersTab.listHidden = false
-        layersTab.sync(photo?.settings)   // 심화 보정에서 바뀐 레이어를 대량 보정 목록에도
+        layersTab.sync(photo?.settings)   // Layers changed in layer edit go to the batch-edit list too
         tools.select(tools.selected)
         colorPickPurpose = 0
         enterTool(.pan)
         viewer.canvas.zoomToFit()
     }
 
-    // MARK: - 도구
+    // MARK: - Tools
 
-    /// 심화 보정 도구를 캔버스 도구로 옮긴다.
+    /// Maps layer-edit tools to canvas tools.
     func applyStudioTool(_ tool: StudioTool) {
         colorPickPurpose = 0
         canvas.guidesOverlay.tool = .none
-        // 도구를 고르기만 해서는 사진이 바뀌지 않는다. 레이어가 필요한 도구는 캔버스를 처음 누를 때 만든다.
+        // Just picking a tool doesn't change the photo. Tools that need a layer create it on the first canvas click.
         viewer.canvas.maskOverlay.prepare = nil
         viewer.canvas.maskOverlay.clickMode = .none
         viewer.canvas.maskOverlay.quickOverride = nil
@@ -129,7 +129,7 @@ extension MainWindowController {
             let kind: LayerMask.Kind = tool.id == "selRect" ? .rect : (tool.id == "selOval" ? .ellipse : .polygon)
             viewer.canvas.maskOverlay.prepare = { [weak self] in
                 guard let self else { return false }
-                // 더하기·빼기·교차면 고른 레이어에 합친다 (새 레이어를 만들지 않는다)
+                // With add/subtract/intersect, combine into the selected layer (no new layer)
                 if self.selectionOp(self.viewer.canvas.maskOverlay.startFlags) != nil,
                    let id = self.layersTab.selectedID, self.photo?.settings.layers.first(where: { $0.id == id })?.isGroup == false { return false }
                 self.ensureStudioLayer(kind: kind, preset: nil)
@@ -153,11 +153,11 @@ extension MainWindowController {
             viewer.canvas.maskOverlay.prepare = { [weak self] in self?.ensureStudioLayer(kind: .brush, preset: preset); return false }
             enterTool(photo == nil ? .pan : .mask)
         case "selSubject":
-            // 이미 AI 선택 레이어를 골랐으면 그대로, 아니면 피사체 선택 레이어를 만든다
+            // Keep an already-selected AI selection layer, otherwise create a subject selection layer
             if let id = layersTab.selectedID, photo?.settings.layers.first(where: { $0.id == id })?.mask.kind == .image {
                 enterTool(.pan)
             } else {
-                // 캔버스를 누르면 피사체 선택 레이어를 만든다
+                // Clicking the canvas creates a subject selection layer
                 viewer.canvas.maskOverlay.prepare = { [weak self] in
                     self?.addAISelection(.subject)
                     self?.enterTool(.pan)
@@ -166,7 +166,7 @@ extension MainWindowController {
                 enterTool(photo == nil ? .pan : .mask)
             }
         case "aiRemove", "smartErase", "selObject":
-            // 붓질을 받아 AI에 넘긴다 (레이어는 결과가 오면 생긴다)
+            // Takes strokes and hands them to the AI (the layer appears when the result arrives)
             let id = tool.id
             if id != "selObject" { AIEngine.shared.warmUp() }
             viewer.canvas.maskOverlay.clickMode = .quick
@@ -207,9 +207,9 @@ extension MainWindowController {
             let grad = tool.id == "gradient"
             if let id = layersTab.selectedID, let l = photo?.settings.layers.first(where: { $0.id == id }),
                l.isFill, (l.fillColor.count == 6) == grad {
-                // 고른 칠 레이어를 그대로 쓴다
+                // use the selected fill layer as is
             } else if photo != nil {
-                // 캔버스를 처음 누를 때 칠 레이어를 만든다 (그라디언트는 그 누름부터 바로 끌 수 있게 넘긴다)
+                // Create the fill layer on the first canvas click (gradients are passed so dragging works from that click)
                 viewer.canvas.maskOverlay.prepare = { [weak self] in
                     self?.layersTab.addFillLayer(colors: grad ? [0, 0, 0, 1, 1, 1] : [0.5, 0.5, 0.5], gradient: grad)
                     return !grad
@@ -217,13 +217,13 @@ extension MainWindowController {
             }
             enterTool(photo == nil ? .pan : .mask)
         default:
-            enterTool(.pan)   // 준비 중인 도구
+            enterTool(.pan)   // tools in progress
         }
     }
 
-    /// 도구 옵션 패널에 넣을 내용. nil이면 준비 중 안내.
+    /// Content for the tool options panel. nil shows a work-in-progress note.
     func studioOptionsView(for tool: StudioTool) -> NSView? {
-        // 대량 보정 모드에서 한 번도 열지 않은 패널은 여기서 처음 만들어진다. 그때 지금 사진 값을 넣는다.
+        // Panels never opened in batch-edit mode are created here first. Load the current photo's values then.
         if let doc = photo {
             if !inspector.isViewLoaded { _ = inspector.view; inspector.show(doc) }
             if !shape.isViewLoaded { _ = shape.view; shape.sync(doc.settings) }
@@ -241,7 +241,7 @@ extension MainWindowController {
             selectionOptions.show(tool: tool.id)
             return selectionOptions
         case "selSubject", "fill", "gradient", "lighten", "darken", "saturate", "desaturate", "sharpen", "soften":
-            // 고른 레이어가 없으면 레이어 탭 카드가 모두 숨어 빈칸이었다 → 무엇이 일어나는지 안내
+            // With no layer selected, all layer tab cards were hidden and it was blank → explain what will happen
             if layersTab.selectedID == nil {
                 let what: [String: String] = [
                     "selSubject": "캔버스를 누르면 AI가 피사체를 골라 선택 레이어를 만듭니다.",
@@ -290,7 +290,7 @@ extension MainWindowController {
         }
     }
 
-    /// 선택·붓 도구가 칠할 레이어: 고른 레이어가 맞으면 그대로, 아니면 새로 만든다.
+    /// Layer for selection/brush tools to paint on: the selected layer if suitable, otherwise a new one.
     func ensureStudioLayer(kind: LayerMask.Kind, preset: String?) {
         guard let doc = photo else { return }
         if let id = layersTab.selectedID, let l = doc.settings.layers.first(where: { $0.id == id }),
@@ -313,7 +313,7 @@ extension MainWindowController {
         apply(s, dragging: false)
     }
 
-    // MARK: - 레이어 메뉴
+    // MARK: - Layer menu
 
     private func studioAddMenu() -> NSMenu {
         let m = NSMenu()
@@ -351,7 +351,7 @@ extension MainWindowController {
         studioMode.selectTool("maskPaint")
     }
 
-    // MARK: - 창 막대
+    // MARK: - Toolbar
 
     func studioToolbarItem(_ id: NSToolbarItem.Identifier) -> NSToolbarItem? {
         func button(_ label: String, _ symbol: String, _ action: Selector) -> NSToolbarItem {
@@ -384,11 +384,11 @@ extension MainWindowController {
             item.menu = menu
             return item
         case .studioZoom:
-            // − 슬라이더 +
+            // − slider +
             let minus = NSButton(image: NSImage(systemSymbolName: "minus", accessibilityDescription: "축소")!, target: self, action: #selector(studioZoomOut(_:)))
             let plus = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: "확대")!, target: self, action: #selector(studioZoomIn(_:)))
             for b in [minus, plus] { b.isBordered = false; b.contentTintColor = .secondaryLabelColor }
-            // 슬라이더는 배율의 로그 (1% ~ 1600%)
+            // slider is the log of zoom (1% – 1600%)
             let slider = NSSlider(value: 2, minValue: 0, maxValue: log10(1600), target: self, action: #selector(studioZoomSlid(_:)))
             slider.controlSize = .small
             slider.isContinuous = true
@@ -450,7 +450,7 @@ extension StudioOptionsPanel {
     }
 }
 
-/// 확대/축소·손 도구 옵션: 맞춤, 100%, 배율 단추.
+/// Zoom / hand tool options: fit, 100%, zoom buttons.
 final class StudioZoomOptions: FlippedStackView {
     private weak var canvas: CanvasView?
 
@@ -487,12 +487,12 @@ final class StudioZoomOptions: FlippedStackView {
     @objc private func percent(_ b: NSButton) { canvas?.setZoomPercent(CGFloat(b.tag)) }
 }
 
-/// 색상 피커 도구 옵션: 집은 색과 값 (Display P3).
+/// Color picker tool options: picked color and values (Display P3).
 final class StudioPickerView: FlippedStackView {
     private let swatch = NSView()
-    /// 색상 견본: 누르면 붓·글자·모양 색으로, +는 마지막으로 집은 색을 더한다, ⌥누르기 지우기
+    /// Swatches: click to set brush/text/shape color, + adds the last picked color, ⌥-click deletes
     let swatches = SwatchesView()
-    /// 마지막으로 집은 색 (sRGB 0~1)
+    /// Last picked color (sRGB 0–1)
     private(set) var lastColor: [Float]?
     private let values = NSTextField(wrappingLabelWithString: "사진을 누르면 그 자리(5×5 평균)의 색을 집습니다.")
 
@@ -529,7 +529,7 @@ final class StudioPickerView: FlippedStackView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// `c`: 화면 색 공간(Display P3) 0~1.
+    /// `c`: display color space (Display P3) 0–1.
     func show(_ c: SIMD3<Float>) {
         let cl = SIMD3(min(max(c.x, 0), 1), min(max(c.y, 0), 1), min(max(c.z, 0), 1))
         let ns = NSColor(displayP3Red: CGFloat(cl.x), green: CGFloat(cl.y), blue: CGFloat(cl.z), alpha: 1)
@@ -544,7 +544,7 @@ final class StudioPickerView: FlippedStackView {
     }
 }
 
-// MARK: - 효과 도구 (필터를 레이어에)
+// MARK: - Effects tool (filters on a layer)
 
 final class StudioEffectsPanel: NSStackView {
     let browser = EffectsBrowser()
@@ -573,7 +573,7 @@ final class StudioEffectsPanel: NSStackView {
 }
 
 extension MainWindowController {
-    /// 효과를 걸 레이어: 고른 레이어(그룹 제외), 없으면 새 전체 조정 레이어 "효과"
+    /// Layer for effects: the selected layer (not groups), otherwise a new full adjustment layer "효과"
     func effectsTargetIndex(create: Bool) -> Int? {
         guard var s = photo?.settings else { return nil }
         if let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }), !s.layers[i].isGroup { return i }
@@ -609,7 +609,7 @@ extension MainWindowController {
     }
 }
 
-// MARK: - 스타일 도구 (레이어 스타일)
+// MARK: - Styles tool (layer styles)
 
 extension MainWindowController {
     func syncStudioStyles() {

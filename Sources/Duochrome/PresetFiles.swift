@@ -3,14 +3,14 @@ import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 
-/// 프리셋 파일 가져오기: 브러시(.abr), 그라디언트(.grd), 패턴(.pat), 견본(.aco).
-/// 가져온 것은 프리셋 폴더(`~/Library/Application Support/Duochrome/Presets`)에 모아 두고
-/// 마스크 붓·칠 레이어·그라디언트 맵·색 고르기에서 쓴다.
+/// Preset file import: brushes (.abr), gradients (.grd), patterns (.pat), swatches (.aco).
+/// Imported items are gathered in the preset folder (`~/Library/Application Support/Duochrome/Presets`)
+/// and used by the mask brush, fill layers, gradient maps, and color pickers.
 enum PresetFiles {
     struct Swatch: Codable, Equatable { var name: String; var rgb: [Float] }
     struct Gradient: Codable, Equatable {
         var name: String
-        /// (위치 0~1, 가운데점 0~1, r, g, b) 반복
+        /// (position 0–1, midpoint 0–1, r, g, b) repeated
         var stops: [Float]
     }
     struct Pattern: Codable, Equatable { var name: String; var file: String; var width: Int; var height: Int }
@@ -23,7 +23,7 @@ enum PresetFiles {
         var brushes: [Brush] = []
     }
 
-    // MARK: - 보관
+    // MARK: - Storage
 
     static var folder: URL = {
         let env = ProcessInfo.processInfo.environment
@@ -57,7 +57,7 @@ enum PresetFiles {
 
     static func url(_ file: String) -> URL { folder.appendingPathComponent(file) }
 
-    /// 파일 하나를 가져와 라이브러리에 더한다. 더한 개수 설명을 돌려준다.
+    /// Imports one file into the library. Returns a description of how many were added.
     @discardableResult
     static func importFile(_ url: URL) throws -> String {
         let data = try Data(contentsOf: url)
@@ -104,7 +104,7 @@ enum PresetFiles {
         return CGImageDestinationFinalize(dest) ? file : nil
     }
 
-    // MARK: - 견본 .aco
+    // MARK: - Swatches .aco
 
     static func readACO(_ d: Data) throws -> [Swatch] {
         var r = PSD.Reader(d)
@@ -119,7 +119,7 @@ enum PresetFiles {
             case 1: // HSB
                 let rgb = NSColor(hue: CGFloat(fa), saturation: CGFloat(fb), brightness: CGFloat(fc), alpha: 1)
                 return SIMD3(Float(rgb.redComponent), Float(rgb.greenComponent), Float(rgb.blueComponent))
-            case 2: // CMYK (0이 잉크 가득)
+            case 2: // CMYK (0 is full ink)
                 let k = 1 - fd
                 return SIMD3(fa * k, fb * k, fc * k)
             case 7: // Lab: L 0~10000, a·b −12800~12700
@@ -134,7 +134,7 @@ enum PresetFiles {
         }
         var names = Array(repeating: "", count: n)
         var colors = v1
-        // 판 2가 뒤따르면 이름이 있다
+        // names are present when version 2 follows
         if ver == 1, r.remaining >= 4, (try? r.u16()) == 2 {
             let n2 = Int(try r.u16())
             colors = []; names = []
@@ -144,7 +144,7 @@ enum PresetFiles {
                 names.append(try r.unicode())
             }
         } else if ver == 2 {
-            // 판 2만 있는 파일: 위에서 이름을 건너뛰지 않았으니 다시 읽는다
+            // Files with only version 2: names weren't skipped above, so read again
             var r2 = PSD.Reader(d); _ = try r2.u16(); _ = try r2.u16()
             colors = []; names = []
             for _ in 0 ..< n {
@@ -156,7 +156,7 @@ enum PresetFiles {
         return zip(names, colors).map { Swatch(name: $0.0, rgb: [$0.1.x, $0.1.y, $0.1.z]) }
     }
 
-    // MARK: - 그라디언트 .grd (판 5, 설명자)
+    // MARK: - Gradients .grd (version 5, descriptor)
 
     static func readGRD(_ d: Data) throws -> [Gradient] {
         var r = PSD.Reader(d)
@@ -169,7 +169,7 @@ enum PresetFiles {
         for v in desc["GrdL"]?.list ?? [] {
             guard let g = v.object?.obj("Grad") else { continue }
             let stops = PSDImport.gradientStops(g)
-            guard stops.count >= 2 else { continue }   // 노이즈 그라디언트는 색 목록이 없다
+            guard stops.count >= 2 else { continue }   // noise gradients have no color list
             out.append(Gradient(name: g["Nm  "]?.string.map(cleanName) ?? "그라디언트",
                                 stops: stops.flatMap { [$0.loc, $0.mid, $0.color.x, $0.color.y, $0.color.z] }))
         }
@@ -188,7 +188,7 @@ enum PresetFiles {
         }
     }
 
-    // MARK: - 패턴 .pat
+    // MARK: - Patterns .pat
 
     static func readPAT(_ d: Data, prefix: String) throws -> [Pattern] {
         var r = PSD.Reader(d)
@@ -203,9 +203,9 @@ enum PresetFiles {
         return out
     }
 
-    /// 패턴 하나 (길이 + 판 + 모드 + 크기 + 이름 + 고유 번호 + 가상 메모리 배열). 돌려주는 두 번째 값은 고유 번호.
+    /// One pattern (length + version + mode + size + name + unique id + virtual memory array). The second return value is the unique id.
     static func readPattern(_ r: inout PSD.Reader, into dir: URL, fallbackName: String, hasLength: Bool = true) throws -> (Pattern, String)? {
-        // PSD 안(Patt)은 길이가 앞에 붙고, .pat 파일은 없다 (가상 메모리 배열 길이로 끝을 안다)
+        // Inside PSD (Patt) a length is prefixed; .pat files have none (the end is known from the virtual memory array length)
         var end: Int?
         if hasLength {
             let len = Int(try r.u32())
@@ -220,7 +220,7 @@ enum PresetFiles {
         let id = try r.pascal(pad: 1)
         var palette: [UInt8] = []
         if mode == 2 { palette = [UInt8](try r.bytes(768)); try r.skip(4) }
-        // 가상 메모리 배열
+        // virtual memory array
         _ = try r.u32()
         let vmaLen = Int(try r.u32())
         vmaEnd = r.pos + vmaLen
@@ -275,7 +275,7 @@ enum PresetFiles {
         return (Pattern(name: name.isEmpty ? fallbackName : name, file: file, width: pw, height: ph), id)
     }
 
-    /// PSD에 든 패턴(Patt·Pat2·Pat3) 가운데 고유 번호가 같은 것을 레이어 그림 폴더에 PNG로 꺼낸다
+    /// Extracts the pattern with a matching unique id from a PSD's patterns (Patt/Pat2/Pat3) as PNG into the layer image folder
     static func documentPattern(_ f: PSD.File, id: String) -> String? {
         for key in ["Patt", "Pat2", "Pat3"] {
             guard let d = f.globalBlock(key) else { continue }
@@ -289,20 +289,20 @@ enum PresetFiles {
         return nil
     }
 
-    // MARK: - 브러시 .abr
+    // MARK: - Brushes .abr
 
     static func readABR(_ d: Data, prefix: String) throws -> [Brush] {
         var r = PSD.Reader(d)
         let ver = try r.u16()
         var out: [Brush] = []
         if ver == 1 || ver == 2 {
-            // 옛 형식: 개수, (종류, 크기, 자료)
+            // old format: count, (type, size, data)
             let n = Int(try r.u16())
             for i in 0 ..< n {
                 let type = try r.u16(); let size = Int(try r.u32())
                 let start = r.pos
                 defer { r.pos = start + size }
-                guard type == 2 else { continue }   // 1 계산 브러시는 건너뛴다
+                guard type == 2 else { continue }   // skip type 1 computed brushes
                 _ = try r.u32()
                 let spacing = Float(try r.u16())
                 if ver == 2 { _ = try r.unicode() }
@@ -327,7 +327,7 @@ enum PresetFiles {
                 while r.pos < end - 4 {
                     let size = Int(try r.u32())
                     let next = r.pos + (size + 3) / 4 * 4
-                    // 고유 번호와 알 수 없는 머리를 건너뛴다 (부판 1은 47바이트, 2는 301바이트)
+                    // skip the unique id and an unknown header (47 bytes for subversion 1, 301 for 2)
                     try r.skip(sub == 1 ? 47 : 301)
                     let top = Int(try r.i32()), left = Int(try r.i32()), bottom = Int(try r.i32()), right = Int(try r.i32())
                     let depth = Int(try r.u16()); let comp = try r.u8()
@@ -366,12 +366,12 @@ enum PresetFiles {
         return Brush(name: name, file: file, width: w, height: h, spacing: spacing)
     }
 
-    // MARK: - 붓 끝 그림
+    // MARK: - Brush tip images
 
     private static var tipCache: [String: CGImage] = [:]
     private static let tipLock = NSLock()
 
-    /// 붓 끝 (흰색, 알파 = 붓 모양). 브러시 파일의 밝은 곳이 칠해지는 곳이다.
+    /// Brush tip (white, alpha = brush shape). Bright areas of the brush file are what gets painted.
     static func tip(_ file: String) -> CGImage? {
         tipLock.lock(); defer { tipLock.unlock() }
         if let hit = tipCache[file] { return hit }
@@ -396,7 +396,7 @@ enum PresetFiles {
         return img
     }
 
-    /// 선을 따라 붓 끝을 찍는다 (간격은 지름의 비율)
+    /// Stamps the brush tip along a line (spacing as a fraction of diameter)
     static func stamp(_ ctx: CGContext, tip: CGImage, points: [CGPoint], diameter: CGFloat, spacing: CGFloat, alpha: CGFloat) {
         guard let first = points.first, diameter > 0.5 else { return }
         let aspect = CGFloat(tip.height) / CGFloat(max(tip.width, 1))

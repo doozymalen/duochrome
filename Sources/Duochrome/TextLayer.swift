@@ -2,54 +2,54 @@ import AppKit
 import CoreText
 import CoreImage
 
-/// 글자 레이어의 내용. 좌표는 원본 픽셀(아래가 0)이라 사진과 같이 형태 보정을 따라간다.
+/// Text layer content. Coordinates are source pixels (bottom is 0), so it follows geometry corrections with the photo.
 struct LayerText: Equatable, Codable {
     var string: String
-    /// 포스트스크립트 이름 (없으면 시스템 글꼴)
+    /// PostScript name (system font if none)
     var font: String = "Helvetica"
-    /// 글자 크기 (원본 픽셀)
+    /// Font size (source pixels)
     var size: Double = 48
-    /// 화면 값 RGB 0~1
+    /// display RGB 0–1
     var color: [Float] = [1, 1, 1]
-    /// 첫 줄 기준선의 자리: 왼쪽 정렬이면 왼쪽 끝, 가운데면 가운데, 오른쪽이면 오른쪽 끝.
-    /// 단락(상자) 글자면 상자의 왼쪽 위, 세로 글자면 첫 줄의 위 끝.
+    /// First baseline position: left end for left alignment, center for centered, right end for right.
+    /// For paragraph (box) text, the box's top-left; for vertical text, the top of the first line.
     var x: Double = 0
     var y: Double = 0
-    /// 0 왼쪽, 1 가운데, 2 오른쪽, 3 양쪽 맞춤
+    /// 0 left, 1 center, 2 right, 3 justified
     var align = 0
-    /// 자간 (1/1000 em)
+    /// tracking (1/1000 em)
     var tracking: Double = 0
-    /// 줄 간격 (원본 픽셀, 0이면 크기의 1.2배)
+    /// Line spacing (source pixels, 0 means 1.2× the size)
     var leading: Double = 0
-    /// 회전 (°, 반시계 +)
+    /// rotation (°, counterclockwise +)
     var rotation: Double = 0
 
-    // 글자 모양 (예전 문서에는 없어서 모두 선택 항목)
-    /// 세로쓰기
+    // Character formatting (all optional since older documents lack them)
+    /// vertical text
     var vertical: Bool? = nil
-    /// 단락 글자: 상자 너비·높이 (원본 픽셀). 있으면 상자 안에서 줄을 바꾼다
+    /// Paragraph text: box width/height (source pixels). If set, lines wrap within the box
     var boxWidth: Double? = nil
     var boxHeight: Double? = nil
-    /// 텍스트 뒤틀기: TextWarp 번호, 구부리기 -100~100
+    /// Text warp: TextWarp index, bend -100–100
     var warp: Int? = nil
     var warpBend: Double? = nil
-    /// 패스 위 글자: 이 패스를 따라 한 줄로 (원본 좌표), 시작 자리 0~1
+    /// Text on path: one line following this path (source coordinates), start position 0–1
     var onPath: VectorPath? = nil
     var pathOffset: Double? = nil
-    /// 패스 반대쪽 (방향을 뒤집어 안쪽·아래쪽으로)
+    /// Opposite side of the path (direction flipped, inside/below)
     var pathFlip: Bool? = nil
-    /// 기준선 이동 (원본 픽셀, 위로 +), 가로 비율(%)
+    /// Baseline shift (source pixels, up +), horizontal scale (%)
     var baselineShift: Double? = nil
     var horizontalScale: Double? = nil
 }
 
-/// 텍스트 뒤틀기 모양
+/// Text warp style
 enum TextWarp: Int, CaseIterable {
     case none, arc, arch, bulge, flag, wave, fish, rise, inflate, twist
     var title: String { ["없음", "부채꼴", "아치", "돌출", "깃발", "물결", "물고기", "상승", "부풀리기", "비틀기"][rawValue] }
 }
 
-/// 문자·단락 스타일 (이름 붙여 저장해 두고 글자 레이어에 입힌다)
+/// Character/paragraph styles (saved by name and applied to text layers)
 struct TextStyle: Codable, Equatable {
     var name: String
     var font: String
@@ -104,7 +104,7 @@ enum TextRender {
         return a
     }
 
-    /// 글자를 `scale` 배율로 그린 그림. 원본 좌표 × scale 자리에 놓아 둔다.
+    /// Image of the text rendered at `scale`. Placed at source coordinates × scale.
     static func image(_ t: LayerText, scale: CGFloat) -> CIImage? {
         let key = ((try? JSONEncoder().encode(t)).map { String(decoding: $0, as: UTF8.self) } ?? t.string) + "|\(scale)"
         lock.lock()
@@ -128,7 +128,7 @@ enum TextRender {
         return img
     }
 
-    /// 한 덩어리 글자 (가로·세로·단락)
+    /// A block of text (horizontal, vertical, paragraph)
     private static func block(_ t: LayerText, scale: CGFloat) -> CIImage? {
         let ctFont = font(t, scale: scale)
         let size = CTFontGetSize(ctFont)
@@ -149,7 +149,7 @@ enum TextRender {
             if vertical { fit.height = CGFloat(t.boxHeight ?? t.boxWidth!) * scale }
             else {
                 fit.width = CGFloat(t.boxWidth!) * scale
-                if let bh = t.boxHeight, bh > 0 { fit.height = CGFloat(bh) * scale }   // 상자 높이를 넘는 글자는 잘린다
+                if let bh = t.boxHeight, bh > 0 { fit.height = CGFloat(bh) * scale }   // Text beyond the box height is clipped
             }
         }
         let pad = ceil(size * 0.6)
@@ -163,7 +163,7 @@ enum TextRender {
         ctx.setShouldAntialias(true)
         CTFrameDraw(frame, ctx)
         guard let cg = ctx.makeImage() else { return nil }
-        // 기준점: 단락은 상자 왼쪽 위, 세로는 첫 줄 위 끝(오른쪽 위), 가로 한 줄은 첫 줄 기준선
+        // Anchor: paragraph at the box's top-left, vertical at the top of the first line (top right), single horizontal line at the first baseline
         var ax: CGFloat, ay: CGFloat
         if isBox && !vertical {
             ax = rect.minX; ay = rect.maxY
@@ -186,7 +186,7 @@ enum TextRender {
         return CIImage(cgImage: cg).transformed(by: move)
     }
 
-    /// 패스 위 글자: 한 줄 글자의 글리프를 패스를 따라 하나씩 돌려 놓는다
+    /// Text on path: rotates the glyphs of a single line one by one along the path
     private static func onPath(_ t: LayerText, _ p: VectorPath, scale: CGFloat) -> CIImage? {
         let ctFont = font(t, scale: scale)
         let size = CTFontGetSize(ctFont)
@@ -194,7 +194,7 @@ enum TextRender {
         var attrs = attributes(t, ctFont, scale: scale)
         attrs[NSAttributedString.Key(kCTVerticalFormsAttributeName as String)] = nil
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attrs))
-        // 패스를 scale 좌표로 펼치고 길이를 잰다
+        // Flatten the path in scale coordinates and measure its length
         let pts = p.flattened(step: 2).map { CGPoint(x: $0.x * scale, y: $0.y * scale) }
         guard pts.count > 1 else { return nil }
         var acc: [CGFloat] = [0]
@@ -227,7 +227,7 @@ enum TextRender {
             CTRunGetGlyphs(run, CFRange(), &glyphs); CTRunGetPositions(run, CFRange(), &pos); CTRunGetAdvances(run, CFRange(), &adv)
             let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] as! CTFont
             for i in 0..<n {
-                // 글리프 가운데를 패스 위에 (기울기를 따라 돌림)
+                // Glyph center on the path (rotated along the slope)
                 guard let (pt, ang) = at(start + pos[i].x + adv[i].width / 2) else { continue }
                 ctx.saveGState()
                 ctx.translateBy(x: pt.x, y: pt.y)
@@ -241,7 +241,7 @@ enum TextRender {
         return CIImage(cgImage: cg).transformed(by: .init(translationX: bb.minX, y: bb.minY))
     }
 
-    /// 텍스트 뒤틀기: 글자 그림의 상자를 기준으로 좌표를 옮긴다
+    /// Text warp: moves coordinates relative to the text image's box
     private static let warpKernel = CIWarpKernel(source: """
     kernel vec2 textWarp(vec4 box, float style, float b) {
         vec2 d = destCoord();
@@ -250,30 +250,30 @@ enum TextRender {
         float cu = u * 2.0 - 1.0;
         float cv = v * 2.0 - 1.0;
         vec2 s = d;
-        if (style < 1.5) {            // 부채꼴: 가운데가 올라가고 위쪽이 넓어진다
+        if (style < 1.5) {            // Arc: the middle rises and the top widens
             float lift = b * box.w * 0.5 * (1.0 - cu * cu);
             float grow = 1.0 + b * 0.35 * v;
             s.y = d.y - lift;
             s.x = box.x + box.z * 0.5 + (d.x - box.x - box.z * 0.5) / grow;
-        } else if (style < 2.5) {     // 아치: 전체가 활처럼
+        } else if (style < 2.5) {     // Arch: the whole thing bows
             s.y = d.y - b * box.w * 0.5 * (1.0 - cu * cu);
-        } else if (style < 3.5) {     // 돌출: 가운데가 두꺼워진다
+        } else if (style < 3.5) {     // Bulge: the middle thickens
             float f = 1.0 + b * (1.0 - cu * cu);
             s.y = box.y + box.w * 0.5 + (d.y - box.y - box.w * 0.5) / max(f, 0.05);
-        } else if (style < 4.5) {     // 깃발
+        } else if (style < 4.5) {     // Flag
             s.y = d.y - b * box.w * 0.25 * sin(6.2831853 * u);
-        } else if (style < 5.5) {     // 물결: 위아래가 엇갈린다
+        } else if (style < 5.5) {     // Wave: top and bottom alternate
             s.y = d.y - b * box.w * 0.2 * sin(6.2831853 * u + 3.1415926 * v);
-        } else if (style < 6.5) {     // 물고기: 앞쪽이 부풀고 꼬리가 좁아진다
+        } else if (style < 6.5) {     // Fish: the front swells, the tail narrows
             float f = 1.0 + b * sin(3.1415926 * u) * (1.2 - u);
             s.y = box.y + box.w * 0.5 + (d.y - box.y - box.w * 0.5) / max(f, 0.05);
-        } else if (style < 7.5) {     // 상승: 오른쪽으로 갈수록 올라간다
+        } else if (style < 7.5) {     // Rise: climbs toward the right
             s.y = d.y - b * box.w * 0.6 * (u - 0.5);
-        } else if (style < 8.5) {     // 부풀리기: 가운데에서 둥글게
+        } else if (style < 8.5) {     // Inflate: rounded from the center
             float r = length(vec2(cu, cv));
             float f = 1.0 + b * max(0.0, 1.0 - r * r) * 0.6;
             s = vec2(box.x + box.z * 0.5, box.y + box.w * 0.5) + (d - vec2(box.x + box.z * 0.5, box.y + box.w * 0.5)) / max(f, 0.05);
-        } else {                      // 비틀기: 가운데를 돌린다
+        } else {                      // Twist: rotates the middle
             vec2 c = vec2(box.x + box.z * 0.5, box.y + box.w * 0.5);
             vec2 q = d - c;
             float r = length(vec2(cu, cv));
@@ -286,7 +286,7 @@ enum TextRender {
 
     private static func warp(_ img: CIImage, _ style: TextWarp, bend b: CGFloat, pivot: CGPoint, rotation: Double) -> CIImage {
         guard let k = warpKernel else { return img }
-        // 회전한 글자는 되돌려 뒤틀고 다시 돌린다 (글자 방향 기준으로 뒤틀리게)
+        // Rotated text is unrotated, warped, and rotated back (so it warps along the text direction)
         let r = CGFloat(rotation) * .pi / 180
         let undo = CGAffineTransform(translationX: -pivot.x, y: -pivot.y).concatenating(.init(rotationAngle: -r))
         let flat = img.transformed(by: undo)
@@ -298,22 +298,22 @@ enum TextRender {
         return warped.cropped(to: out).transformed(by: undo.inverted())
     }
 
-    /// 쓸 수 있는 글꼴의 포스트스크립트 이름을 찾는다 (파일의 글꼴 이름이 맥에 없으면 가까운 것) — 글꼴 대체
+    /// Finds a usable font's PostScript name (the closest if the file's font isn't on this Mac) — font substitution
     static func resolveFont(_ name: String) -> String {
         if NSFont(name: name, size: 12) != nil { return name }
         let base = name.split(separator: "-").first.map(String.init) ?? name
         if let f = NSFontManager.shared.availableMembers(ofFontFamily: base)?.first?.first as? String { return f }
-        // 한글 글꼴이면 애플 SD 산돌고딕, 아니면 헬베티카
+        // Apple SD Gothic Neo for Korean fonts, otherwise Helvetica
         if name.range(of: "Gothic|Myeongjo|Batang|Dotum|Gulim|Nanum|Noto.*KR|KR", options: .regularExpression) != nil { return "AppleSDGothicNeo-Regular" }
         return "Helvetica"
     }
 
-    /// 이 글꼴이 대체되었는지 (PSD 파일의 글꼴이 맥에 없을 때 알림용)
+    /// Whether this font was substituted (to alert when a PSD's font isn't on this Mac)
     static func isSubstituted(_ name: String) -> Bool { NSFont(name: name, size: 12) == nil }
 }
 
 extension Layers {
-    /// 글자 레이어: 원본 좌표에 글자를 그리고 사진과 같은 형태 보정을 거친다
+    /// Text layer: draws text in source coordinates and passes it through the photo's geometry corrections
     static func placedText(_ t: LayerText, scale: CGFloat, native: CGSize, shape: (CIImage, CGFloat) -> CIImage, frame: CGRect) -> CIImage? {
         guard let img = TextRender.image(t, scale: scale) else { return nil }
         let nativeRect = CGRect(x: 0, y: 0, width: native.width * scale, height: native.height * scale).integral

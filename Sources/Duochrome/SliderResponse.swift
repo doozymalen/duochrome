@@ -1,8 +1,8 @@
 import Foundation
 
-/// 슬라이더 반응 배율. 그릴 때 슬라이더 값에 곱한다 (저장된 값과 화면 숫자는 그대로).
+/// Slider response multipliers. Applied to slider values when rendering (stored values and displayed numbers unchanged).
 ///
-/// 지금은 모두 1 (배율 없음).
+/// All 1 for now (no multiplier).
 enum SliderResponse {
     static var exposure: Float = 1
     static var contrast: Float = 1
@@ -56,7 +56,7 @@ enum SliderResponse {
         }
     }
 
-    /// 그릴 때 쓰는 값. 범위를 넘지 않게 자른다.
+    /// Value used for rendering, clamped to the range.
     static func effective(_ s: DevelopSettings) -> DevelopSettings {
         var e = s
         for (name, key) in keys {

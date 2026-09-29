@@ -1,11 +1,11 @@
 import AppKit
 
-// MARK: - 사진 탭, 배치 도구 옵션, 색 조정 프리셋 보기
+// MARK: - Photo tabs, arrange tool options, color adjustment preset view
 
-/// 스크롤을 스스로 가진 옵션 내용 (옵션 패널이 다시 스크롤로 감싸지 않는다)
+/// Option content with its own scroll (the options panel doesn't wrap it in another scroll)
 protocol SelfScrollingOptions {}
 
-/// 캔버스 아래 떠 있는 사진 탭 (여러 사진을 열어 두고 오간다)
+/// Photo tabs floating below the canvas (keep several photos open and switch)
 final class StudioTabsBar: NSView {
     var onPick: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
@@ -58,7 +58,7 @@ final class StudioTabsBar: NSView {
 }
 
 extension MainWindowController {
-    /// 연 사진을 탭 목록에 넣는다 (show에서 부른다, 12개까지)
+    /// Adds the opened photo to the tab list (called from show, up to 12)
     func rememberTab(_ item: PhotoItem) {
         var t = studioTabs.filter { $0 !== item }
         if let i = studioTabs.firstIndex(where: { $0 === item }) { t.insert(item, at: min(i, t.count)) } else { t.append(item) }
@@ -86,13 +86,13 @@ extension MainWindowController {
     }
 }
 
-/// 배치 도구 옵션: 고른 이미지·글자·모양 레이어의 크기·회전·가운데 맞추기, 자유 변형
+/// Arrange tool options: size, rotation, and centering of the selected image/text/shape layer, free transform
 final class ArrangeOptionsView: NSStackView {
     weak var host: MainWindowController?
     private let scale = SliderRow(label: "크기", min: 5, max: 400, format: "%.0f%%", defaultValue: 100)
     private let rotation = SliderRow(label: "회전", min: -180, max: 180, format: "%.0f°", defaultValue: 0)
     private let info = NSTextField(wrappingLabelWithString: "")
-    /// 끌기를 시작할 때의 레이어 (크기·회전은 이것 기준)
+    /// Layer at drag start (size and rotation are relative to it)
     private var base: AdjustLayer?
 
     init(host: MainWindowController) {
@@ -138,7 +138,7 @@ final class ArrangeOptionsView: NSStackView {
         for v in [scale, rotation] { v.alphaValue = target == nil ? 0.4 : 1 }
     }
 
-    /// 크기·회전: 끌기 시작한 레이어 기준으로 (모양은 가운데를 중심으로 점을 옮긴다)
+    /// Size/rotation: relative to the layer at drag start (shapes move their points around the center)
     private func transform(scale k: Double?, rotation deg: Double?, dragging: Bool) {
         guard let h = host, var s = h.photo?.settings, let (i, cur) = target else { return }
         guard !cur.locked else { NSSound.beep(); return }
@@ -189,7 +189,7 @@ final class ArrangeOptionsView: NSStackView {
             }
             s.layers[i].vector = v
         } else if var t = l.text {
-            // 글자는 가운데 정렬로 바꿔 기준점을 가운데에
+            // Text switches to center alignment so the anchor is in the middle
             if horizontal { t.align = 1; t.x = Double(mid.x) } else { t.y = Double(mid.y) }
             s.layers[i].text = t
         }
@@ -201,7 +201,7 @@ final class ArrangeOptionsView: NSStackView {
     @objc private func freeTransform() { host?.freeTransform(nil) }
 }
 
-/// 색 조정 도구 위: 저장한 스타일을 지금 사진에 건 작은 미리보기. 누르면 건다
+/// Above the color adjustment tool: small previews of saved styles applied to the current photo. Click to apply
 final class StylePresetsView: NSView {
     weak var host: MainWindowController?
     private let stack = NSStackView()
@@ -238,7 +238,7 @@ final class StylePresetsView: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 스타일 이름마다 미리보기 칸 (그림은 한 칸씩 차례로 그린다)
+    /// Preview cell per style name (images render one cell at a time)
     func reload() {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let names = MainWindowController.styleNames()
@@ -279,7 +279,7 @@ final class StylePresetsView: NSView {
     }
 }
 
-/// 색 조정 도구 옵션: 위에 프리셋, 아래에 조정 패널 (조정 패널은 스스로 스크롤한다)
+/// Color adjustment tool options: presets on top, adjust panel below (the adjust panel scrolls itself)
 final class AdjustOptionsContainer: NSView, SelfScrollingOptions {
     let presets: StylePresetsView
     init(host: MainWindowController) {
@@ -295,7 +295,7 @@ final class AdjustOptionsContainer: NSView, SelfScrollingOptions {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 조정 패널을 (대량 보정에서 옮겨) 아래에 붙인다
+    /// Attaches the adjust panel (moved from batch edit) below
     func attach(_ inspector: NSView) {
         presets.reload()
         guard inspector.superview !== self else { return }
@@ -312,7 +312,7 @@ final class AdjustOptionsContainer: NSView, SelfScrollingOptions {
 }
 
 extension MainWindowController {
-    /// 스타일을 건 모습의 작은 그림 (지금 사진, 가이드 배율)
+    /// Small image of the look with a style applied (current photo, guide scale)
     func stylePreview(_ name: String) -> NSImage? {
         guard let doc = photo,
               let data = try? Data(contentsOf: Self.stylesFolder.appendingPathComponent("\(name).json")),

@@ -1,15 +1,15 @@
 import AppKit
 
-/// 점 몇 개로 정한 곡선. 좌표는 0~1, x 순서로 정렬해 둔다.
+/// Curve defined by a few points. Coordinates 0–1, kept sorted by x.
 struct ToneCurve: Equatable, Codable {
     static let identityPoints = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 1)]
-    /// 점은 16개까지.
+    /// Up to 16 points.
     static let maxPoints = 16
 
     var points = ToneCurve.identityPoints
     var isIdentity: Bool { points == ToneCurve.identityPoints }
 
-    /// 단조 3차 보간(Fritsch–Carlson). 점 사이에서 넘치지 않아 밝기 반전이 생기지 않는다.
+    /// Monotone cubic interpolation (Fritsch–Carlson). No overshoot between points, so no tonal inversion.
     func sample(_ n: Int) -> [Float] {
         let p = points
         let k = p.count
@@ -51,10 +51,10 @@ struct ToneCurve: Equatable, Codable {
     }
 }
 
-/// 커브 도구의 채널 네 개. RGB가 먼저 걸리고 채널별 곡선이 그 위에 걸린다.
+/// The four channels of the curves tool. RGB applies first, per-channel curves on top.
 struct CurveSet: Equatable, Codable {
     var rgb = ToneCurve(), red = ToneCurve(), green = ToneCurve(), blue = ToneCurve()
-    /// 밝기(루마) 커브: 색은 그대로 두고 밝기만 옮긴다.
+    /// Luma curve: moves only brightness, leaving color as is.
     var luma = ToneCurve()
     var isIdentity: Bool { rgb.isIdentity && red.isIdentity && green.isIdentity && blue.isIdentity }
 
@@ -67,13 +67,13 @@ struct CurveSet: Equatable, Codable {
     ]
 }
 
-/// 곡선 편집기. 빈 곳을 누르면 점이 생기고, 끌면 움직이고, 두 번 누르거나 밖으로 끌어내면 지워진다.
+/// Curve editor. Click empty space to add a point, drag to move, double-click or drag out to delete.
 final class CurveEditorView: NSView {
     var curves = CurveSet() { didSet { needsDisplay = true } }
     var channel: WritableKeyPath<CurveSet, ToneCurve> = \.rgb { didSet { needsDisplay = true } }
     var channelColor: NSColor = .white
     var histogram: [Float]? { didSet { needsDisplay = true } }
-    /// (새 곡선, 끄는 중인지)
+    /// (new curve, dragging)
     var onChange: ((CurveSet, Bool) -> Void)?
 
     private var dragIndex: Int?
@@ -179,10 +179,10 @@ final class CurveEditorView: NSView {
         var curve = curves[keyPath: channel]
         let last = curve.points.count - 1
         var c = toCurve(v)
-        // 가운데 점은 위아래로 멀리 끌어내면 지운다.
+        // Interior points are deleted when dragged far up or down out of the box.
         draggedOut = i != 0 && i != last && (c.y < -0.15 || c.y > 1.15)
         c.y = min(max(c.y, 0), 1)
-        // 양끝 점은 가로로도 움직이지만 이웃 점을 넘지 못한다.
+        // End points move horizontally too, but can't cross their neighbors.
         let lo = i == 0 ? 0 : curve.points[i - 1].x + 0.01
         let hi = i == last ? 1 : curve.points[i + 1].x - 0.01
         c.x = min(max(c.x, lo), hi)

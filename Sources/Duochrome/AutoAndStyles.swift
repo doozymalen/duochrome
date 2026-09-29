@@ -1,10 +1,10 @@
 import AppKit
 
-/// 자동 조정과 스타일.
+/// Auto adjustments and styles.
 extension MainWindowController {
-    // MARK: - 자동 조정
+    // MARK: - Auto adjust
 
-    /// 자동 조정: 화이트 밸런스(회색 세계) → 노출(가운데 밝기) → 레벨(검정·흰 점).
+    /// Auto adjust: white balance (gray world) → exposure (mid brightness) → levels (black/white points).
     @objc func autoAdjust(_ sender: Any?) {
         guard photo != nil else { NSSound.beep(); return }
         pickWhiteBalance(at: nil) { [weak self] in
@@ -19,7 +19,7 @@ extension MainWindowController {
         }
     }
 
-    /// 카드 하나만 자동 (노출 카드: 노출, 레벨 카드: 검정·흰 점)
+    /// Auto for one card only (Exposure card: exposure, Levels card: black/white points)
     func autoCard(_ id: String) {
         guard let doc = photo else { NSSound.beep(); return }
         var s = doc.settings
@@ -28,7 +28,7 @@ extension MainWindowController {
         case "exposure":
             s.exposure = min(max(s.exposure + tone.ev, -4), 4)
         case "levels":
-            // 지금 노출 그대로에서 잰 검정·흰 점
+            // Black/white points measured at the current exposure
             let gain = pow(2, -tone.ev / 2.2)
             s.levelInWhite = max(min(tone.white * gain, 1), 0.6)
             s.levelInBlack = min(max(tone.black * gain, 0), 0.15)
@@ -38,7 +38,7 @@ extension MainWindowController {
         inspector.show(doc)
     }
 
-    /// 화면 값(감마) 밝기 분포에서: 가운데 밝기를 0.46으로 옮길 노출, 옮긴 뒤 0.1%·99.9% 밝기.
+    /// From the display (gamma) luminance histogram: exposure moving the median to 0.46, then the 0.1% / 99.9% luminance after the move.
     static func autoTone(_ img: CIImage) -> (ev: Float, black: Float, white: Float) {
         let e = img.extent
         let k = 256 / max(e.width, e.height)
@@ -57,7 +57,7 @@ extension MainWindowController {
         return (ev, min(q(0.001) * gain, 1), min(q(0.999) * gain, 1))
     }
 
-    // MARK: - 스타일
+    // MARK: - Styles
 
     static var stylesFolder: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -74,7 +74,7 @@ extension MainWindowController {
             .filter { $0.hasSuffix(".json") }.map { String($0.dropLast(5)) }.sorted()
     }
 
-    /// 지금 조정을 스타일로 저장한다 (형태·리터칭·레이어는 사진마다 달라서 뺀다).
+    /// Saves current adjustments as a style (geometry, retouching, and layers are per-photo, so excluded).
     @objc func saveStyle(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
         let a = NSAlert()
@@ -99,7 +99,7 @@ extension MainWindowController {
         }
     }
 
-    /// 스타일 적용. 강도(0~1)만큼 지금 값에서 스타일 값 쪽으로 옮긴다 (숫자). 숫자가 아닌 것(커브 등)은 강도 50% 이상이면 바꾼다.
+    /// Apply style. Moves numeric values from current toward the style by the amount (0–1). Non-numeric values (curves etc.) switch at 50% or more.
     func applyStyle(named name: String, strength: Double) {
         guard let doc = photo,
               let data = try? Data(contentsOf: Self.stylesFolder.appendingPathComponent("\(name).json")),
@@ -108,7 +108,7 @@ extension MainWindowController {
         }
         var dict = settingsDict(doc.settings)
         func blend(_ cur: Any?, _ target: Any) -> Any {
-            // 참/거짓(NSNumber 불리언)은 숫자로 섞지 않는다
+            // Booleans (NSNumber bool) are not blended as numbers
             func isBool(_ v: Any?) -> Bool { (v as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } ?? false }
             if !isBool(cur), !isBool(target), let a = cur as? Double, let b = target as? Double { return a + (b - a) * strength }
             if let a = cur as? [String: Any], let b = target as? [String: Any] {
@@ -143,7 +143,7 @@ extension MainWindowController {
     @objc func revealStyles(_ sender: Any?) { NSWorkspace.shared.activateFileViewerSelecting([Self.stylesFolder]) }
 }
 
-/// "스타일" 메뉴: 열 때마다 저장된 스타일 목록을 다시 읽는다.
+/// "Styles" menu: re-reads the saved style list each time it opens.
 final class StyleMenuDelegate: NSObject, NSMenuDelegate {
     static let shared = StyleMenuDelegate()
 
@@ -174,7 +174,7 @@ final class StyleMenuDelegate: NSObject, NSMenuDelegate {
 }
 
 extension MainWindowController {
-    /// 구도 격자 차례로 바꾸기 (⌘')
+    /// Cycle composition grids (⌘')
     @objc func cycleGrid(_ sender: Any?) {
         let g = viewer.canvas.gridOverlay
         g.mode = GridOverlayView.Mode(rawValue: (g.mode.rawValue + 1) % GridOverlayView.Mode.allCases.count) ?? .none
@@ -182,10 +182,10 @@ extension MainWindowController {
 }
 
 extension MainWindowController {
-    /// 사진 검색 (창 막대 검색칸): 지금 보는 묶음 안에서 거른다.
+    /// Photo search (window toolbar search field): filters within the current collection.
     @objc func searchPhotos(_ sender: NSSearchField) {
         library.query = sender.stringValue
-        // 대량 보정 사진 패널과 격자 보기의 검색칸은 같은 검색어를 보인다
+        // The batch-edit photo panel and the grid view search fields show the same query
         for f in [browser.searchField, libraryMode.searchField] where f !== sender { f?.stringValue = sender.stringValue }
         browser.reload()
         libraryMode.grid.reload()
@@ -193,13 +193,13 @@ extension MainWindowController {
 }
 
 extension MainWindowController {
-    /// ⌘V: 입력칸이 아니면 클립보드 그림을 이미지 레이어로 붙인다.
+    /// ⌘V: outside text fields, pastes the clipboard image as an image layer.
     @objc func paste(_ sender: Any?) { pasteImageLayer(sender) }
 
 }
 
 extension MainWindowController {
-    /// 교정쇄 보기 (⌘Y) · 색역 경고 (⇧⌘Y)
+    /// Soft proof (⌘Y) · gamut warning (⇧⌘Y)
     @objc func toggleSoftProof(_ sender: Any?) { viewer.canvas.softProof.toggle() }
     @objc func toggleGamutWarning(_ sender: Any?) { viewer.canvas.gamutWarning.toggle() }
 }

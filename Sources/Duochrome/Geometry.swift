@@ -1,6 +1,6 @@
 import CoreImage
 
-/// 크롭 영역. 형태 보정을 마친 틀 기준 0~1 좌표 (아래가 0).
+/// Crop rect. 0–1 coordinates relative to the geometry-corrected frame (bottom is 0).
 struct CropRect: Equatable, Codable {
     var x: Double = 0, y: Double = 0, w: Double = 1, h: Double = 1
     var isFull: Bool { x == 0 && y == 0 && w == 1 && h == 1 }
@@ -9,23 +9,23 @@ struct CropRect: Equatable, Codable {
     init(_ r: CGRect) { x = r.minX; y = r.minY; w = r.width; h = r.height }
 }
 
-/// "형태" 탭의 계산: 90° 회전·뒤집기 → 미세 회전 → 키스톤 → 크롭.
+/// "Geometry" tab math: 90° rotation/flip → fine rotation → keystone → crop.
 ///
-/// 회전과 키스톤은 틀(frame) 크기를 바꾸지 않는다. 빈 모서리가 생기지 않도록 사진을 키워서
-/// 틀을 덮는다. 크기가 바뀌는 건 90° 회전과 크롭뿐이다.
+/// Rotation and keystone don't change the frame size. The photo is scaled up to cover the frame
+/// so no empty corners appear. Only 90° rotation and crop change size.
 enum Geometry {
-    /// 90° 회전을 반영한 틀 크기 (원본 픽셀).
+    /// Frame size with 90° rotation applied (source pixels).
     static func frameSize(_ s: DevelopSettings, native: CGSize) -> CGSize {
         if let q = perspectiveQuad(s) { return perspectiveSize(q) }
         return turnSize(s, native: native)
     }
 
-    /// 90° 회전만 반영한 틀 (원근 자르기 전)
+    /// Frame with only 90° rotation applied (before perspective crop)
     static func turnSize(_ s: DevelopSettings, native: CGSize) -> CGSize {
         Int(s.quarterTurns) % 2 == 0 ? native : CGSize(width: native.height, height: native.width)
     }
 
-    /// 크롭까지 반영한 결과 크기 (원본 픽셀). 캔버스 여백을 더한다.
+    /// Result size including crop (source pixels). Adds the canvas margin.
     static func croppedSize(_ s: DevelopSettings, native: CGSize) -> CGSize {
         let f = frameSize(s, native: native)
         let w = (f.width * s.crop.w).rounded(), h = (f.height * s.crop.h).rounded()
@@ -38,14 +38,14 @@ enum Geometry {
             && s.keystoneV == 0 && s.keystoneH == 0 && s.keystoneAspect == 0 && s.perspective == nil
     }
 
-    // MARK: - 원근 자르기
+    // MARK: - Perspective crop
 
     static func perspectiveQuad(_ s: DevelopSettings) -> [CGPoint]? {
         guard let q = s.perspective, q.count == 8 else { return nil }
         return (0 ..< 4).map { CGPoint(x: q[$0 * 2], y: q[$0 * 2 + 1]) }
     }
 
-    /// 네 점 → 반듯한 사각형 크기 (마주 보는 변 길이의 평균)
+    /// Four points → upright rectangle size (mean of opposite side lengths)
     static let homographyK = try? CIKernel(source: """
         kernel vec4 k(sampler s, vec3 r0, vec3 r1, vec3 r2) {
             vec3 p = vec3(destCoord(), 1.0);
@@ -55,10 +55,10 @@ enum Geometry {
         }
         """)
 
-    /// 그림을 호모그래피 H(원래 → 결과, scale 1 좌표)로 옮긴다. 결과 영역 out은 scale 좌표.
+    /// Maps an image by homography H (source → result, scale-1 coordinates). The result region `out` is in scale coordinates.
     static func homographyWarp(_ img: CIImage, _ h: Homography, scale: CGFloat, out: CGRect) -> CIImage {
         let inv = h.inverse.m
-        // scale 좌표: q = S · H⁻¹ · S⁻¹ · p
+        // scale coordinates: q = S · H⁻¹ · S⁻¹ · p
         let k = Double(scale)
         let m = [inv[0], inv[1], inv[2] * k, inv[3], inv[4], inv[5] * k, inv[6] / k, inv[7] / k, inv[8]]
         guard let kern = homographyK else { return img }
@@ -73,28 +73,28 @@ enum Geometry {
         return CGSize(width: ((d(q[0], q[1]) + d(q[3], q[2])) / 2).rounded(), height: ((d(q[0], q[3]) + d(q[1], q[2])) / 2).rounded())
     }
 
-    /// 틀 좌표 → 원근 자르기 결과 좌표 (scale 1)
+    /// Frame coordinates → perspective crop result coordinates (scale 1)
     static func perspectiveHomography(_ q: [CGPoint]) -> Homography {
         let sz = perspectiveSize(q)
         return Homography(from: q, to: [CGPoint(x: 0, y: 0), CGPoint(x: sz.width, y: 0), CGPoint(x: sz.width, y: sz.height), CGPoint(x: 0, y: sz.height)])
     }
 
-    // MARK: - 단계별 변환 (그리기와 좌표 변환이 같은 계산을 쓰게 한 곳에 둔다)
+    // MARK: - Staged transforms (in one place so drawing and coordinate mapping share the same math)
 
-    /// 90° 회전·뒤집기: 디코딩 이미지(w×h) → 틀. 틀 크기도 돌려준다.
+    /// 90° rotation/flip: decoded image (w×h) → frame. Also returns the frame size.
     static func turnTransform(_ s: DevelopSettings, w: CGFloat, h: CGFloat) -> (CGAffineTransform, CGSize) {
         let turns = Int(s.quarterTurns) % 4
         var t = CGAffineTransform(translationX: -w / 2, y: -h / 2)
         if s.flipH != 0 { t = t.concatenating(.init(scaleX: -1, y: 1)) }
         if s.flipV != 0 { t = t.concatenating(.init(scaleX: 1, y: -1)) }
-        // Core Image 좌표는 위가 +y라 양의 각도가 반시계 방향이다. 한 번 = 시계 방향 90°.
+        // Core Image y points up, so positive angles are counterclockwise. One turn = 90° clockwise.
         t = t.concatenating(.init(rotationAngle: -CGFloat(turns) * .pi / 2))
         let size = turns % 2 == 1 ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
         t = t.concatenating(.init(translationX: size.width / 2, y: size.height / 2))
         return (t, size)
     }
 
-    /// 미세 회전: 돌린 사진이 틀을 다 덮는 최소 배율로 키운다.
+    /// Fine rotation: scale up by the minimum factor so the rotated photo covers the frame.
     static func rotationTransform(_ rotation: Float, w: CGFloat, h: CGFloat) -> CGAffineTransform {
         let a = CGFloat(abs(rotation)) * .pi / 180
         let k = max((w * cos(a) + h * sin(a)) / w, (w * sin(a) + h * cos(a)) / h)
@@ -108,14 +108,14 @@ enum Geometry {
         s.keystoneV != 0 || s.keystoneH != 0 || s.keystoneAspect != 0
     }
 
-    /// 키스톤이 틀의 네 모서리를 옮길 자리: 왼위, 오른위, 왼아래, 오른아래.
-    /// 세로가 양수면 위쪽을 넓혀 위로 모이는 세로선을 편다. 가로는 오른쪽을 넓힌다.
-    /// 모서리를 바깥으로만 밀기 때문에 결과가 틀을 늘 덮는다.
+    /// Where keystone moves the frame's four corners: top-left, top-right, bottom-left, bottom-right.
+    /// Positive vertical widens the top to straighten verticals converging upward. Horizontal widens the right.
+    /// Corners are only pushed outward, so the result always covers the frame.
     static func keystoneQuad(v kv: Float, h kh: Float, aspect: Float, w: CGFloat, h: CGFloat) -> [CGPoint] {
         let v = CGFloat(kv) / 100 * 0.35, hk = CGFloat(kh) / 100 * 0.35
         let dxTop = max(v, 0) * w / 2, dxBottom = max(-v, 0) * w / 2
         let dyRight = max(hk, 0) * h / 2, dyLeft = max(-hk, 0) * h / 2
-        // 비율: 키스톤으로 눌린 세로를 되살린다 (양수면 세로로 늘인다).
+        // Aspect: restores height squashed by keystone (positive stretches vertically).
         let stretch = 1 + CGFloat(aspect) / 100 * 0.3
         let cy = h / 2
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x, y: cy + (y - cy) * stretch) }
@@ -127,7 +127,7 @@ enum Geometry {
                    to: keystoneQuad(v: v, h: kh, aspect: aspect, w: w, h: h))
     }
 
-    /// 크롭 전까지. 결과 영역은 (0, 0, 틀 × scale).
+    /// Up to before crop. The result region is (0, 0, frame × scale).
     static func transform(_ s: DevelopSettings, _ image: CIImage, scale: CGFloat) -> CIImage {
         guard !isIdentity(s) else { return image }
         var img = image
@@ -150,7 +150,7 @@ enum Geometry {
             let hm = perspectiveHomography(q)
             let sz = perspectiveSize(q)
             let out = CGRect(x: 0, y: 0, width: (sz.width * scale).rounded(), height: (sz.height * scale).rounded())
-            // 결과 좌표 → 틀 좌표 (역변환)로 읽는다. CIPerspectiveTransform은 일부 영역만 그리면 비는 일이 있었다.
+            // Read via result → frame coordinates (inverse). CIPerspectiveTransform sometimes left gaps when rendering partial regions.
             img = homographyWarp(img.clampedToExtent().cropped(to: frame), hm, scale: scale, out: out)
         }
         return img
@@ -164,7 +164,7 @@ enum Geometry {
                            width: e.width * s.crop.w, height: e.height * s.crop.h).integral
             out = image.cropped(to: r).transformed(by: .init(translationX: -r.minX, y: -r.minY))
         }
-        // 캔버스 여백
+        // canvas margin
         if let p = s.canvasPad, p.count == 4 {
             let e = out.extent
             let l = (e.width * p[0]).rounded(), b = (e.height * p[1]).rounded()
@@ -178,16 +178,16 @@ enum Geometry {
         return out
     }
 
-    /// 캔버스 여백의 왼쪽·아래 폭 (원본 픽셀)
+    /// Left/bottom width of the canvas margin (source pixels)
     static func padOffset(_ s: DevelopSettings, native: CGSize) -> CGPoint {
         guard let p = s.canvasPad, p.count == 4 else { return .zero }
         let f = frameSize(s, native: native)
         return CGPoint(x: (f.width * s.crop.w).rounded() * p[0], y: (f.height * s.crop.h).rounded() * p[1])
     }
 
-    // MARK: - 좌표 변환 (원본 픽셀 기준)
+    // MARK: - Coordinate mapping (source pixels)
 
-    /// 디코딩 이미지 좌표 → 화면에 보이는 이미지 좌표.
+    /// Decoded image coordinates → displayed image coordinates.
     static func toDisplay(_ p: CGPoint, _ s: DevelopSettings, native: CGSize, fullFrame: Bool) -> CGPoint {
         let (turn, size) = turnTransform(s, w: native.width, h: native.height)
         var q = p.applying(turn)
@@ -205,7 +205,7 @@ enum Geometry {
         return q
     }
 
-    /// 화면에 보이는 이미지 좌표 → 디코딩 이미지 좌표. 리터칭 점을 사진 내용에 붙여 두는 데 쓴다.
+    /// Displayed image coordinates → decoded image coordinates. Used to pin retouch spots to photo content.
     static func fromDisplay(_ p: CGPoint, _ s: DevelopSettings, native: CGSize, fullFrame: Bool) -> CGPoint {
         let (turn, size) = turnTransform(s, w: native.width, h: native.height)
         var q = p
@@ -224,8 +224,8 @@ enum Geometry {
         return q.applying(turn.inverted())
     }
 
-    /// 선 긋기 키스톤: 두 선(화면 좌표)이 세로가 되도록 세로 키스톤과 미세 회전을 찾는다.
-    /// 선을 틀(90° 회전 뒤, 미세 회전 전) 좌표로 되돌린 뒤 두 값을 격자로 찾고 좁혀 간다.
+    /// Line-drawn keystone: finds vertical keystone and fine rotation so two lines (view coordinates) become vertical.
+    /// Maps the lines back to frame coordinates (after 90° rotation, before fine rotation), then grid-searches and refines the two values.
     static func solveVerticals(_ lines: [(CGPoint, CGPoint)], _ s: DevelopSettings, native: CGSize,
                                fullFrame: Bool) -> (keystoneV: Float, rotation: Float) {
         let r = solveKeystone(vertical: framedLines(lines, s, native: native, fullFrame: fullFrame), horizontal: [],
@@ -234,14 +234,14 @@ enum Geometry {
     }
 }
 
-/// 3×3 투영 변환. 네 점 짝에서 구한다.
+/// 3×3 projective transform, solved from four point pairs.
 struct Homography {
     var m: [Double]
 
     init(m: [Double]) { self.m = m }
 
     init(from src: [CGPoint], to dst: [CGPoint]) {
-        // h33 = 1로 두고 8원 1차 연립방정식을 푼다.
+        // Solve the 8-unknown linear system with h33 = 1.
         var a = [[Double]](repeating: [Double](repeating: 0, count: 9), count: 8)
         for i in 0..<4 {
             let x = Double(src[i].x), y = Double(src[i].y), u = Double(dst[i].x), v = Double(dst[i].y)

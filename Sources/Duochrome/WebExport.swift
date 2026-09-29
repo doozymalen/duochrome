@@ -3,8 +3,8 @@ import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 
-/// 웹용 내보내기: 형식·품질·크기를 바꾸면 압축한 결과와 파일 크기를
-/// 바로 보여 준다. 왼쪽 원본, 오른쪽 압축 결과를 같은 자리 100%로 나란히.
+/// Save for Web: changing format, quality, or size immediately shows the compressed result and file size.
+/// Source on the left, compressed result on the right, side by side at the same spot at 100%.
 final class WebExportWindow: NSWindowController {
     struct Format { let title: String; let type: UTType; let lossy: Bool }
     static var formats: [Format] {
@@ -86,7 +86,7 @@ final class WebExportWindow: NSWindowController {
         return noAlpha
     }
 
-    /// 인코딩 (알파 없이 sRGB, 메타데이터 없이 — 웹용은 가볍게)
+    /// Encoding (sRGB without alpha, no metadata — light for the web)
     static func encode(_ cg: CGImage, type: UTType, quality: Double) -> Data? {
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else { return nil }
@@ -110,7 +110,7 @@ final class WebExportWindow: NSWindowController {
             info.stringValue = "이 형식으로 쓸 수 없습니다"; return
         }
         encoded = data
-        // 가운데 100% 조각
+        // center 100% tile
         let side = 460
         let cx = max(0, cg.width / 2 - side / 2), cy = max(0, cg.height / 2 - side / 2)
         let rect = CGRect(x: cx, y: cy, width: min(side, cg.width), height: min(side, cg.height))

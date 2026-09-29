@@ -43,7 +43,7 @@ enum MainMenu {
         let redo = edit.addItem(withTitle: "다시 실행", action: #selector(MainWindowController.redoAdjust(_:)), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         edit.addItem(.separator())
-        // 표준 편집 명령 (숫자 입력칸·검색칸에서 쓰인다). 입력칸 밖의 ⌘V는 클립보드 그림을 레이어로 붙인다.
+        // Standard edit commands (used in number and search fields). Outside text fields, ⌘V pastes the clipboard image as a layer.
         edit.addItem(withTitle: "잘라내기", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "복사하기", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "붙여넣기", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
@@ -71,7 +71,7 @@ enum MainMenu {
         let ungroup = layerMenu.addItem(withTitle: "그룹 풀기", action: #selector(MainWindowController.ungroupLayer(_:)), keyEquivalent: "g")
         ungroup.keyEquivalentModifierMask = [.command, .shift]
         layerMenu.addItem(.separator())
-        // 병합 — 단축키는 KeyMap
+        // Merge — shortcuts in KeyMap
         layerMenu.addItem(withTitle: "아래 레이어와 병합", action: #selector(MainWindowController.mergeDown(_:)), keyEquivalent: "")
         layerMenu.addItem(withTitle: "보이는 레이어 병합", action: #selector(MainWindowController.mergeVisible(_:)), keyEquivalent: "")
         layerMenu.addItem(withTitle: "보이는 레이어 도장 찍기", action: #selector(MainWindowController.stampVisible(_:)), keyEquivalent: "")
@@ -94,7 +94,7 @@ enum MainMenu {
         layerMenu.addItem(withTitle: "연결된 이미지 레이어 가져오기…", action: #selector(MainWindowController.placeLinkedImage(_:)), keyEquivalent: "")
         layerMenu.addItem(withTitle: "연결된 이미지를 내장으로", action: #selector(MainWindowController.embedLinkedImage(_:)), keyEquivalent: "")
 
-        // 선택 — 단축키는 KeyMap
+        // Select — shortcuts in KeyMap
         let selMenu = submenu(in: main, title: "선택")
         for (t, sel) in [("선택 해제", #selector(MainWindowController.deselectAll(_:))), ("선택 반전", #selector(MainWindowController.invertSelection(_:))),
                          ("확장…", #selector(MainWindowController.expandSelection(_:))), ("축소…", #selector(MainWindowController.contractSelection(_:))),
@@ -108,7 +108,7 @@ enum MainMenu {
         chItem.submenu = NSMenu()
         chItem.submenu?.delegate = ChannelsMenuDelegate.shared
 
-        // AI — 모두 이 맥 안에서만, Duochrome 안의 보이지 않는 엔진으로
+        // AI — all on this Mac, through Duochrome's invisible engine
         let ai = submenu(in: main, title: "AI")
         for (t, sel) in [("하늘 선택", #selector(MainWindowController.selectSkyAI(_:))), ("스킨 선택", #selector(MainWindowController.skinMaskAI(_:))),
                          ("피부 매끄럽게", #selector(MainWindowController.skinSmoothAI(_:))), ("배경 지우기 (켜기/끄기)", #selector(MainWindowController.removeBackgroundAI(_:))),
@@ -158,7 +158,7 @@ enum MainMenu {
         clip.keyEquivalentModifierMask = []
 
         view.addItem(.separator())
-        // 커서 도구 단축키는 KeyMap이 모드별로 받는다 (대량 보정·심화 보정). 메뉴에는 이름만.
+        // Cursor tool shortcuts are handled per mode by KeyMap (batch edit, layer edit). Menus show names only.
         for (title, sel) in [("이동 도구", #selector(MainWindowController.toolPan(_:))),
                              ("확대 도구", #selector(MainWindowController.toolZoom(_:))),
                              ("크롭 도구", #selector(MainWindowController.toolCrop(_:))),
@@ -178,7 +178,7 @@ enum MainMenu {
                          (.library, #selector(MainWindowController.switchToLibrary(_:))),
                          (.studio, #selector(MainWindowController.switchToStudio(_:))),
                          (.tether, #selector(MainWindowController.switchToTether(_:)))] {
-            // 모드 전환: ⌥⌘1~4 (한 글자는 두 모드에서 도구 단축키로 쓴다)
+            // Mode switching: ⌥⌘1–4 (single letters are tool shortcuts in two modes)
             let item = modes.addItem(withTitle: m == .library ? "대량 보정 — 격자 보기" : "\(m.title) 모드", action: sel,
                                      keyEquivalent: "\([.edit: 1, .library: 2, .studio: 3, .tether: 4][m] ?? 1)")
             item.keyEquivalentModifierMask = [.command, .option]

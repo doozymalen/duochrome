@@ -3,22 +3,22 @@ import QuartzCore
 import ImageIO
 import UniformTypeIdentifiers
 
-/// RAW 레이어의 현상값.
+/// Develop values of the RAW layer.
 struct DevelopSettings: Equatable, Codable {
-    // 화이트 밸런스
+    // white balance
     var temperature: Float = 5500
     var tint: Float = 0
-    // 노출 (대비·밝기·채도는 -100~100)
+    // exposure (contrast, brightness, saturation are -100–100)
     var exposure: Float = 0
     var contrast: Float = 0
     var brightness: Float = 0
     var saturation: Float = 0
-    // 하이 다이내믹 레인지 (모두 -100~100)
-    /// 예전 파일의 하이라이트 (0~100, 클수록 눌러 되살림). 새 값은 highlights, 화면과 계산은 highlightTone.
+    // high dynamic range (all -100–100)
+    /// Highlights from old files (0–100, higher recovers more). New value is highlights; display and math use highlightTone.
     var highlight: Float = 0
-    /// 하이라이트 -100~100: +는 밝은 곳을 더 밝게, -는 눌러 되살린다 (docs/SLIDERS.md)
+    /// Highlights -100–100: + brightens bright areas further, - recovers them (docs/SLIDERS.md)
     var highlights: Float = 0
-    /// 화면·계산에 쓰는 하이라이트 값. 예전 값(highlight)은 음수로 읽고, 새로 바꾸면 highlights로 옮긴다.
+    /// Highlights value used for display and math. The old value (highlight) is read as negative; new edits move it to highlights.
     var highlightTone: Float {
         get { highlights - highlight }
         set { highlights = newValue; highlight = 0 }
@@ -26,27 +26,27 @@ struct DevelopSettings: Equatable, Codable {
     var shadow: Float = 0
     var white: Float = 0
     var black: Float = 0
-    // RAW 엔진 단계 (0~1, 샤프닝은 0~2). 기본값은 카메라마다 다르다.
+    // RAW engine stage (0–1, sharpening 0–2). Defaults vary by camera.
     var sharpness: Float = 0
     var detail: Float = 0
     var lumaNoise: Float = 0
     var colorNoise: Float = 0
     var moire: Float = 0
-    /// 1이면 켬. 슬라이더와 같은 방식으로 다루려고 Float로 둔다.
+    /// 1 means on. Kept as Float to handle it like sliders.
     var lensCorrection: Float = 1
-    /// 기본 모습: 0 Apple 기본, 1 카메라 맞춤 (보정표가 있는 카메라만)
+    /// Base look: 0 Apple default, 1 camera-fitted (only cameras with a look table)
     var look: Float = 1
-    /// 전체 강도 (0~1): 모든 보정을 보정 전과 섞는 정도
+    /// Overall strength (0–1): how much all adjustments mix with the unadjusted image
     var intensity: Float = 1
-    /// 손 렌즈 보정 (-100~100, 0~100). 원본 좌표 단계에서 건다.
-    /// 왜곡 +는 술통형을 편다, −는 실패형을 편다. 색수차는 빨강·파랑 채널 크기를 바꾼다.
+    /// Manual lens correction (-100–100, 0–100). Applied at the source coordinate stage.
+    /// Distortion + fixes barrel, − fixes pincushion. Chromatic aberration scales the red/blue channels.
     var lensDistortion: Float = 0
     var lensCA: Float = 0
     var lensCABlue: Float = 0
-    /// 주변부 광량 (모서리를 밝힘) 0~100, 주변부 선명도 0~100
+    /// Vignetting (brightens corners) 0–100, edge sharpness 0–100
     var lensVignette: Float = 0
     var lensSharpFalloff: Float = 0
-    // 형태: 90° 회전 수(0~3), 뒤집기(1이면 켬), 미세 회전(°), 키스톤(-100~100), 크롭
+    // Geometry: 90° turns (0–3), flip (1 = on), fine rotation (°), keystone (-100–100), crop
     var quarterTurns: Float = 0
     var flipH: Float = 0
     var flipV: Float = 0
@@ -55,92 +55,92 @@ struct DevelopSettings: Equatable, Codable {
     var keystoneH: Float = 0
     var keystoneAspect: Float = 0
     var crop = CropRect()
-    /// 크롭 비율 고정 (가로/세로). 0이면 자유.
+    /// Locked crop aspect (width/height). 0 is free.
     var cropAspect: Float = 0
-    // 기본 특성: 카메라 톤 커브 강도 (0 선형 ~ 1 표준)
+    // Base characteristics: camera tone curve strength (0 linear – 1 standard)
     var filmCurve: Float = 1
-    /// 기본 커브에 더하는 대비 (기본 특성 "높은 대비"·"부드럽게").
+    /// Contrast added to the base curve (base characteristics "high contrast" / "soft").
     var filmContrast: Float = 0
-    /// RAW 엔진의 하이라이트 복구 (날아간 채널 재구성).
+    /// RAW engine highlight recovery (reconstructs clipped channels).
     var highlightRecoveryOn = true
-    // 필름 그레인 (0~100)
+    // film grain (0–100)
     var grainAmount: Float = 0
     var grainSize: Float = 30
-    // 클래리티·구조 (-100~100), 디헤이즈 (0~100)
+    // clarity, structure (-100–100), dehaze (0–100)
     var clarity: Float = 0
     var structure: Float = 0
-    /// 클래리티 방식 0 내추럴, 1 펀치, 2 뉴트럴, 3 클래식
+    /// Clarity method 0 natural, 1 punch, 2 neutral, 3 classic
     var clarityMethod: Float = 0
     var dehaze: Float = 0
-    /// 안개 색: 색조(°)와 양(0~1). 양 0이면 회색 안개.
+    /// Haze color: hue (°) and amount (0–1). Amount 0 is gray haze.
     var dehazeHue: Float = 30
     var dehazeTint: Float = 0
-    // 추가 샤프닝: 양 0~300, 반경 원본 px, 임계값, 헤일로 억제 0~100
+    // Extra sharpening: amount 0–300, radius in source px, threshold, halo suppression 0–100
     var sharpenAmount: Float = 0
     var sharpenRadius: Float = 0.8
     var sharpenThreshold: Float = 1
     var sharpenHalo: Float = 50
-    /// 단일 픽셀(핫 픽셀) 제거 0~100
+    /// Single-pixel (hot pixel) removal 0–100
     var hotPixels: Float = 0
-    /// 그레인 종류 0 미세, 1 은염, 2 부드럽게, 3 색 입자
+    /// Grain type 0 fine, 1 silver, 2 soft, 3 color
     var grainType: Float = 0
-    // 리터칭 점 (복구·복제). 디코딩 원본 좌표.
+    // Retouch spots (heal, clone). Decoded source coordinates.
     var spots: [RetouchSpot] = []
-    /// 패스 패널의 패스들 (펜 도구, 원본 좌표)
+    /// Paths in the Paths panel (pen tool, source coordinates)
     var paths: [VectorPath]? = nil
-    /// 문서 모드 (DocMode: 0 RGB, 1 회색조, 2 이중톤, 3 CMYK, 4 Lab), 색 공간(ExportRecipe.Space), 비트 깊이(8·16·32)
+    /// Document mode (DocMode: 0 RGB, 1 grayscale, 2 duotone, 3 CMYK, 4 Lab), color space (ExportRecipe.Space), bit depth (8, 16, 32)
     var docMode: Int? = nil
     var docSpace: String? = nil
     var docDepth: Int? = nil
-    /// 이중톤 잉크 두 개 (화면 값 RGB 여섯), 첫 잉크 무게
+    /// Two duotone inks (six display RGB values), first ink weight
     var duotone: [Float]? = nil
     var duotoneBalance: Float? = nil
-    /// 안내선 (사진 화면 틀 좌표), 계수 점 (x, y 반복)
+    /// Guides (photo view frame coordinates), count points (x, y repeated)
     var guidesV: [Double]? = nil
     var guidesH: [Double]? = nil
     var countMarks: [Double]? = nil
-    /// 배경 제거: 이 마스크(원본 좌표 흑백 그림) 밖은 투명. 알파를 지원하는 형식으로 내보내면 투명하게 남는다
+    /// Background removal: transparent outside this mask (source-coordinate grayscale image). Stays transparent when exported to formats with alpha
     var cutout: String? = nil
-    // 조정 레이어 (아래부터 위로)
+    // adjustment layers (bottom to top)
     var layers: [AdjustLayer] = []
-    /// 레이어 구성: 레이어 보임·불투명도·혼합·자리를 이름 붙여 저장 (LayerAdvanced.swift)
+    /// Layer comps: named saves of layer visibility, opacity, blend, and position (LayerAdvanced.swift)
     var layerComps: [LayerComp]? = nil
-    /// 저장한 선택 (알파 채널, Selection.swift)
+    /// Saved selections (alpha channels, Selection.swift)
     var channels: [SavedSelection]? = nil
-    /// 감마 혼합 (화면 감마에서 섞기). PSD에서 가져온 문서는 켠다.
+    /// Gamma blending (blend in display gamma). On for documents imported from PSD.
     var gammaBlend: Bool? = nil
-    /// LCC 평면 보정 지도 (레이어 그림 폴더), 1 색 편차 + 2 빛 균일화
+    /// LCC flat-field map (layer image folder), 1 color cast + 2 light uniformity
     var lcc: String? = nil
     var lccMode: Int? = nil
-    /// 원근 자르기: 틀(90° 회전 뒤) 좌표의 네 점 (왼아래, 오른아래, 오른위, 왼위) → 반듯한 사각형으로
+    /// Perspective crop: four points in frame coordinates (after 90° rotation) (bottom-left, bottom-right, top-right, top-left) → upright rectangle
     var perspective: [Double]? = nil
-    /// 캔버스 크기: 크롭 결과 둘레에 더하는 여백 (왼, 아래, 오른, 위 — 크롭 크기의 비율), 색 (없으면 투명)
+    /// Canvas size: margins added around the crop (left, bottom, right, top — fractions of the crop size), color (transparent if none)
     var canvasPad: [Double]? = nil
     var canvasColor: [Float]? = nil
-    /// 이미지 크기 (내보낼 때 픽셀 크기, 0이면 그대로)와 리샘플링 (0 란초스, 1 바이큐빅, 2 세부 유지, 3 최근접)
+    /// Image size (pixel size on export, 0 unchanged) and resampling (0 Lanczos, 1 bicubic, 2 preserve details, 3 nearest)
     var outputSize: [Double]? = nil
     var resample: Int? = nil
-    /// 소실점 평면 (원본 좌표 네 점)
+    /// Vanishing point planes (four points in source coordinates)
     var vanishingPlane: [Double]? = nil
-    /// 외부 카탈로그에서 가져온 화이트 밸런스 차이 (미레드, 틴트). 처음 열 때 카메라 기록값에 더하고 지운다
+    /// White balance delta imported from an external catalog (mired, tint). Added to the as-shot values on first open, then cleared
     var importWBShift: [Double]? = nil
-    // 비네팅 (-100 어둡게 ~ 100 밝게)
+    // vignette (-100 darker – 100 lighter)
     var vignette: Float = 0
-    // 레벨 (0~1, 감마는 1이 그대로)
+    // levels (0–1, gamma 1 is unchanged)
     var levelInBlack: Float = 0
     var levelInWhite: Float = 1
     var levelGamma: Float = 1
     var levelOutBlack: Float = 0
     var levelOutWhite: Float = 1
-    /// 채널별 레벨 R·G·B: [입력 검정, 입력 흰색, 감마, 출력 검정, 출력 흰색]
+    /// Per-channel levels R/G/B: [input black, input white, gamma, output black, output white]
     var levelsRGB: [[Float]] = Array(repeating: [0, 1, 1, 0, 1], count: 3)
-    // 커브
+    // curves
     var curves = CurveSet()
-    // 컬러 밸런스, 흑백 (3D LUT 하나로 굽는다)
+    // color balance, B&W (baked into one 3D LUT)
     var color = ColorLUT.Key()
 
-    /// RAW 디코딩을 다시 해야 하는 값만 모은 것. 나머지가 바뀌면 디코딩 결과를 재사용한다.
-    /// 크기와 좌표를 바꾸는 값. 바뀌면 보정 전 이미지도 다시 만든다.
+    /// Only the values that require re-decoding the RAW. Other changes reuse the decoded result.
+    /// Values that change size and coordinates. When changed, the before image is rebuilt too.
     var geometryKey: [Double] {
         [Double(quarterTurns), Double(flipH), Double(flipV), Double(rotation), Double(keystoneV),
          Double(keystoneH), Double(keystoneAspect), crop.x, crop.y, crop.w, crop.h] + (perspective ?? []) + (canvasPad ?? [])
@@ -151,7 +151,7 @@ struct DevelopSettings: Equatable, Codable {
     }
 }
 
-/// 촬영 정보. 레이어 패널 아래에 보여 준다.
+/// Capture info. Shown under the layers panel.
 struct ShotInfo {
     var camera = "", lens = ""
     var iso = "", shutter = "", aperture = "", focal = ""
@@ -165,7 +165,7 @@ struct ShotInfo {
         let aux = p[kCGImagePropertyExifAuxDictionary] as? [CFString: Any] ?? [:]
         camera = Self.cameraName(make: tiff[kCGImagePropertyTIFFMake] as? String ?? "", model: tiff[kCGImagePropertyTIFFModel] as? String ?? "")
         lens = (exif[kCGImagePropertyExifLensModel] ?? aux[kCGImagePropertyExifAuxLensModel]) as? String ?? ""
-        // 캐논 CR3는 ISOSpeedRatings 대신 ISOSpeed·RecommendedExposureIndex에 적는다.
+        // Canon CR3 records ISOSpeed/RecommendedExposureIndex instead of ISOSpeedRatings.
         let isoValue = (exif[kCGImagePropertyExifISOSpeedRatings] as? [Int])?.first
             ?? exif[kCGImagePropertyExifISOSpeed] as? Int
             ?? exif[kCGImagePropertyExifRecommendedExposureIndex] as? Int
@@ -178,8 +178,8 @@ struct ShotInfo {
         date = exif[kCGImagePropertyExifDateTimeOriginal] as? String ?? ""
     }
 
-    /// 회사 + 모델. 모델에 회사 이름이 이미 있으면(캐논 "Canon EOS R5", 니콘 "NIKON Z 8") 모델만,
-    /// 회사 이름의 군더더기(CORPORATION, IMAGING CORP. 등)는 뺀다.
+    /// Make + model. If the model already includes the make (Canon "Canon EOS R5", Nikon "NIKON Z 8"), model only,
+    /// with corporate suffixes (CORPORATION, IMAGING CORP., etc.) removed.
     static func cameraName(make: String, model: String) -> String {
         let noise: Set<String> = ["corporation", "corp", "corp.", "co.,ltd.", "co.,ltd", "co.", "ltd", "ltd.", "imaging", "inc", "inc."]
         let maker = make.split(separator: " ").filter { !noise.contains($0.lowercased()) }.joined(separator: " ")
@@ -189,11 +189,11 @@ struct ShotInfo {
     }
 }
 
-/// 문서 맨 아래의 원본 레이어. 현상값은 언제든 다시 바꿀 수 있다.
+/// Source layer at the bottom of the document. Develop values can be changed at any time.
 ///
-/// RAW 디코딩은 Core Image RAW(CIRAWFilter)에 맡긴다. macOS가 지원하는 카메라의 RAW를 직접
-/// 풀고, scaleFactor를 낮추면 원본 해상도를 다 풀지 않고 미리보기를 만든다.
-/// JPEG·TIFF처럼 이미 현상된 파일은 같은 값을 Core Image 필터로 흉내 낸다.
+/// RAW decoding is left to Core Image RAW (CIRAWFilter). It decodes RAWs from cameras macOS supports directly,
+/// and a lower scaleFactor produces previews without decoding the full resolution.
+/// Already-rendered files like JPEG and TIFF imitate the same values with Core Image filters.
 final class RawDocument {
     enum OpenError: LocalizedError {
         case unsupported(URL)
@@ -205,23 +205,23 @@ final class RawDocument {
     }
 
     private enum Source {
-        /// guide: 넓은 반경 도구(클래리티·디헤이즈)의 지도를 만드는 1/8 해상도 전용 필터.
+        /// guide: a 1/8-resolution filter dedicated to building maps for wide-radius tools (clarity, dehaze).
         case raw(CIRAWFilter, guide: CIRAWFilter)
         case rendered(CIImage)
     }
 
     let url: URL
     let info: ShotInfo
-    /// 보정 전 보기용 RAW 필터 (처음 쓸 때 만든다)
+    /// RAW filter for the before view (built on first use)
     private lazy var originalFilter: CIRAWFilter? = CIRAWFilter(imageURL: URL(fileURLWithPath: url.path))
 
-    /// 카메라 기록값만 (RAW 필터 하나로 가볍게) — 미리보기 준비·일괄 처리에서 문서를 다 만들지 않고
+    /// As-shot values only (light, a single RAW filter) — for preview preparation and batch work without building a whole document
     static func shotSettings(url: URL) -> DevelopSettings? {
         guard let raw = CIRAWFilter(imageURL: URL(fileURLWithPath: url.path)) else { return nil }
         return shot(from: raw)
     }
 
-    /// RAW 필터의 카메라 기록값
+    /// As-shot values of the RAW filter
     static func shot(from raw: CIRAWFilter) -> DevelopSettings {
         var shot = DevelopSettings()
         shot.temperature = raw.neutralTemperature
@@ -237,7 +237,7 @@ final class RawDocument {
         return shot
     }
 
-    /// 가져온 화이트 밸런스 차이를 기록값에 더한다 (문서 없이)
+    /// Adds the imported white balance delta to the as-shot values (without a document)
     static func importedWB(_ s: DevelopSettings, over asShot: DevelopSettings) -> DevelopSettings {
         guard let sh = s.importWBShift, sh.count == 2 else { return s }
         var o = s
@@ -248,50 +248,50 @@ final class RawDocument {
         return o
     }
     let isRaw: Bool
-    /// PSD·PSB로 연 문서: 배경은 원본 자리, 나머지 레이어는 처음 열 때 조정 레이어로 옮긴다 (PSDImport)
+    /// Documents opened from PSD/PSB: the background takes the source's place, other layers become adjustment layers on first open (PSDImport)
     private(set) var psd: PSD.File?
-    /// 카메라가 기록한 값. "초기화"가 돌아갈 곳이다.
+    /// Values recorded by the camera. Where "Reset" goes back to.
     let asShot: DevelopSettings
     var settings: DevelopSettings {
         didSet {
-            // 크롭 도구 중에는 틀 전체를 보여 주므로 크롭 사각형만 바뀐 건 다시 그릴 필요가 없다.
+            // The crop tool shows the whole frame, so a change of only the crop rect needs no redraw.
             var a = settings, b = oldValue
             if showFullFrame { a.crop = CropRect(); b.crop = CropRect(); a.cropAspect = 0; b.cropAspect = 0 }
             if a != b { cache.removeAll() }
             if settings.geometryKey != oldValue.geometryKey { originalCache.removeAll() }
         }
     }
-    /// 설정은 그대로 두고 그린 결과만 버린다 (슬라이더 반응 맞추기용).
+    /// Keeps settings but discards rendered results (for slider responsiveness).
     func clearCache() { cache.removeAll(); originalCache.removeAll() }
 
-    /// 크롭 도구를 쓰는 동안 켠다. 크롭하지 않은 틀 전체를 보여 준다.
+    /// On while the crop tool is in use. Shows the whole uncropped frame.
     var showFullFrame = false {
         didSet { if showFullFrame != oldValue { cache.removeAll(); originalCache.removeAll() } }
     }
-    /// 슬라이더를 끄는 동안 켠다. 디모자이크를 빠른 방식으로 바꾼다.
-    /// 썸네일처럼 작게만 쓸 문서: RAW를 빠른 방식으로 푼다 (굳히기 없이)
+    /// On while dragging a slider. Switches demosaicing to the fast method.
+    /// Documents used only small, like thumbnails: decode the RAW the fast way (no freezing)
     var quickDecode = false
     var draft = false { didSet { if draft != oldValue { cache.removeAll(); if !draft { draftDecodes.removeAll() } } } }
 
     private let source: Source
     private var cache: [CGFloat: CIImage] = [:]
-    /// 끄는 중 빠른 길: 끌기를 시작할 때 RAW 해독 결과를 그림으로 굳혀 둔다 (노출·색온도만 바꾸면 해독을 다시 하지 않는다)
+    /// Fast path while dragging: freeze the RAW decode into an image at drag start (changing only exposure/temperature won't decode again)
     private var draftDecodes: [String: (key: String, image: CIImage, exposure: Float, temperature: Float, tint: Float)] = [:]
 
-    /// RAW 해독에 드는 값 중 노출·색온도·틴트를 뺀 것 (이게 같으면 굳힌 해독을 쓴다)
+    /// RAW decode inputs excluding exposure, temperature, and tint (if these match, the frozen decode is used)
     private func rawKey(_ s: DevelopSettings) -> String {
         "\(s.sharpness)|\(s.detail)|\(s.lumaNoise)|\(s.colorNoise)|\(s.moire)|\(s.filmCurve)|\(s.lensCorrection)|\(s.highlightRecoveryOn)"
     }
     private var originalCache: [CGFloat: CIImage] = [:]
-    /// 미리보기만 쓰기 (대량 보정·격자·테더링): RAW를 미리보기 크기(긴 변 AppSettings.previewSize)보다 크게 풀지 않고,
-    /// 그보다 크게 볼 때는 미리보기를 늘린다. 원본 크기는 심화 보정에서만 (그리고 내보내기·병합처럼 결과를 만드는 일은 늘 원본으로)
+    /// Preview-only (batch edit, grid, tethering): never decode the RAW larger than preview size (long side AppSettings.previewSize);
+    /// larger views upscale the preview. Full size only in layer edit (and always for output work like export and merge)
     var previewOnly = false {
         didSet { if previewOnly != oldValue { draftDecodes.removeAll() } }
     }
-    /// 캐시 열쇠: 미리보기만 쓰기와 원본 크기를 따로 기억한다 (초점 확인처럼 잠깐 원본을 봐도 화면 캐시가 지워지지 않게)
+    /// Cache key: remembers preview-only and full size separately (so briefly viewing full size, e.g. the focus loupe, doesn't clear the view cache)
     private func cacheKey(_ scale: CGFloat) -> CGFloat { previewOnly && scale > previewScale ? -scale : scale }
 
-    /// 결과를 만드는 일(내보내기·병합·인쇄·채널 분리·초점 확인)은 미리보기만 쓰기를 잠시 끄고 원본 크기로
+    /// Output work (export, merge, print, split channels, focus loupe) temporarily turns preview-only off and uses full size
     func withFullResolution<T>(_ f: () throws -> T) rethrows -> T {
         let was = previewOnly
         if was { previewOnly = false }
@@ -299,23 +299,23 @@ final class RawDocument {
         return try f()
     }
 
-    /// 미리보기 크기의 배율 (긴 변 기준)
+    /// Preview size scale (by long side)
     var previewScale: CGFloat { min(1, CGFloat(AppSettings.previewSize) / max(nativeSize.width, nativeSize.height, 1)) }
 
-    /// 카메라 방향을 반영한 디코딩 결과 크기.
+    /// Decoded result size with camera orientation applied.
     let nativeSize: CGSize
-    /// 형태 보정 틀 (90° 회전 반영, 크롭 전).
+    /// Geometry frame (90° rotation applied, before crop).
     var frameSize: CGSize { Geometry.frameSize(settings, native: nativeSize) }
-    /// 화면과 내보내기에 쓰는 크기. 크롭 도구 중에는 틀 전체.
+    /// Size used for display and export. The whole frame while the crop tool is active.
     var pixelSize: CGSize { showFullFrame ? frameSize : Geometry.croppedSize(settings, native: nativeSize) }
 
     init(url: URL) throws {
         self.url = url
-        // 변형본 조각(#v2)은 파일을 읽을 때 뺀다
+        // Strip the variant fragment (#v2) when reading the file
         let url = URL(fileURLWithPath: url.path)
         info = ShotInfo(url: url)
-        // 보정 전 보기용 필터를 따로 둔다. 같은 필터를 설정만 바꿔 쓰면 이미 만든 출력이 흔들릴 수 있다.
-        // CIRAWFilter는 JPEG도 받아 준다. RAW인지는 파일 종류로 가린다.
+        // Keep a separate filter for the before view. Reusing one filter with changed settings can disturb outputs already built.
+        // CIRAWFilter accepts JPEG too. Tell RAW apart by file type.
         let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
         let looksRaw = type?.conforms(to: .rawImage) ?? false
         if PSDImport.extensions.contains(url.pathExtension.lowercased()) {
@@ -331,7 +331,7 @@ final class RawDocument {
             asShot = shot
         } else if looksRaw, let raw = CIRAWFilter(imageURL: url),
            let guide = CIRAWFilter(imageURL: url), let full = raw.outputImage, !full.extent.isEmpty {
-            // 보정 전 보기 필터는 처음 비교할 때 만든다 (필터 하나에 60ms쯤, 사진을 넘길 때마다 들었다)
+            // The before-view filter is built on first comparison (about 60 ms per filter, paid on every photo step)
             source = .raw(raw, guide: guide)
             isRaw = true
             nativeSize = full.extent.size
@@ -341,7 +341,7 @@ final class RawDocument {
             source = .rendered(img)
             isRaw = false
             nativeSize = img.extent.size
-            // 이미 현상된 사진은 6500K를 "그대로"로 본다.
+            // For already-rendered photos, 6500K counts as "unchanged".
             var shot = DevelopSettings()
             shot.temperature = 6500
             shot.lensCorrection = 0
@@ -352,7 +352,7 @@ final class RawDocument {
         settings = asShot
     }
 
-    /// 가져온 화이트 밸런스 차이를 절대값으로 (true면 바뀜)
+    /// Converts the imported white balance delta to absolute values (true if changed)
     @discardableResult
     func applyImportedWB() -> Bool {
         guard let sh = settings.importWBShift, sh.count == 2 else { return false }
@@ -365,11 +365,11 @@ final class RawDocument {
         return true
     }
 
-    /// PSD 레이어를 다 옮긴 뒤 파일 자료를 놓는다 (메모리)
+    /// Releases file data after all PSD layers are carried over (memory)
     func releasePSD() { psd = nil }
 
-    /// 히스토그램·색조 분포 같은 분석용 작은 그림: 이미 그려 둔 배율(1/2·1/4)이 있으면 그것을 줄여 쓴다
-    /// (따로 1/8로 그리면 RAW를 한 번 더 풀어, 사진을 열 때 해독이 서너 번 겹쳤다)
+    /// Small image for analysis like histograms and hue distribution: shrinks an already-rendered scale (1/2, 1/4) if available
+    /// (rendering 1/8 separately decoded the RAW again, stacking three or four decodes on photo open)
     func analysisImage() -> CIImage {
         if let (sc, img) = cache.filter({ $0.key <= 0.5 && $0.key >= 1.0 / 8 }).min(by: { $0.key < $1.key }) {
             let k = min(1, (1.0 / 8) / sc)
@@ -378,14 +378,14 @@ final class RawDocument {
         return image(scale: 1.0 / 8)
     }
 
-    /// `scale`은 1, 1/2, 1/4, 1/8 중 하나. 결과 크기는 pixelSize × scale이다.
+    /// `scale` is one of 1, 1/2, 1/4, 1/8. Result size is pixelSize × scale.
     func image(scale: CGFloat) -> CIImage {
         let settings = SliderResponse.effective(self.settings)
         if let hit = cache[cacheKey(scale)] { return hit }
-        // 넓은 반경 도구의 지도는 1/8 해상도에서 만든다. 원본 해상도에서 만들면 화면 밖까지
-        // 45MP 전체를 디코딩해야 해서 100% 첫 표시가 3~5초 걸렸다.
+        // Maps for wide-radius tools are built at 1/8 resolution. At source resolution the whole 45 MP,
+        // even off screen, had to be decoded and the first 100% view took 3–5 s.
         let guideScale = Develop.guideScale
-        // PSD처럼 레이어만 다른 합성이 이어질 때: 굳힌 기본 보정이 있으면 해독부터 건너뛴다
+        // When composites differing only in layers follow (like PSD): skip decoding if a frozen base develop exists
         var frozenKey = ""
         if freezeDecodes {
             var bare = settings; bare.layers = []
@@ -397,7 +397,7 @@ final class RawDocument {
         let mainShaped = shaped(decoded(scale: scale, guide: false), scale)
         let guide: CIImage?
         if scale > guideScale && scale <= 0.5 {
-            // 맞춤 보기처럼 작은 배율: 이미 푼 그림을 줄여 길잡이로 (RAW를 한 번 더 풀면 사진을 열 때 0.5초가 더 들었다)
+            // Small zooms like fit view: shrink the already-decoded image as the guide (decoding the RAW again added 0.5 s on photo open)
             let g0 = mainShaped.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: guideScale / scale, kCIInputAspectRatioKey: 1])
             let target = CGRect(x: 0, y: 0, width: (mainShaped.extent.width * guideScale / scale).rounded(),
                                 height: (mainShaped.extent.height * guideScale / scale).rounded())
@@ -405,22 +405,22 @@ final class RawDocument {
         } else {
             guide = scale > guideScale ? shaped(decoded(scale: guideScale, guide: true), guideScale) : nil
         }
-        // 안개 빛은 디헤이즈를 쓸 때만, 뒤에서 잰다. 썸네일은 이미 푼 작은 그림으로 잰다 (RAW를 1/8로 다시 풀어 장당 0.7초가 더 들었다)
+        // Airlight is measured only when dehaze is used, in the background. Thumbnails measure on the already-decoded small image (decoding the RAW again at 1/8 cost 0.7 s per photo)
         let haze: Float = settings.dehaze <= 0 ? 0
             : (approximateFromPreview ? (hazeLight ?? Develop.estimateHazeLight(mainShaped)) : hazeLightOrStart())
         var (base, g) = Develop.base(settings, to: mainShaped, guide: guide, scale: scale, haze: haze)
-        // 결과를 여러 번 그리는 일(PSD): 레이어만 다른 합성이 이어지므로 기본 보정 결과를 한 번 굳혀 다시 쓴다
+        // Rendering results many times (PSD): composites differ only in layers, so freeze the base develop once and reuse it
         if freezeDecodes, let fb = freeze(base) {
             let fg = freeze(g) ?? g
             frozenBase = (frozenKey, fb, fg, guide == nil ? scale : guideScale)
             base = fb; g = fg
-            // 기본 보정을 굳혔으니 해독 그림은 더 쓰지 않는다 (45MP 반정밀도 360MB)
+            // With the base develop frozen, the decoded image is no longer needed (45 MP half-float is 360 MB)
             frozenDecodes.removeAll()
         }
         return finishImage(settings, base: base, g: g, layerGuideScale: guide == nil ? scale : guideScale, scale: scale)
     }
 
-    /// 기본 보정 뒤: 레이어·마무리·색 모드·배경 제거
+    /// After the base develop: layers, finishing, color mode, background removal
     private func finishImage(_ settings: DevelopSettings, base: CIImage, g: CIImage, layerGuideScale: CGFloat, scale: CGFloat) -> CIImage {
         var img = base
         if !settings.layers.isEmpty {
@@ -443,7 +443,7 @@ final class RawDocument {
         }
         if settings.docMode != nil || settings.docSpace != nil || settings.docDepth == 8 { img = ColorModes.apply(settings, img) }
         if let cut = settings.cutout {
-            // 배경 제거: 마스크 밖을 투명하게
+            // Background removal: transparent outside the mask
             var lm = LayerMask(); lm.kind = .image; lm.maskFile = cut
             let s = settings, full = showFullFrame
             let m = Layers.maskImage(lm, scale: scale, native: nativeSize, shape: { mm, sc in
@@ -461,31 +461,31 @@ final class RawDocument {
         return img
     }
 
-    /// RAW 디코딩 단계까지 (노출·화이트 밸런스·노이즈·샤프닝·렌즈 보정).
-    /// 결과를 여러 번 그리는 일(PSD 레이어마다 합성)에서: RAW 해독을 한 번만 하고 굳혀 다시 쓴다.
-    /// 내보내기용 그리기 도구는 중간 결과를 보관하지 않아, 합성마다 45MP를 새로 풀었다 (PSD 레이어 여섯 개에 1분 넘게)
+    /// Up to the RAW decoding stage (exposure, white balance, noise, sharpening, lens correction).
+    /// For rendering results many times (compositing per PSD layer): decode the RAW once, freeze it, and reuse.
+    /// The export renderer doesn't cache intermediates, so each composite decoded 45 MP anew (over a minute for six PSD layers)
     var freezeDecodes = false { didSet { if !freezeDecodes { frozenDecodes.removeAll(); frozenBase = nil } } }
     private var frozenBase: (key: String, base: CIImage, guide: CIImage, guideScale: CGFloat)?
     private var frozenDecodes: [String: (key: String, image: CIImage)] = [:]
 
-    /// 썸네일용: 이 설정 그대로의 미리보기가 없으면 같은 사진의 다른 미리보기(촬영 값 등)에 노출·색온도 차이만 얹어 쓴다.
-    /// RAW 해독(45MP CR3는 줄여 풀어도 장당 2초, 한 번에 하나씩)을 건너뛴다. 320px에서는 차이가 보이지 않는다
+    /// For thumbnails: if there's no preview for these exact settings, use another preview of the same photo (as-shot etc.) with only exposure/temperature deltas applied.
+    /// Skips the RAW decode (a 45 MP CR3 takes 2 s per photo even downscaled, one at a time). At 320 px the difference is invisible
     var approximateFromPreview = false
 
-    /// 미리보기 캐시를 쓸지 (내보내기·맞춤 도구는 끈다)
+    /// Whether to use the preview cache (off for export and fitting tools)
     var usePreviewCache = ProcessInfo.processInfo.environment["DUOCHROME_NO_PREVIEWS"] == nil
 
-    /// 형태 보정 전 원본 좌표 그림 (AI 선택 마스크 계산용)
+    /// Source-coordinate image before geometry (for AI selection masks)
     func nativePreview(scale: CGFloat) -> CIImage { decoded(scale: scale, guide: true) }
 
-    /// 그림을 한 번 그려 반정밀도 비트맵 그림으로 굳힌다 (다시 그려도 RAW를 풀지 않게)
+    /// Renders an image once and freezes it as a half-float bitmap image (redrawing won't decode the RAW)
     private func freeze(_ img: CIImage) -> CIImage? {
         let e = img.extent.integral
         guard e.width > 0, e.height > 0 else { return nil }
         var data = Data(count: Int(e.width) * Int(e.height) * 8)
         data.withUnsafeMutableBytes { p in
             guard let base = p.baseAddress else { return }
-            // 결과를 만드는 일(PSD)에서는 중간 결과를 보관하지 않는 내보내기용으로 (화면용은 45MP 중간 결과를 수 GB 들고 있었다)
+            // For output work (PSD), use the export context that doesn't cache intermediates (the display one held GBs of 45 MP intermediates)
             let ctx = freezeDecodes ? Render.exportContext : Render.context
             ctx.render(img, toBitmap: base, rowBytes: Int(e.width) * 8, bounds: e, format: .RGBAh, colorSpace: Render.workingSpace)
         }
@@ -497,7 +497,7 @@ final class RawDocument {
         let settings = SliderResponse.effective(self.settings)
         switch source {
         case .raw(let main, let guideFilter):
-            // 미리보기 캐시: 캐시 해상도 안의 배율이면 RAW를 풀지 않는다 (사진을 넘길 때 빠르게)
+            // Preview cache: zooms within the cache resolution don't decode the RAW (fast stepping)
             if usePreviewCache, let p = PreviewCache.shared.image(url: url, settings: settings),
                previewOnly || nativeSize.width * scale <= p.extent.width * 1.001 {
                 let target = CGRect(x: 0, y: 0, width: (nativeSize.width * scale).rounded(), height: (nativeSize.height * scale).rounded())
@@ -536,7 +536,7 @@ final class RawDocument {
                 return Lens.apply(settings, Look.apply(f.image, look: settings.look, camera: info.camera))
             }
             let raw = guide ? guideFilter : main
-            // 끄는 중이면 굳혀 둔 해독에 노출·색온도 차이만 얹는다 (손을 떼면 정확한 해독으로 돌아간다)
+            // While dragging, apply only exposure/temperature deltas on the frozen decode (releasing returns to an exact decode)
             let slot = "\(guide ? "g" : "m")\(scale)"
             if draft, let d = draftDecodes[slot], d.key == rawKey(settings) {
                 var img = d.image
@@ -550,11 +550,11 @@ final class RawDocument {
                 }
                 return Lens.apply(settings, Look.apply(img.cropped(to: d.image.extent), look: settings.look, camera: info.camera))
             }
-            // 미리보기만 쓰기면 미리보기 크기보다 크게 풀지 않는다 (길잡이 1/8은 그대로)
+            // Preview-only never decodes larger than preview size (the 1/8 guide is unchanged)
             let decodeScale = previewOnly && !guide ? min(scale, previewScale) : scale
             raw.scaleFactor = Float(decodeScale)
             raw.isDraftModeEnabled = guide || draft || quickDecode
-            // 썸네일: 촬영 노출·색온도로 풀어 바탕으로 남기고, 차이는 뒤에서 얹는다 (다음 썸네일은 해독 없이)
+            // Thumbnails: decode with as-shot exposure/temperature and keep it as the base; deltas are applied afterwards (next thumbnail without decoding)
             let thumbBaseMode = approximateFromPreview && !guide && usePreviewCache
             var ds = settings
             if thumbBaseMode { ds.exposure = asShot.exposure; ds.temperature = asShot.temperature; ds.tint = asShot.tint }
@@ -573,7 +573,7 @@ final class RawDocument {
             if raw.isLensCorrectionSupported { raw.isLensCorrectionEnabled = settings.lensCorrection > 0.5 }
             var decodedImage = normalized(raw.outputImage)
             if decodeScale < scale - 1e-6, !decodedImage.extent.isEmpty {
-                // 미리보기 크기로 푼 것을 보려는 배율까지 늘린다
+                // Upscale the preview-size decode to the requested zoom
                 let k = scale / decodeScale
                 let target = CGRect(x: 0, y: 0, width: (nativeSize.width * scale).rounded(), height: (nativeSize.height * scale).rounded())
                 decodedImage = decodedImage.transformed(by: .init(scaleX: k, y: k)).clampedToExtent().cropped(to: target)
@@ -595,10 +595,10 @@ final class RawDocument {
                 frozenDecodes[frozenSlot] = (fullKey, frozen)
                 decodedImage = frozen
             }
-            // 미리보기만 쓰기인데 미리보기가 없으면 만들어 둔다 (다음부터는 RAW를 풀지 않게, 끄는 중에는 말고)
+            // Preview-only without a preview: build one (so later views won't decode the RAW; not while dragging)
             if previewOnly, !guide, !draft, usePreviewCache { PreviewCache.shared.ensure(url: url, settings: settings) }
             if draft, decodeScale <= 0.5, !decodedImage.extent.isEmpty {
-                // 끌기 첫 장면: 해독을 반정밀도 그림으로 굳혀 다음 장면부터 다시 풀지 않는다
+                // First frame of a drag: freeze the decode as a half-float image so later frames don't decode again
                 let e = decodedImage.extent.integral
                 var data = Data(count: Int(e.width) * Int(e.height) * 8)
                 let ok = data.withUnsafeMutableBytes { p -> Bool in
@@ -650,13 +650,13 @@ final class RawDocument {
         return img
     }
 
-    /// 리터칭 원본 자리를 자동으로 고른다 (리터칭 전 1/8 이미지로 비교).
+    /// Picks the retouch source automatically (compared on the pre-retouch 1/8 image).
     func autoSource(target: CGPoint, radius: Double) -> CGPoint {
         let scale = Develop.guideScale
         return Retouch.pickSource(target: target, radius: radius, in: decoded(scale: scale, guide: true), scale: scale)
     }
 
-    /// 마스크 보기용: 레이어 마스크를 화면 틀 좌표로 (루마 레인지는 지금 결과 밝기로 근사).
+    /// For mask display: layer mask in view frame coordinates (luma range approximated from the current result's brightness).
     func maskPreview(_ id: String, scale: CGFloat) -> CIImage? {
         guard let layer = settings.layers.first(where: { $0.id == id }) else { return nil }
         let base = image(scale: scale)
@@ -667,13 +667,13 @@ final class RawDocument {
         }, base: base)
     }
 
-    /// 붓질의 원본 자리 (획에서 옮길 거리).
+    /// Source position of a stroke (offset from the stroke).
     func autoStrokeOffset(path: [CGPoint], radius: Double) -> CGPoint {
         let scale = Develop.guideScale
         return Retouch.pickStrokeOffset(path, radius: radius, in: decoded(scale: scale, guide: true), scale: scale)
     }
 
-    /// 자동 키스톤용: 1/8 이미지(90° 회전·뒤집기만)에서 곧은 선을 찾아 틀 좌표(원본 픽셀)로.
+    /// For auto keystone: finds straight lines in the 1/8 image (90° rotation/flip only), in frame coordinates (source pixels).
     func detectFramedLines() -> (vertical: [(CGPoint, CGPoint)], horizontal: [(CGPoint, CGPoint)]) {
         let scale = Develop.guideScale
         let img = decoded(scale: scale, guide: true)
@@ -685,20 +685,20 @@ final class RawDocument {
         return (found.vertical.map(up), found.horizontal.map(up))
     }
 
-    /// 화면 좌표(보이는 이미지) ↔ 디코딩 원본 좌표.
+    /// View coordinates (displayed image) ↔ decoded source coordinates.
     func toNative(_ p: CGPoint) -> CGPoint { Geometry.fromDisplay(p, settings, native: nativeSize, fullFrame: showFullFrame) }
     func toDisplay(_ p: CGPoint) -> CGPoint { Geometry.toDisplay(p, settings, native: nativeSize, fullFrame: showFullFrame) }
 
-    /// 화이트 밸런스 스포이트: 화면의 그 점이 무채색이 되는 색온도·틴트를 찾는다.
+    /// White balance eyedropper: finds the temperature/tint that makes that on-screen point neutral.
     ///
-    /// RAW 엔진에 값을 넣어 보고 그 점의 선형 RGB를 재는 일을 되풀이한다 (뉴턴법, 미레드·틴트 공간).
-    /// 1/8 해상도 전용 필터로 재므로 한 번에 수십 ms다. 점 둘레 5×5 평균을 쓴다.
+    /// Repeatedly feeds values into the RAW engine and measures the point's linear RGB (Newton's method in mired/tint space).
+    /// Measured with the dedicated 1/8-resolution filter, so each step takes tens of ms. Uses a 5×5 mean around the point.
     ///
-    /// RAW 엔진의 `neutralLocation`도 시험했지만 색온도만 옮기고 틴트는 거의 두어서, 누른 곳이 무채색이 되지 않았다
-    /// (하늘에서 11,936K vs 이 방법 7,732K, 결과 RGB 230·230·229). 그래서 직접 맞춘다.
+    /// The RAW engine's `neutralLocation` was tried too, but it moved only temperature and barely tint, so the clicked spot didn't turn neutral
+    /// (sky: 11,936K vs 7,732K with this method, resulting RGB 230·230·229). So we fit it directly.
     ///
-    /// 전용 필터와 값 복사본만 쓰므로 백그라운드 스레드에서 불러도 된다 (한 번에 1초 가까이 걸린다).
-    /// `display`가 nil이면 자동 화이트 밸런스: 사진 전체 평균이 무채색이 되게 (회색 세계 가정).
+    /// Uses only a dedicated filter and a copy of values, so it's safe on a background thread (takes close to a second).
+    /// With `display` nil, auto white balance: makes the whole-photo mean neutral (gray world assumption).
     func neutralWhiteBalance(at display: CGPoint?) -> (temperature: Float, tint: Float)? {
         guard case .raw = source, let g = CIRAWFilter(imageURL: URL(fileURLWithPath: url.path)) else { return nil }
         let settings = self.settings, fullFrame = self.showFullFrame
@@ -723,7 +723,7 @@ final class RawDocument {
             let t = Geometry.transform(settings, Look.apply(normalized(g.outputImage), look: settings.look, camera: info.camera), scale: scale)
             let img = fullFrame ? t : Geometry.crop(settings, t)
             guard let p else {
-                // 전체 평균 (날아간 곳은 섞이지 않게 0.95에서 자른다)
+                // Whole-photo mean (clipped at 0.95 so blown areas don't mix in)
                 var px = [Float](repeating: 0, count: 4)
                 let avg = img.applyingFilter("CIColorClamp", parameters: ["inputMaxComponents": CIVector(x: 0.95, y: 0.95, z: 0.95, w: 1)])
                     .applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: img.extent)])
@@ -742,13 +742,13 @@ final class RawDocument {
         }
         func error(_ c: SIMD3<Float>) -> SIMD2<Float> { SIMD2(log(c.x / c.y), log(c.z / c.y)) }
 
-        // 첫 번에만 기울기(야코비안)를 차분으로 재고, 그 뒤로는 브로이든 갱신으로 고쳐 쓴다.
-        // 매번 새로 재면 반복마다 세 번 디코딩해서 1초 가까이 걸렸다.
+        // Measure the slope (Jacobian) by differences only the first time, then update with Broyden's method.
+        // Measuring anew each time decoded three times per iteration and took close to a second.
         var x = SIMD2<Float>(1e6 / settings.temperature, settings.tint)
         guard let c0 = measure(1e6 / x.x, x.y), min(c0.x, c0.y, c0.z) > 1e-4,
               let cm = measure(1e6 / (x.x + 5), x.y), let ct = measure(1e6 / x.x, x.y + 3) else { return nil }
         var e = error(c0)
-        var j = (error(cm) - e) / 5, k = (error(ct) - e) / 3   // 열: ∂e/∂미레드, ∂e/∂틴트
+        var j = (error(cm) - e) / 5, k = (error(ct) - e) / 3   // columns: ∂e/∂mired, ∂e/∂tint
         for _ in 0..<8 {
             if abs(e.x) < 0.003 && abs(e.y) < 0.003 { break }
             let det = j.x * k.y - k.x * j.y
@@ -759,7 +759,7 @@ final class RawDocument {
             d = next - x
             guard let c = measure(1e6 / next.x, next.y), min(c.x, c.y, c.z) > 1e-4 else { return nil }
             let e2 = error(c)
-            // 브로이든: J += ((Δe − JΔ) Δᵀ) / (ΔᵀΔ)
+            // Broyden: J += ((Δe − JΔ) Δᵀ) / (ΔᵀΔ)
             let dd = d.x * d.x + d.y * d.y
             if dd > 1e-9 {
                 let r = (e2 - e) - (j * d.x + k * d.y)
@@ -771,7 +771,7 @@ final class RawDocument {
         return (1e6 / mired, tint)
     }
 
-    /// 형태 보정과 크롭. 현상 단계보다 먼저 건다 (비네팅·히스토그램이 크롭 기준이 되도록).
+    /// Geometry and crop. Applied before the develop stage (so vignette and histogram are crop-relative).
     private func shaped(_ img0: CIImage, _ scale: CGFloat, retouch: Bool = true) -> CIImage {
         let img = settings.lcc.map { LCC.apply(img0, file: $0, mode: settings.lccMode ?? 3, scale: scale) } ?? img0
         let r = retouch && !settings.spots.isEmpty ? Retouch.apply(settings.spots, to: img, scale: scale) : img
@@ -779,35 +779,35 @@ final class RawDocument {
         return showFullFrame ? t : Geometry.crop(settings, t)
     }
 
-    /// 디헤이즈의 대기광. 보정 전 사진의 다크 채널에서 가장 밝은 값 (처음 쓸 때 한 번 잰다).
-    /// 안개 빛 (디헤이즈 기준). 처음 쓸 때 뒤 스레드에서 따로 RAW를 1/8로 풀어 잰다.
-    /// 재는 동안은 흔한 값(0.95)으로 그리고, 끝나면 그림 캐시를 비우고 다시 그리라고 알린다 (주 스레드에서 재면 사진을 열 때 멈췄다)
+    /// Dehaze airlight. Brightest value of the unadjusted photo's dark channel (measured once on first use).
+    /// Airlight (dehaze reference). On first use, measured on a background thread by decoding the RAW at 1/8 separately.
+    /// Drawn with a common value (0.95) while measuring; when done, clears the render cache and asks for a redraw (measuring on main stalled photo open)
     private var hazeLight: Float?
     private var hazeStarted = false
     static let needsRedraw = Notification.Name("DuochromeDocumentNeedsRedraw")
 
-    /// 안개 빛을 바로 잰다 (내보내기처럼 정확해야 할 때, 뒤 스레드의 문서)
+    /// Measures airlight right away (when precision matters, like export; background-thread documents)
     private func measureHazeNow() -> Float {
         let h = Develop.estimateHazeLight(originalImage(scale: 1.0 / 8))
         hazeLight = h
         return h
     }
 
-    /// 내보내기 전에: 디헤이즈를 쓰면 안개 빛을 정확히 잰다
+    /// Before export: measure airlight precisely if dehaze is used
     func settleForExport() {
         if settings.dehaze > 0, hazeLight == nil { _ = measureHazeNow(); cache.removeAll() }
     }
 
     private func hazeLightOrStart() -> Float {
         if let h = hazeLight { return h }
-        // 주 스레드가 아니면(내보내기·썸네일) 바로 잰다
+        // Off the main thread (export, thumbnails), measure right away
         if !Thread.isMainThread { return measureHazeNow() }
         if !hazeStarted {
             hazeStarted = true
             let fileURL = URL(fileURLWithPath: url.path), look = settings.look, camera = info.camera, isRaw = isRaw
             let fallback: CIImage? = isRaw ? nil : originalImage(scale: 1.0 / 8)
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                // 사진을 빨리 넘겨 이 문서가 이미 풀렸으면 재지 않는다
+                // Don't measure if this document was already released by fast stepping
                 BackgroundGate.waitQuiet()
                 guard self != nil else { return }
                 var small = fallback
@@ -836,7 +836,7 @@ final class RawDocument {
         return scale == 1 ? n : n.transformed(by: .init(scaleX: scale, y: scale))
     }
 
-    /// 출력의 원점이 0이 아닐 때가 있어 맞춰 둔다. 캔버스는 원점 (0,0)을 가정한다.
+    /// The output origin is sometimes nonzero, so normalize it. The canvas assumes origin (0,0).
     private func normalized(_ image: CIImage?) -> CIImage {
         guard let image else { return .empty() }
         let o = image.extent.origin

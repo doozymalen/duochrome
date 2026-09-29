@@ -1,19 +1,19 @@
 import AppKit
 
-// MARK: - 펜·모양·글자 도구. 캔버스 층은 Vector.swift의 PathOverlayView.
+// MARK: - Pen, shape, and text tools. The canvas layer is PathOverlayView in Vector.swift.
 
-/// 도구 사이에 이어지는 값 (고른 패스, 펜 방식, 모양 옵션)
+/// Values carried across tools (selected path, pen mode, shape options)
 final class VectorToolState {
     static let shared = VectorToolState()
-    /// 펜 방식: 0 펜, 1 자유 펜, 2 곡률 펜, 3 직접 선택
+    /// Pen mode: 0 pen, 1 freeform pen, 2 curvature pen, 3 direct selection
     var penKind = 0
-    /// 펜 결과: 0 패스, 1 모양 레이어, 2 벡터 마스크
+    /// Pen output: 0 path, 1 shape layer, 2 vector mask
     var penTarget = 0
-    /// 패스 패널에서 고른 패스 id
+    /// Path id selected in the Paths panel
     var pathID: String?
-    // 모양 도구
+    // shape tool
     var preset = VectorPath.Preset.rect
-    /// 사용자 모양: 이 패스를 상자에 맞춰 쓴다 (preset 대신)
+    /// Custom shape: this path fitted to the box (instead of a preset)
     var customPathID: String?
     var fillOn = true
     var fill: [Float] = [0.92, 0.92, 0.92]
@@ -25,7 +25,7 @@ final class VectorToolState {
     var radius = 40.0
     var sides = 6
     var inner = 0.45
-    // 글자 도구
+    // text tool
     var font = "AppleSDGothicNeo-Bold"
     var color: [Float] = [1, 1, 1]
 }
@@ -33,15 +33,15 @@ final class VectorToolState {
 extension MainWindowController {
     private var vs: VectorToolState { .shared }
 
-    /// 고른 레이어 (있으면)
+    /// Selected layer (if any)
     private var selectedLayer: (Int, AdjustLayer)? {
         guard let s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }) else { return nil }
         return (i, s.layers[i])
     }
 
-    // MARK: 도구 켜기
+    // MARK: Activating tools
 
-    /// 펜·모양·글자 도구를 켠다
+    /// Activates the pen/shape/text tools
     func startVectorTool(_ id: String) {
         guard photo != nil else { enterTool(.pan); return }
         let o = canvas.pathOverlay
@@ -56,7 +56,7 @@ extension MainWindowController {
         o.onFinish = { [weak self] in self?.finishPath() }
         o.onBox = { [weak self] r0 in
             guard let self else { return }
-            // 상자 모서리를 안내선·가장자리·가운데에 붙인다
+            // Snap box corners to guides, edges, and center
             let a = self.snapNative(CGPoint(x: r0.minX, y: r0.minY)), b = self.snapNative(CGPoint(x: r0.maxX, y: r0.maxY))
             let r = r0.width < 1 && r0.height < 1 ? CGRect(origin: a, size: .zero)
                 : CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
@@ -67,7 +67,7 @@ extension MainWindowController {
         window?.makeFirstResponder(o)
     }
 
-    /// 편집 층에 지금 대상 패스와 다른 패스를 보인다
+    /// Shows the current target path and other paths on the editing layer
     func refreshPathOverlay() {
         let o = canvas.pathOverlay
         let s = photo?.settings
@@ -76,7 +76,7 @@ extension MainWindowController {
         penOptions.reloadPaths()
     }
 
-    /// 지금 편집하는 패스: 직접 선택·모양 대상이면 고른 모양 레이어, 마스크 대상이면 고른 레이어의 벡터 마스크, 아니면 패스 패널
+    /// Path being edited: the selected shape layer for direct selection/shape targets, the selected layer's vector mask for mask targets, otherwise the Paths panel
     private func editTargetPath() -> VectorPath? {
         if let (_, l) = selectedLayer {
             if l.kind == "shape", let v = l.vector, vs.penTarget == 1 || vs.penKind == 3 || canvas.pathOverlay.mode == .shapeDrag { return v.path }
@@ -86,7 +86,7 @@ extension MainWindowController {
         return paths.first { $0.id == vs.pathID } ?? paths.first
     }
 
-    /// 편집 층의 패스를 문서에 넣는다
+    /// Puts the editing layer's path into the document
     private func storeEditedPath(_ p: VectorPath, dragging: Bool) {
         guard var s = photo?.settings else { return }
         if let (i, l) = selectedLayer {
@@ -101,7 +101,7 @@ extension MainWindowController {
             }
         }
         if vs.penTarget == 1 {
-            // 모양 레이어로: 두 점이 생기면 레이어를 만들고 그 뒤로는 그 레이어를 고친다
+            // As a shape layer: create the layer once two points exist, then edit that layer
             guard p.anchors.count >= 2 else { return }
             var l = AdjustLayer(name: "모양 \(s.layers.count + 1)")
             l.kind = "shape"
@@ -127,7 +127,7 @@ extension MainWindowController {
     }
 
     private func finishPath() {
-        // 끝낸 패스는 그대로 두고, 다음 누르기는 새 패스로
+        // Leave the finished path, and the next click starts a new path
         if canvas.pathOverlay.mode == .pen || canvas.pathOverlay.mode == .freePen || canvas.pathOverlay.mode == .curvature {
             if vs.penTarget == 0 { vs.pathID = canvas.pathOverlay.path.id }
         }
@@ -135,7 +135,7 @@ extension MainWindowController {
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    /// 새 패스를 시작한다 (패스 패널 "새 패스")
+    /// Starts a new path (Paths panel "새 패스")
     func newPath() {
         let p = VectorPath(name: "패스 \((photo?.settings.paths?.count ?? 0) + 1)")
         vs.pathID = p.id
@@ -143,7 +143,7 @@ extension MainWindowController {
         if canvas.tool != .path { studioMode.selectTool("pen") }
     }
 
-    // MARK: 모양
+    // MARK: Shapes
 
     func currentShapeStyle(_ p: VectorPath) -> VectorShape {
         var v = VectorShape(path: p)
@@ -155,7 +155,7 @@ extension MainWindowController {
         return v
     }
 
-    /// 모양 도구로 끈 상자에 모양 레이어를 만든다 (그냥 누르면 사진 긴 변의 1/5 크기)
+    /// Creates a shape layer in the box dragged with the shape tool (a plain click gives 1/5 of the photo's long side)
     func createShape(in rect: CGRect) {
         guard let doc = photo, var s = photo?.settings else { return }
         var r = rect
@@ -165,7 +165,7 @@ extension MainWindowController {
         }
         var path: VectorPath
         if let cid = vs.customPathID, let src = s.paths?.first(where: { $0.id == cid }), !src.isEmpty {
-            // 사용자 모양: 패스를 상자에 맞춘다
+            // custom shape: fit the path to the box
             path = src
             path.id = UUID().uuidString
             let b = src.bounds
@@ -192,7 +192,7 @@ extension MainWindowController {
         shapeOptions.sync()
     }
 
-    /// 모양 옵션을 고른 모양 레이어에 건다
+    /// Applies shape options to the selected shape layer
     func applyShapeOptionsToSelection() {
         guard var s = photo?.settings, let (i, l) = selectedLayer, l.kind == "shape", let v = l.vector else { return }
         var n = currentShapeStyle(v.path)
@@ -202,7 +202,7 @@ extension MainWindowController {
         apply(s, dragging: false)
     }
 
-    // MARK: 패스 패널 동작
+    // MARK: Paths panel actions
 
     func selectedPath() -> VectorPath? {
         photo?.settings.paths?.first { $0.id == vs.pathID } ?? (canvas.pathOverlay.path.anchors.isEmpty ? nil : canvas.pathOverlay.path)
@@ -223,7 +223,7 @@ extension MainWindowController {
         penOptions.reloadPaths()
     }
 
-    /// 선택으로: 패스 안을 올가미 마스크로 가진 조정 레이어
+    /// Make selection: an adjustment layer with the path interior as a lasso mask
     func pathToSelection() {
         guard let p = selectedPath(), p.anchors.count >= 3, let doc = photo else { NSSound.beep(); return }
         layersTab.addLayer(.polygon, native: doc.nativeSize)
@@ -235,7 +235,7 @@ extension MainWindowController {
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    /// 칠하기: 패스 모양을 채운 모양 레이어 (획 없음)
+    /// Fill: a shape layer filling the path shape (no stroke)
     func fillPath() {
         guard let p = selectedPath(), p.anchors.count >= 3, var s = photo?.settings else { NSSound.beep(); return }
         var q = p; q.id = UUID().uuidString; q.closed = true
@@ -248,7 +248,7 @@ extension MainWindowController {
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    /// 획: 지금 붓으로 패스를 따라 칠한다 (칠 레이어)
+    /// Stroke: paints along the path with the current brush (paint layer)
     func strokePath() {
         guard let p = selectedPath(), p.anchors.count >= 2 else { NSSound.beep(); return }
         var pts = p.flattened(step: 3)
@@ -258,7 +258,7 @@ extension MainWindowController {
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    /// 모양 레이어로: 모양 옵션(채우기·획)을 입힌 모양 레이어
+    /// To shape layer: a shape layer with the shape options (fill, stroke)
     func pathToShapeLayer() {
         guard let p = selectedPath(), p.anchors.count >= 2, var s = photo?.settings else { NSSound.beep(); return }
         var q = p; q.id = UUID().uuidString
@@ -271,7 +271,7 @@ extension MainWindowController {
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    /// 벡터 마스크로: 고른 레이어에 패스를 벡터 마스크로
+    /// To vector mask: the path as the selected layer's vector mask
     func pathToVectorMask() {
         guard let p = selectedPath(), p.anchors.count >= 3, var s = photo?.settings, let (i, l) = selectedLayer else { NSSound.beep(); return }
         guard !l.locked else { NSSound.beep(); return }
@@ -288,12 +288,12 @@ extension MainWindowController {
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    // MARK: 글자
+    // MARK: Text
 
-    /// 글자 도구: 누르면 한 줄 글자, 끌면 단락(상자) 글자
+    /// Text tool: click for single-line text, drag for paragraph (box) text
     func createText(in rect: CGRect) {
         guard let doc = photo, var s = photo?.settings else { return }
-        // 화면 12픽셀보다 작게 끌었으면 누르기로 본다
+        // Drags shorter than 12 screen pixels count as clicks
         let minBox = 12 / max(canvas.zoom, 0.001)
         let size = Double(max(doc.nativeSize.width, doc.nativeSize.height)) / 20
         var t = LayerText(string: "글자", font: TextRender.resolveFont(vs.font), size: size, color: vs.color,
@@ -313,14 +313,14 @@ extension MainWindowController {
         textOptions.sync(focus: true)
     }
 
-    /// 고른 글자 레이어의 글자를 고친다
+    /// Edits the text of the selected text layer
     func editSelectedText(_ dragging: Bool = false, _ f: (inout LayerText) -> Void) {
         guard var s = photo?.settings, let (i, l) = selectedLayer, l.isText, var t = l.text else { return }
         guard !l.locked else { NSSound.beep(); return }
         f(&t)
         if t == l.text { return }
         s.layers[i].text = t
-        // PSD에서 온 글자는 고치면 파일에 든 그림 대신 직접 그린다
+        // Text from PSD is drawn directly once edited instead of using the embedded image
         s.layers[i].image = nil
         if !dragging, l.name.hasPrefix("글자") || l.name == l.text?.string.prefix(20).description {
             s.layers[i].name = String(t.string.prefix(20)).replacingOccurrences(of: "\n", with: " ")
@@ -333,7 +333,7 @@ extension MainWindowController {
 }
 
 
-// MARK: - 옵션 패널
+// MARK: - Options panels
 
 private func optionTitle(_ s: String) -> NSTextField {
     let t = NSTextField(labelWithString: s)
@@ -358,7 +358,7 @@ private func color(_ v: [Float]) -> NSColor {
     return NSColor(srgbRed: CGFloat(c[0]), green: CGFloat(c[1]), blue: CGFloat(c[2]), alpha: 1)
 }
 
-/// 옵션 패널 공통: 세로로 쌓고 가로를 꽉 채운다
+/// Shared by options panels: stacked vertically, filling the width
 class VectorOptionsBase: NSStackView {
     weak var host: MainWindowController?
     init(host: MainWindowController) {
@@ -382,7 +382,7 @@ class VectorOptionsBase: NSStackView {
     }
 }
 
-/// 펜 도구 옵션 + 패스 패널
+/// Pen tool options + Paths panel
 final class PenOptionsView: VectorOptionsBase {
     private let kind = NSSegmentedControl(labels: ["펜", "자유 펜", "곡률 펜", "직접 선택"], trackingMode: .selectOne, target: nil, action: nil)
     private let target = NSPopUpButton()
@@ -479,7 +479,7 @@ final class PenOptionsView: VectorOptionsBase {
     @objc private func removeMask() { host?.removeVectorMask() }
 }
 
-/// 모양 도구 옵션
+/// Shape tool options
 final class ShapeOptionsView: VectorOptionsBase {
     private let preset = NSPopUpButton()
     private let fillOn = NSButton(checkboxWithTitle: "채우기", target: nil, action: nil)
@@ -536,7 +536,7 @@ final class ShapeOptionsView: VectorOptionsBase {
         if let cid = st.customPathID, let item = preset.itemArray.first(where: { $0.representedObject as? String == cid }) {
             preset.select(item)
         } else { st.customPathID = nil; preset.selectItem(at: st.preset.rawValue) }
-        // 고른 모양 레이어가 있으면 그 값을 보인다
+        // show the values of the selected shape layer if any
         if let host, let v = host.photo?.settings.layers.first(where: { $0.id == host.layersTab.selectedID && $0.kind == "shape" })?.vector {
             st.fillOn = v.fill != nil; if let f = v.fill { st.fill = f }
             st.strokeOn = v.stroke != nil; if let s = v.stroke { st.stroke = s }
@@ -582,7 +582,7 @@ final class ShapeOptionsView: VectorOptionsBase {
     }
 }
 
-/// 글자 도구 옵션 (문자·단락 패널 역할)
+/// Text tool options (acting as the Character/Paragraph panels)
 final class TextOptionsView: VectorOptionsBase, NSTextViewDelegate {
     private let textView = NSTextView()
     private let family = NSPopUpButton()
@@ -624,7 +624,7 @@ final class TextOptionsView: VectorOptionsBase, NSTextViewDelegate {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.autoresizingMask = [.width]
         scroll.documentView = textView
-        // 스크롤을 상자에 넣는다 (옵션 패널은 스크롤을 직접 가진 내용을 따로 감싸지 않아 창이 늘어났다)
+        // Put the scroll inside a box (the options panel doesn't wrap content that has its own scroll, so the window stretched)
         let holder = NSView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         holder.addSubview(scroll)
@@ -694,7 +694,7 @@ final class TextOptionsView: VectorOptionsBase, NSTextViewDelegate {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 고른 글자 레이어의 값을 보인다
+    /// Shows the selected text layer's values
     func sync(focus: Bool = false) {
         syncing = true
         defer { syncing = false }
@@ -746,7 +746,7 @@ final class TextOptionsView: VectorOptionsBase, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
-        // 한글을 조합하는 중(ㅎ→하→한)에는 글자 레이어를 고치지 않는다 — 조합 중 글자가 캔버스에 남았다
+        // Don't edit the text layer while Hangul is composing (ㅎ→하→한) — composing characters were left on the canvas
         guard !syncing, !textView.hasMarkedText() else { return }
         let s = textView.string
         host?.editSelectedText { $0.string = s }

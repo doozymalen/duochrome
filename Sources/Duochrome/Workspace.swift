@@ -1,14 +1,14 @@
 import AppKit
 import CoreImage
 
-// MARK: - 눈금자·안내선·스냅, 초점 확인 확대 창, 측정·계수 도구, 작업 공간 저장
+// MARK: - Rulers, guides, snapping, focus loupe, measure and count tools, saved workspaces
 
-/// 눈금자 (캔버스 위·왼쪽 가장자리). 눈금은 사진 픽셀. 눈금자에서 끌어 내리면 안내선이 생긴다
+/// Rulers (top and left canvas edges). Ticks are photo pixels. Dragging out of a ruler creates a guide
 final class RulerView: NSView {
     enum Edge { case top, left }
     let edge: Edge
     weak var canvas: CanvasView?
-    /// 끌어서 안내선을 만든다 (세로선이면 참, 사진 좌표 값, 끄는 중인지)
+    /// Dragging creates a guide (true if vertical, photo coordinate value, dragging)
     var onGuide: ((Bool, CGFloat, Bool) -> Void)?
     static let thickness: CGFloat = 18
 
@@ -22,7 +22,7 @@ final class RulerView: NSView {
         NSColor(white: 0.13, alpha: 0.92).setFill()
         bounds.fill()
         guard let c = canvas, c.document != nil else { return }
-        // 화면 100픽셀쯤마다 큰 눈금: 1·2·5 × 10의 거듭제곱
+        // Major ticks about every 100 screen pixels: 1·2·5 × powers of 10
         let perPx = 1 / max(c.zoom, 1e-6)
         let raw = perPx * 100
         let mag = pow(10, floor(log10(raw)))
@@ -69,29 +69,29 @@ final class RulerView: NSView {
     private func report(_ event: NSEvent, done: Bool) {
         guard let c = canvas else { return }
         let p = c.imagePoint(at: c.convert(event.locationInWindow, from: nil))
-        // 위 눈금자에서 끌면 가로 안내선, 왼쪽에서 끌면 세로 안내선
+        // Dragging from the top ruler makes a horizontal guide, from the left a vertical one
         onGuide?(edge == .left, edge == .left ? p.x : p.y, !done)
     }
     override func resetCursorRects() { addCursorRect(bounds, cursor: edge == .top ? .resizeUpDown : .resizeLeftRight) }
 }
 
-/// 안내선·측정선·계수 점을 그리는 층 (누르기는 측정·계수 도구일 때만 받는다)
+/// Layer drawing guides, measure lines, and count points (receives clicks only for the measure/count tools)
 final class GuidesOverlayView: NSView {
     weak var canvas: CanvasView?
-    /// 사진(화면 틀) 좌표 안내선
+    /// Guides in photo (view frame) coordinates
     var vertical: [CGFloat] = [] { didSet { needsDisplay = true } }
     var horizontal: [CGFloat] = [] { didSet { needsDisplay = true } }
-    /// 끄는 중인 새 안내선 (세로?, 값)
+    /// New guide being dragged (vertical?, value)
     var pending: (Bool, CGFloat)? { didSet { needsDisplay = true } }
     var showGuides = true { didSet { needsDisplay = true } }
-    /// 측정 도구: 두 점 (사진 좌표)
+    /// Measure tool: two points (photo coordinates)
     var measure: (CGPoint, CGPoint)? { didSet { needsDisplay = true } }
-    /// 계수 도구: 점들 (사진 좌표)
+    /// Count tool: points (photo coordinates)
     var counts: [CGPoint] = [] { didSet { needsDisplay = true } }
     enum Tool { case none, measure, count }
     var tool: Tool = .none { didSet { needsDisplay = true; window?.invalidateCursorRects(for: self) } }
     var onMeasure: ((CGPoint, CGPoint, Bool) -> Void)?
-    var onCount: ((CGPoint, Bool) -> Void)?   // (점, ⌥ 지우기)
+    var onCount: ((CGPoint, Bool) -> Void)?   // (point, ⌥ delete)
 
     override func hitTest(_ point: NSPoint) -> NSView? { tool == .none || isHidden ? nil : super.hitTest(point) }
     override func resetCursorRects() { if tool != .none { addCursorRect(bounds, cursor: .crosshair) } }
@@ -133,7 +133,7 @@ final class GuidesOverlayView: NSView {
         }
     }
 
-    /// 거리·각도·가로세로 (사진 픽셀)
+    /// Distance, angle, width/height (photo pixels)
     static func measureText(_ a: CGPoint, _ b: CGPoint) -> String {
         let dx = b.x - a.x, dy = b.y - a.y
         let d = hypot(dx, dy), ang = atan2(dy, dx) * 180 / .pi
@@ -153,7 +153,7 @@ final class GuidesOverlayView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard tool == .measure, let c = canvas, let s = start else { return }
         var p = c.imagePoint(at: convert(event.locationInWindow, from: nil))
-        if event.modifierFlags.contains(.shift) {   // ⇧: 45°씩
+        if event.modifierFlags.contains(.shift) {   // ⇧: 45° steps
             let ang = (atan2(p.y - s.y, p.x - s.x) / (.pi / 4)).rounded() * (.pi / 4), d = hypot(p.x - s.x, p.y - s.y)
             p = CGPoint(x: s.x + cos(ang) * d, y: s.y + sin(ang) * d)
         }
@@ -166,7 +166,7 @@ final class GuidesOverlayView: NSView {
     }
 }
 
-/// 초점 확인: 마우스 아래를 100%로 보이는 작은 창
+/// Focus loupe: a small window showing the area under the mouse at 100%
 final class FocusLoupe: NSPanel {
     private let imageView = NSImageView()
     private let label = NSTextField(labelWithString: "")
@@ -188,10 +188,10 @@ final class FocusLoupe: NSPanel {
         contentView = v
     }
 
-    /// 사진 좌표 점 주변을 100%로 (배율 100% 사진의 한 조각). 성공하면 참
+    /// Shows the area around a photo-coordinate point at 100% (a tile of the photo at 100% zoom). True on success
     @discardableResult
     func show(_ doc: RawDocument, at p: CGPoint) -> Bool {
-        // 초점 확인은 실제 화소를 봐야 하므로 원본 크기로 (작은 조각만 그린다)
+        // The focus loupe must show actual pixels, so full size (only a small tile is rendered)
         let img = doc.withFullResolution { doc.image(scale: 1) }
         let half = Self.side
         let r = CGRect(x: (p.x - half / 2).rounded(), y: (p.y - half / 2).rounded(), width: half, height: half).intersection(img.extent)
@@ -205,9 +205,9 @@ final class FocusLoupe: NSPanel {
 }
 
 extension MainWindowController {
-    // MARK: 안내선·눈금자·스냅
+    // MARK: Guides · rulers · snapping
 
-    /// 문서의 안내선 (사진 화면 틀 좌표)
+    /// Document guides (photo view frame coordinates)
     func syncGuides() {
         let o = canvas.guidesOverlay
         o.vertical = (photo?.settings.guidesV ?? []).map { CGFloat($0) }
@@ -215,7 +215,7 @@ extension MainWindowController {
         o.showGuides = UserDefaults.standard.object(forKey: "view.guides") as? Bool ?? true
     }
 
-    /// 눈금자에서 끌어 온 안내선: 사진 밖(눈금자 쪽)으로 되돌려 놓으면 만들지 않는다
+    /// Guide dragged from a ruler: not created if dropped back outside the photo (toward the ruler)
     func guideDragged(vertical: Bool, at v: CGFloat, dragging: Bool) {
         guard let doc = photo else { return }
         let size = doc.pixelSize
@@ -262,7 +262,7 @@ extension MainWindowController {
 
     var snapOn: Bool { UserDefaults.standard.object(forKey: "view.snap") as? Bool ?? true }
 
-    /// 원본 좌표 점을 안내선·사진 가장자리·가운데에 붙인다 (화면 8픽셀 안). 스냅이 꺼져 있으면 그대로
+    /// Snaps a source-coordinate point to guides, photo edges, and center (within 8 screen pixels). Unchanged if snapping is off
     func snapNative(_ p: CGPoint) -> CGPoint {
         guard snapOn, let doc = photo else { return p }
         let d = doc.toDisplay(p)
@@ -276,7 +276,7 @@ extension MainWindowController {
         return q == d ? p : doc.toNative(q)
     }
 
-    // MARK: 측정·계수
+    // MARK: Measure · count
 
     func startMeasure() {
         guard photo != nil else { return }
@@ -297,7 +297,7 @@ extension MainWindowController {
             guard let self, var s = self.photo?.settings else { return }
             var pts = s.countMarks ?? []
             if remove {
-                // ⌥누르기: 가장 가까운 점 지우기
+                // ⌥-click: delete the nearest point
                 let tol = 12 / max(self.canvas.zoom, 1e-6)
                 if let i = stride(from: 0, to: pts.count, by: 2).min(by: { hypot(pts[$0] - Double(p.x), pts[$0 + 1] - Double(p.y)) < hypot(pts[$1] - Double(p.x), pts[$1 + 1] - Double(p.y)) }),
                    hypot(pts[i] - Double(p.x), pts[i + 1] - Double(p.y)) < Double(tol) { pts.removeSubrange(i...(i + 1)) }
@@ -326,7 +326,7 @@ extension MainWindowController {
         syncCounts()
     }
 
-    // MARK: 초점 확인
+    // MARK: Focus loupe
 
     @objc func toggleFocusLoupe(_ sender: Any?) {
         if let l = focusLoupe, l.isVisible { l.orderOut(nil); return }
@@ -340,9 +340,9 @@ extension MainWindowController {
         }
     }
 
-    // MARK: 작업 공간
+    // MARK: Workspaces
 
-    /// 지금 배치(모드·패널·패널 폭·도구 막대·고른 탭·창 틀)를 이름 붙여 저장
+    /// Saves the current arrangement (mode, panels, panel widths, tool strip, selected tabs, window frame) under a name
     func saveWorkspace(_ name: String) {
         var ws = Self.workspaces
         let d: [String: Any] = [
@@ -417,7 +417,7 @@ final class WorkspaceMenuDelegate: NSObject, NSMenuDelegate {
     }
 }
 
-/// 측정·계수 도구 옵션
+/// Measure/count tool options
 final class MeasureOptionsView: NSStackView {
     private let text = NSTextField(wrappingLabelWithString: "캔버스에서 끌어 길이·각도를 잽니다 (⇧ 45°씩).")
     private let count = NSTextField(labelWithString: "")
@@ -451,11 +451,11 @@ final class MeasureOptionsView: NSStackView {
 
     @objc private func kind(_ s: NSSegmentedControl) { if s.selectedSegment == 0 { host?.startMeasure() } else { host?.startCount() } }
     @objc private func clearCounts() { host?.clearCounts(nil) }
-    /// 측정선이 수평(또는 수직)이 되게 미세 회전
+    /// Fine-rotates so the measure line becomes level (or plumb)
     @objc private func level() {
         guard let (a, b) = last, let host, var s = host.photo?.settings else { return }
         var ang = atan2(b.y - a.y, b.x - a.x) * 180 / .pi
-        if abs(ang) > 45 && abs(ang) < 135 { ang += ang > 0 ? -90 : 90 }   // 거의 세로면 세로로
+        if abs(ang) > 45 && abs(ang) < 135 { ang += ang > 0 ? -90 : 90 }   // nearly vertical → treat as vertical
         if abs(ang) > 90 { ang += ang > 0 ? -180 : 180 }
         s.rotation = min(max(s.rotation - Float(ang), -45), 45)
         host.replaceSettings(s, recordUndo: true, label: "측정선으로 수평")

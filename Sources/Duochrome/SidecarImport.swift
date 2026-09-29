@@ -1,13 +1,13 @@
 import AppKit
 import ImageIO
 
-/// 세션 사이드카(.cos)와 스타일(.costyle) 가져오기. 둘 다 `<E K="키" V="값"/>` XML이고,
-/// 키 이름이 카탈로그 DB 열 이름(Z + 대문자)과 같아서 카탈로그 가져오기의 변환(CatalogImport.convert)을 그대로 쓴다.
+/// Session sidecar (.cos) and style (.costyle) import. Both are `<E K="key" V="value"/>` XML,
+/// and key names match the catalog DB column names (Z + uppercase), so catalog import's conversion (CatalogImport.convert) is reused as is.
 ///
-/// - 세션: `폴더/(설정 폴더)/Settings*/사진.CR3.cos`. `<DL>`(기본값) 위에 `<AL>`(조정)을 덮는다.
-/// - 스타일: `<SL>` 안의 값 → Duochrome 스타일(JSON)로 저장
+/// - Session: `folder/(settings folder)/Settings*/photo.CR3.cos`. `<AL>` (adjustments) overlays `<DL>` (defaults).
+/// - Style: values inside `<SL>` → saved as a Duochrome style (JSON)
 enum SidecarImport {
-    /// 사이드카 키 → 카탈로그 열 이름이 다른 것
+    /// Sidecar keys whose catalog column names differ
     static let renamed: [String: String] = [
         "HighlightRecoveryEx": "ZHIGHLIGHTRECOVERY", "Shadow": "ZLEVELSSHADOW", "Highlight": "ZLEVELSHIGHLIGHT",
         "Vignetting": "ZLENSVIGNETTING", "BwDarkHue": "ZBWDARKTONEHUE", "BwDarkSaturation": "ZBWDARKTONESATURATION",
@@ -21,11 +21,11 @@ enum SidecarImport {
         var name: String?
     }
 
-    /// XML에서 `<E K V>`를 모은다. 세션 파일은 DL 다음 AL이 덮는다 (뒤에 온 값이 이긴다).
+    /// Collects `<E K V>` from XML. In session files AL overrides DL (later values win).
     static func parse(_ data: Data) -> Parsed {
         final class Collector: NSObject, XMLParserDelegate {
             var p = Parsed()
-            var depthInLayers = 0   // 로컬 레이어(LDS) 안의 값은 전역이 아니다
+            var depthInLayers = 0   // values inside local layers (LDS) aren't global
             func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName: String?,
                         attributes a: [String: String] = [:]) {
                 if name == "LDS" || name == "LD" { depthInLayers += 1; return }
@@ -48,7 +48,7 @@ enum SidecarImport {
         return c.p
     }
 
-    /// 사이드카 값 → CatalogImport.convert가 받는 사전 (열 이름 → 숫자·글)
+    /// Sidecar values → dictionary accepted by CatalogImport.convert (column name → number or text)
     static func columns(_ values: [String: String]) -> [String: Any] {
         var d: [String: Any] = [:]
         for (k, v) in values {
@@ -58,7 +58,7 @@ enum SidecarImport {
         return d
     }
 
-    /// 사진 하나의 .cos → Duochrome 설정 조각
+    /// One photo's .cos → Duochrome settings fragment
     static func settings(from cos: Parsed, image: URL) -> [String: Any] {
         var orientation: Int?
         if let src = CGImageSourceCreateWithURL(image as CFURL, nil),
@@ -75,7 +75,7 @@ enum SidecarImport {
         }
     }
 
-    /// 폴더 아래의 `Settings*/*.cos`를 모두 찾는다 (세션 폴더나 그 아래 아무 폴더)
+    /// Finds all `Settings*/*.cos` under a folder (a session folder or any folder below it)
     static func findSidecars(in folder: URL) -> [URL] {
         var out: [URL] = []
         guard let e = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
@@ -88,7 +88,7 @@ enum SidecarImport {
         return out
     }
 
-    /// 사이드카 → 원본 사진 경로 (설정 폴더가 있는 폴더 + 이름에서 .cos를 뺀 것)
+    /// Sidecar → source photo path (the folder containing the settings folder + the name without .cos)
     static func image(for cos: URL) -> URL {
         cos.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent(cos.deletingPathExtension().lastPathComponent)

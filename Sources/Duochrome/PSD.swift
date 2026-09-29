@@ -1,8 +1,8 @@
 import Foundation
 import Compression
 
-/// PSD·PSB 파일 형식 (공개된 파일 형식 명세).
-/// 이 파일은 바이트 단위 읽기·쓰기만 한다. 레이어로 바꾸기는 PSDImport.swift, 문서에서 만들기는 PSDExport.swift.
+/// PSD/PSB file format (per the published file format specification).
+/// This file only reads and writes bytes. Conversion to layers is in PSDImport.swift, building from documents in PSDExport.swift.
 enum PSD {
     struct Failure: LocalizedError {
         let message: String
@@ -11,7 +11,7 @@ enum PSD {
 
     struct Channel {
         var id: Int16
-        /// 0 그대로, 1 RLE(PackBits), 2 ZIP, 3 ZIP+예측
+        /// 0 raw, 1 RLE (PackBits), 2 ZIP, 3 ZIP + prediction
         var compression: UInt16 = 0
         var payload = Data()
     }
@@ -41,7 +41,7 @@ enum PSD {
         var height: Int { Int(bottom - top) }
         var visible: Bool { flags & 2 == 0 }
         func block(_ key: String) -> Data? { blocks.first { $0.key == key }?.data }
-        /// 그룹 표시: 1·2 열린·닫힌 폴더(그룹 맨 위), 3 그룹 끝(맨 아래 구분자). 없으면 nil.
+        /// Group marker: 1·2 open/closed folder (top of the group), 3 group end (bottom divider). nil if none.
         var section: Int? {
             guard let d = block("lsct") ?? block("lsdk"), d.count >= 4 else { return nil }
             var r = Reader(d)
@@ -64,7 +64,7 @@ enum PSD {
         var channelCount = 3
         var width = 0, height = 0
         var depth = 8
-        /// 0 비트맵, 1 회색조, 2 인덱스, 3 RGB, 4 CMYK, 7 다채널, 8 이중톤, 9 Lab
+        /// 0 bitmap, 1 grayscale, 2 indexed, 3 RGB, 4 CMYK, 7 multichannel, 8 duotone, 9 Lab
         var mode = 3
         var colorModeData = Data()
         var resources: [(id: UInt16, data: Data)] = []
@@ -79,7 +79,7 @@ enum PSD {
         func globalBlock(_ key: String) -> Data? { globalBlocks.first { $0.key == key }?.data }
     }
 
-    // MARK: - 바이트 읽기
+    // MARK: - Reading bytes
 
     struct Reader {
         let data: Data
@@ -108,19 +108,19 @@ enum PSD {
         mutating func bytes(_ n: Int) throws -> Data { try need(n); defer { pos += n }; return data[pos ..< pos + n] }
         mutating func skip(_ n: Int) throws { try need(n); pos += n }
         mutating func key() throws -> String { String(decoding: try bytes(4), as: UTF8.self) }
-        /// 길이(PSB면 몇몇 곳은 8바이트)
+        /// Length (8 bytes in some places for PSB)
         mutating func len(_ big: Bool) throws -> Int { big ? Int(try u64()) : Int(try u32()) }
-        /// 파스칼 문자열, 전체 길이를 `pad`의 배수로 맞춘다
+        /// Pascal string, total length padded to a multiple of `pad`
         mutating func pascal(pad: Int) throws -> String {
             let n = Int(try u8())
             let s = try bytes(n)
             let total = n + 1
             let padded = (total + pad - 1) / pad * pad
             try skip(padded - total)
-            // 맥 로만(옛 파일) 또는 UTF-8
+            // Mac Roman (old files) or UTF-8
             return String(data: s, encoding: .utf8) ?? String(data: s, encoding: .macOSRoman) ?? ""
         }
-        /// 유니코드 문자열: 글자 수(4바이트) + UTF-16BE
+        /// Unicode string: character count (4 bytes) + UTF-16BE
         mutating func unicode() throws -> String {
             let n = Int(try u32())
             let d = try bytes(n * 2)
@@ -128,14 +128,14 @@ enum PSD {
             while s.hasSuffix("\0") { s.removeLast() }
             return s
         }
-        /// 설명자 키: 길이 0이면 4바이트 키
+        /// Descriptor key: length 0 means a 4-byte key
         mutating func id() throws -> String {
             let n = Int(try u32())
             return String(decoding: try bytes(n == 0 ? 4 : n), as: UTF8.self)
         }
     }
 
-    // MARK: - 바이트 쓰기
+    // MARK: - Writing bytes
 
     struct Writer {
         var data = Data()
@@ -166,9 +166,9 @@ enum PSD {
         }
     }
 
-    // MARK: - 파일 읽기
+    // MARK: - Reading files
 
-    /// 8B64로 쓰는 긴 길이 블록 (PSB에서만 8바이트)
+    /// Long-length blocks written with 8B64 (8 bytes only in PSB)
     static let longKeys: Set<String> = ["LMsk", "Lr16", "Lr32", "Layr", "Mt16", "Mt32", "Mtrn", "Alph", "FMsk", "lnk2", "FEid", "FXid", "PxSD"]
 
     static func read(_ url: URL) throws -> File {
@@ -189,10 +189,10 @@ enum PSD {
         f.depth = Int(try r.u16())
         f.mode = Int(try r.u16())
         let big = f.isPSB
-        // 색 모드 자료
+        // color mode data
         let cm = Int(try r.u32())
         f.colorModeData = try r.bytes(cm)
-        // 이미지 자원
+        // image resources
         let resLen = Int(try r.u32())
         var rr = Reader(try r.bytes(resLen))
         while rr.remaining >= 12 {
@@ -204,7 +204,7 @@ enum PSD {
             if n % 2 == 1 { try? rr.skip(1) }
             f.resources.append((id, d))
         }
-        // 레이어와 마스크 정보
+        // layer and mask info
         let lmLen = try r.len(big)
         let lmEnd = r.pos + lmLen
         if lmLen > 0 {
@@ -215,12 +215,12 @@ enum PSD {
                 (f.layers, f.hasMergedAlpha) = try readLayerInfo(&lr, big: big)
             }
             r.pos = liEnd
-            // 전역 레이어 마스크
+            // global layer mask
             if r.pos + 4 <= lmEnd {
                 let g = Int(try r.u32())
                 try r.skip(min(g, lmEnd - r.pos))
             }
-            // 문서 단위 추가 정보 (16·32비트 문서는 레이어가 Lr16·Lr32 안에 있다)
+            // Document-level additional info (in 16/32-bit documents, layers are inside Lr16/Lr32)
             while r.pos + 12 <= lmEnd {
                 let sig = try r.key()
                 guard sig == "8BIM" || sig == "8B64" else { break }
@@ -236,7 +236,7 @@ enum PSD {
             }
         }
         r.pos = lmEnd
-        // 합친 그림
+        // merged image
         if r.remaining >= 2 {
             f.mergedCompression = try r.u16()
             f.merged = r.data[r.pos ..< r.data.endIndex]
@@ -244,7 +244,7 @@ enum PSD {
         return f
     }
 
-    /// 블록 뒤 채움 바이트(쓴 프로그램마다 2 또는 4의 배수)를 건너 다음 서명에 맞춘다
+    /// Skips padding after a block (a multiple of 2 or 4, depending on the writer) to reach the next signature
     private static func syncToSignature(_ r: inout Reader, end: Int) {
         for skip in 0 ... 3 {
             let p = r.pos + skip
@@ -277,7 +277,7 @@ enum PSD {
             _ = try r.u8()
             let extra = Int(try r.u32())
             let extraEnd = r.pos + extra
-            // 레이어 마스크
+            // layer mask
             let ml = Int(try r.u32())
             if ml >= 18 {
                 var m = Mask()
@@ -306,7 +306,7 @@ enum PSD {
             layers.append(l)
             lengths.append(lens)
         }
-        // 채널 그림 자료
+        // channel image data
         for i in 0 ..< layers.count {
             for c in 0 ..< layers[i].channels.count {
                 let n = lengths[i][c]
@@ -318,9 +318,9 @@ enum PSD {
         return (layers, rawCount < 0)
     }
 
-    // MARK: - 채널 풀기
+    // MARK: - Decoding channels
 
-    /// 채널 하나를 평면 바이트(빅엔디언)로 푼다. 없거나 깨졌으면 nil.
+    /// Decodes one channel to planar bytes (big-endian). nil if missing or corrupt.
     static func decode(_ ch: Channel, width w: Int, height h: Int, depth: Int, big: Bool) -> [UInt8]? {
         guard w > 0, h > 0 else { return nil }
         let bpp = max(depth / 8, 1)
@@ -341,7 +341,7 @@ enum PSD {
         }
     }
 
-    /// 합친 그림의 채널들 (RLE면 모든 채널의 줄 길이가 앞에 모여 있다)
+    /// Channels of the merged image (with RLE, all channels' row lengths come first)
     static func mergedChannels(_ f: File) -> [[UInt8]] {
         let bpp = max(f.depth / 8, 1)
         let rowBytes = f.depth == 1 ? (f.width + 7) / 8 : f.width * bpp
@@ -422,13 +422,13 @@ enum PSD {
         let n = row.count
         var i = 0
         while i < n {
-            // 같은 값이 이어지면 반복으로
+            // runs of the same value become repeats
             var run = 1
             while i + run < n, run < 128, row[i + run] == row[i] { run += 1 }
             if run >= 3 {
                 out.append(UInt8(bitPattern: Int8(1 - run))); out.append(row[i]); i += run; continue
             }
-            // 날 값 묶음: 반복 3개가 시작되기 전까지
+            // literal packet: until a run of 3 starts
             var lit = 0
             while i + lit < n, lit < 128 {
                 if i + lit + 2 < n, row[i + lit] == row[i + lit + 1], row[i + lit] == row[i + lit + 2] { break }
@@ -440,7 +440,7 @@ enum PSD {
         }
     }
 
-    /// zlib(2바이트 머리 + deflate) 풀기
+    /// zlib decode (2-byte header + deflate)
     static func inflate(_ d: Data, size: Int) -> [UInt8]? {
         guard d.count > 2 else { return nil }
         let body = d.dropFirst(2)
@@ -454,7 +454,7 @@ enum PSD {
         return n == size ? out : (n > 0 ? out : nil)
     }
 
-    /// zlib로 싸기 (머리 78 9C + deflate + adler32)
+    /// zlib encode (header 78 9C + deflate + adler32)
     static func deflate(_ bytes: [UInt8]) -> Data {
         var out = [UInt8](repeating: 0, count: bytes.count + bytes.count / 8 + 1024)
         let n = bytes.withUnsafeBufferPointer { src in
@@ -477,7 +477,7 @@ enum PSD {
         return d
     }
 
-    /// ZIP 예측(가로 차분) 되돌리기
+    /// Undo ZIP prediction (horizontal delta)
     private static func unpredict(_ p: inout [UInt8], width w: Int, height h: Int, depth: Int) {
         switch depth {
         case 8:
@@ -493,7 +493,7 @@ enum PSD {
                 }
             }
         case 32:
-            // 바이트 차분 뒤 한 줄의 바이트를 (모든 픽셀의 1번째 바이트, 2번째, …) 순으로 섞어 둔다
+            // After the byte delta, a row's bytes are interleaved as (1st byte of every pixel, 2nd, …)
             let rb = w * 4
             for y in 0 ..< h {
                 let o = y * rb
@@ -505,7 +505,7 @@ enum PSD {
         }
     }
 
-    // MARK: - 설명자 (Action Descriptor)
+    // MARK: - Descriptors (Action Descriptor)
 
     indirect enum Value {
         case double(Double), unit(String, Double), text(String), enumerated(String, String), int(Int)
@@ -524,7 +524,7 @@ enum PSD {
         var unitName: String? { if case .unit(let u, _) = self { return u }; return nil }
     }
 
-    /// (클래스인 까닭: 구조체면 Value와 서로 품어서 컴파일러가 순환 참조로 멈춘다)
+    /// (A class because as structs, this and Value contain each other and the compiler stalls on the recursive reference)
     final class Descriptor {
         var name = ""
         var cls = ""
@@ -535,7 +535,7 @@ enum PSD {
         subscript(_ k: String) -> Value? { items.first { $0.key == k }?.value }
         func double(_ k: String) -> Double? { self[k]?.double }
         func obj(_ k: String) -> Descriptor? { self[k]?.object }
-        /// 'Clr ' 같은 색 객체 → 0~1 RGB
+        /// Color object like 'Clr ' → 0–1 RGB
         static func rgb(_ d: Descriptor?) -> [Float]? {
             guard let d else { return nil }
             if let r = d.double("Rd  "), let g = d.double("Grn "), let b = d.double("Bl  ") {
@@ -600,7 +600,7 @@ enum PSD {
             }
             return .reference
         case "ObAr":
-            // 객체 배열 (글자 변형 등): 항목 수, 이름, 클래스, 키마다 단위 배열
+            // object array (text warp etc.): item count, name, class, unit array per key
             _ = try r.u32()
             _ = try r.unicode(); _ = try r.id()
             let n = Int(try r.u32())
@@ -621,14 +621,14 @@ enum PSD {
         }
     }
 
-    /// 버전(4바이트) 뒤에 설명자가 오는 블록
+    /// Block with a descriptor after a version (4 bytes)
     static func versionedDescriptor(_ d: Data) -> Descriptor? {
         var r = Reader(d)
         guard (try? r.u32()) != nil else { return nil }
         return try? descriptor(&r)
     }
 
-    // 설명자 쓰기 (필요한 형식만)
+    // writing descriptors (only the needed types)
     static func write(_ d: Descriptor, _ w: inout Writer) {
         w.unicode(d.name)
         w.id(d.cls)
@@ -653,7 +653,7 @@ enum PSD {
         }
     }
 
-    // MARK: - 블렌드 키
+    // MARK: - Blend keys
 
     static let blendKeys: [(psd: String, ours: String)] = [
         ("norm", "normal"), ("diss", "dissolve"), ("dark", "darken"), ("mul ", "multiply"), ("idiv", "colorBurn"),

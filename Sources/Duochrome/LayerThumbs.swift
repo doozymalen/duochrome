@@ -1,26 +1,26 @@
 import AppKit
 import CoreImage
 
-/// 레이어 목록 썸네일: 그 레이어 하나의 내용을 캔버스 비율로 체크무늬 위에,
-/// 마스크가 있으면 마스크 썸네일도. 뒤에서 약 100px로 그리고, 레이어가 바뀔 때까지 기억해 둔다.
+/// Layer list thumbnails: that one layer's content at canvas aspect over a checkerboard,
+/// plus a mask thumbnail if it has a mask. Rendered at about 100 px in the background and cached until the layer changes.
 enum LayerThumbs {
-    /// 지금 열린 사진 (창이 사진을 열 때 넣는다)
+    /// The currently open photo (set when the window opens a photo)
     static weak var doc: RawDocument?
-    /// 썸네일 긴 변 (점). 레티나를 위해 두 배로 그린다.
+    /// Thumbnail long side (points). Rendered at 2× for Retina.
     static let side: CGFloat = 100
 
     private static var cache: [String: NSImage] = [:]
     private static var waiting: [String: [(NSImage) -> Void]] = [:]
     private static let queue = DispatchQueue(label: "duochrome.layerthumbs", qos: .utility)
 
-    /// 내용을 그릴 수 있는 레이어 (조정 레이어·그룹은 아이콘)
+    /// Layers whose content can be drawn (adjustment layers and groups get icons)
     static func hasContent(_ l: AdjustLayer) -> Bool {
         l.isImage || l.isText || l.isFill || l.kind == "paint" || l.kind == "shape"
     }
 
     static func hasMask(_ l: AdjustLayer) -> Bool { l.mask.kind != .full || l.mask.vector != nil }
 
-    /// 캔버스 비율 (가로 / 세로): 형태 보정·크롭 뒤
+    /// Canvas aspect (width / height): after geometry and crop
     static func aspect() -> CGFloat {
         guard let d = doc else { return 1.5 }
         let n = d.nativeSize
@@ -45,7 +45,7 @@ enum LayerThumbs {
         return "\(kind)|\(n.width)x\(n.height)|\(s.geometryKey)|\(data.hashValue)"
     }
 
-    /// 내용 썸네일. 기억해 둔 게 있으면 바로 돌려주고, 없으면 nil을 돌려주고 다 그리면 `done`을 부른다.
+    /// Content thumbnail. Returns the cached one immediately; otherwise returns nil and calls `done` when rendered.
     static func content(_ l: AdjustLayer, done: @escaping (NSImage) -> Void) -> NSImage? {
         guard let d = doc, hasContent(l) else { return nil }
         let s = d.settings, n = d.nativeSize, gamma = s.gammaBlend ?? false
@@ -62,7 +62,7 @@ enum LayerThumbs {
         }
     }
 
-    /// 마스크 썸네일 (흰 곳이 보인다)
+    /// Mask thumbnail (white is visible)
     static func mask(_ l: AdjustLayer, done: @escaping (NSImage) -> Void) -> NSImage? {
         guard let d = doc, hasMask(l) else { return nil }
         let s = d.settings, n = d.nativeSize
@@ -70,7 +70,7 @@ enum LayerThumbs {
         return fetch(k, done: done) {
             let sc = side * 2 / max(n.width, n.height)
             let r = frame(s, native: n, scale: sc)
-            // 밝기 범위 마스크는 가운데 회색 기준으로 어림한다 (썸네일용)
+            // Luminance-range masks are approximated against middle gray (for thumbnails)
             let base = CIImage(color: CIColor(red: 0.18, green: 0.18, blue: 0.18)).cropped(to: r)
             let m = Layers.maskImage(l.mask, scale: sc, native: n, shape: shape(s), base: base)
             let gray = m.applyingFilter("CIColorMatrix", parameters: [
@@ -97,7 +97,7 @@ enum LayerThumbs {
         return nil
     }
 
-    /// 체크무늬 위에 그림을 얹어 NSImage로
+    /// Image over a checkerboard as NSImage
     private static func picture(_ img: CIImage, rect r: CGRect, checker: Bool) -> NSImage? {
         guard r.width >= 1, r.height >= 1,
               let cg = Render.context.createCGImage(img, from: r, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!) else { return nil }
@@ -120,13 +120,13 @@ enum LayerThumbs {
     }
 }
 
-/// 레이어 목록 한 줄의 공통 내용: [눈] [내용 썸네일] [사슬 + 마스크 썸네일] [이름 / 종류·불투명도]
+/// Shared content of a layer list row: [eye] [content thumbnail] [chain + mask thumbnail] [name / kind·opacity]
 final class LayerRowContent: NSStackView {
     var onToggle: ((Bool) -> Void)?
     private let eye = NSButton()
     private var visible: Bool
 
-    /// `thumb`가 nil이면 레이어에서 썸네일을 만든다. 배경 줄은 `thumb`를 준다.
+    /// If `thumb` is nil, the thumbnail is built from the layer. The background row passes `thumb`.
     init(layer: AdjustLayer?, background: NSImage? = nil, name: String, subtitle: String, visible: Bool, toggleable: Bool, selected: Bool) {
         self.visible = visible
         super.init(frame: .zero)
@@ -148,7 +148,7 @@ final class LayerRowContent: NSStackView {
         setEye()
         addArrangedSubview(eye)
 
-        // 내용 썸네일 (또는 아이콘)
+        // Content thumbnail (or icon)
         let box = ThumbBox(size: NSSize(width: w, height: h), selected: selected)
         if let background {
             box.image = background
@@ -220,7 +220,7 @@ final class LayerRowContent: NSStackView {
         return "slider.horizontal.3"
     }
 
-    /// 레이어 종류 한 줄 (종류 · 불투명도 · 칠)
+    /// Layer kind line (kind · opacity · fill)
     static func subtitle(_ l: AdjustLayer) -> String {
         var s: String
         if l.isGroup { s = "그룹" }
@@ -239,13 +239,13 @@ final class LayerRowContent: NSStackView {
 }
 
 extension LayerThumbs {
-    /// 배경(RAW 현상) 썸네일: 배경 복사 레이어에도 쓴다
+    /// Background (RAW develop) thumbnail: also used for background copy layers
     static var backgroundThumb: NSImage?
-    /// 배경 썸네일을 만드는 곳 (창이 넣는다)
+    /// Provider of the background thumbnail (set by the window)
     static var backgroundProvider: (() -> NSImage?)?
 }
 
-/// 썸네일 칸: 둥근 모서리, 고른 줄이면 흰 테두리
+/// Thumbnail well: rounded corners, white border on the selected row
 final class ThumbBox: NSView {
     var image: NSImage? { didSet { needsDisplay = true } }
     var symbol: String? { didSet { needsDisplay = true } }
@@ -270,7 +270,7 @@ final class ThumbBox: NSView {
         if let image {
             NSGraphicsContext.saveGraphicsState()
             path.addClip()
-            // 캔버스 비율을 지키며 칸에 맞춘다
+            // Fit into the well preserving the canvas aspect
             let s = image.size
             let k = min(bounds.width / max(s.width, 1), bounds.height / max(s.height, 1))
             let d = NSRect(x: (bounds.width - s.width * k) / 2, y: (bounds.height - s.height * k) / 2, width: s.width * k, height: s.height * k)

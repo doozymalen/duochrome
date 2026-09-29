@@ -2,28 +2,28 @@ import AppKit
 import CoreImage
 import MetalKit
 
-/// 사진을 그리는 Metal 캔버스.
+/// Metal canvas that draws the photo.
 ///
-/// 화면에 보이는 영역만 계산한다. Core Image는 출력 사각형에서 거꾸로 필요한 입력
-/// 영역(ROI)만 요청하므로, 확대했을 때 4,500만 화소 전체를 현상하지 않는다.
-/// 축소했을 때는 RAW를 1/2~1/8 해상도로 풀어 쓴다(미리보기 단계).
+/// Only the visible area is computed. Core Image requests just the input region (ROI) needed for the output rect,
+/// so zooming in doesn't develop all 45 megapixels.
+/// Zoomed out, the RAW is decoded at 1/2–1/8 resolution (draft stage).
 final class CanvasView: MTKView {
     var document: RawDocument? {
         didSet { fitting = true; applyFit(); needsDisplay = true }
     }
     var showOriginal = false { didSet { needsDisplay = true } }
-    /// 전후 나란히: 왼쪽 절반은 보정 전, 오른쪽은 보정 후 (가운데 흰 선).
+    /// Side-by-side before/after: left half before, right half after (white line in the middle).
     var splitCompare = false { didSet { needsDisplay = true } }
-    /// 마스크 보기 방식: false 빨간 겹침, true 흑백 (흰색이 효과).
+    /// Mask display: false red overlay, true grayscale (white is the effect).
     var maskGray = false { didSet { maskStyle = maskGray ? 1 : (maskStyle == 1 ? 0 : maskStyle) } }
-    /// 마스크 보기: 0 빨간 막(선택 영역), 1 흑백, 2 검정 위, 3 흰색 위, 4 빨간 막(선택 밖, 퀵 마스크)
+    /// Mask display: 0 red overlay (selection), 1 grayscale, 2 on black, 3 on white, 4 red overlay (outside, quick mask)
     var maskStyle = 0 { didSet { needsDisplay = true } }
     var showClipping = false { didSet { needsDisplay = true } }
-    /// 교정쇄 보기 (sRGB로 내보냈을 때의 모습), 색역 경고 (sRGB 밖 화소를 회색으로)
+    /// Soft proof (look when exported to sRGB), gamut warning (pixels outside sRGB shown gray)
     var softProof = false { didSet { needsDisplay = true } }
     var gamutWarning = false { didSet { needsDisplay = true } }
     enum Tool: CaseIterable { case pan, zoom, crop, straighten, keystone, whiteBalance, retouch, mask, colorPick, transform, points, path }
-    /// 커서 도구. 이동은 끌어서 옮기기, 확대는 눌러서 2배 (옵션을 누르면 축소).
+    /// Cursor tool. Hand drags to pan, zoom clicks 2× (Option zooms out).
     var tool: Tool = .pan {
         didSet {
             window?.invalidateCursorRects(for: self)
@@ -36,33 +36,33 @@ final class CanvasView: MTKView {
             pathOverlay.isHidden = tool != .path
         }
     }
-    /// 스포이트 같은 "한 번 누르기" 도구. 이미지 좌표를 넘긴다.
+    /// "Single click" tools like the eyedropper. Passes image coordinates.
     var onPick: ((Tool, CGPoint) -> Void)?
-    /// 크롭·수평 도구가 그리는 층.
+    /// Layer drawn by the crop/straighten tools.
     let overlay = CropOverlayView()
-    /// 리터칭 점을 그리고 찍는 층.
+    /// Layer that draws and places retouch spots.
     let retouchOverlay = RetouchOverlayView()
-    /// 레이어 마스크를 그리는 층.
+    /// Layer for painting layer masks.
     let maskOverlay = MaskOverlayView()
-    /// 구도 격자 (3분할·격자). 누르기는 통과시킨다.
+    /// Composition grid (thirds, grid). Clicks pass through.
     let gridOverlay = GridOverlayView()
-    /// 자유 변형 틀 (⌘T)
+    /// Free transform frame (⌘T)
     let transformOverlay = TransformOverlayView()
-    /// 점 끌기 층 (자유 변형 모서리·뒤틀기 격자·퍼펫 핀·원근 자르기·소실점 평면·유동화 붓)
+    /// Point-drag layer (free transform corners, warp grid, puppet pins, perspective crop, vanishing point planes, liquify brush)
     let pointsOverlay = PointsOverlayView()
-    /// 펜·모양·글자 도구 층 (Vector.swift)
+    /// Pen/shape/text tool layer (Vector.swift)
     let pathOverlay = PathOverlayView()
-    /// 안내선·측정·계수 층과 눈금자 (Workspace.swift)
+    /// Guides, measure, count layer and rulers (Workspace.swift)
     let guidesOverlay = GuidesOverlayView()
     let rulerTop = RulerView(edge: .top), rulerLeft = RulerView(edge: .left)
     var showRulers = UserDefaults.standard.bool(forKey: "view.rulers") { didSet { layoutRulers() } }
-    /// 마우스가 사진 위에서 움직일 때 (사진 좌표) — 초점 확인 창
+    /// Mouse moving over the photo (photo coordinates) — focus loupe
     var onHover: ((CGPoint) -> Void)?
 
     func layoutRulers() {
         let t = RulerView.thickness
         rulerTop.isHidden = !showRulers; rulerLeft.isHidden = !showRulers
-        // 캔버스는 유리 패널 밑까지 깔려 있으므로 눈금자는 패널 사이 작업 영역 가장자리에 (창 가장자리면 패널에 가렸다)
+        // The canvas extends under the glass panels, so rulers go on the work-area edge between panels (on the window edge the panels hid them)
         let i = fitInsets
         let top = bounds.height - i.top
         rulerTop.frame = NSRect(x: i.left, y: top - t, width: max(bounds.width - i.left - i.right, 0), height: t)
@@ -74,13 +74,13 @@ final class CanvasView: MTKView {
         super.layout()
         layoutRulers()
     }
-    /// 빨간색으로 겹쳐 보일 레이어 마스크 (nil이면 안 보임).
+    /// Layer mask shown as a red overlay (nil hides it).
     var maskLayerID: String? { didSet { needsDisplay = true } }
-    /// 컬러 에디터 "선택한 색 범위 보기": 범위 밖을 회색으로
+    /// Color editor "view selected color range": outside the range in gray
     var rangePreview: ColorRange? { didSet { if rangePreview != oldValue { needsDisplay = true } } }
-    /// 배율이 바뀔 때. percent는 원본 1픽셀 대비 화면 픽셀 비율(%).
+    /// When zoom changes. percent is screen pixels per source pixel (%).
     var onZoomChange: (((fitting: Bool, percent: CGFloat)) -> Void)?
-    /// Finder에서 파일을 놓았을 때 (그림 → 이미지 레이어, RAW·폴더 → 열기). 참이면 받았다.
+    /// Files dropped from Finder (images → image layers, RAW/folders → open). True if accepted.
     var onDropFiles: (([URL]) -> Bool)? { didSet { registerForDraggedTypes([.fileURL]) } }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -92,26 +92,26 @@ final class CanvasView: MTKView {
     }
     private var lastDrag: CGPoint?
 
-    /// 커서 아래 색 (Display P3, 0~255). 사진 밖이면 nil.
+    /// Color under the cursor (Display P3, 0–255). nil outside the photo.
     var onSample: (([Int]?) -> Void)?
 
-    /// 원본 1픽셀이 화면 몇 포인트인지.
+    /// Screen points per source pixel.
     private(set) var zoom: CGFloat = 1
-    /// 캔버스 가운데에 오는 이미지 좌표(원본 픽셀, 아래가 0).
+    /// Image point at the canvas center (source pixels, bottom is 0).
     private var center = CGPoint.zero
-    /// 창 크기가 바뀌어도 계속 화면에 맞출지.
+    /// Whether to keep fitting to the view when the window resizes.
     private var fitting = true
 
     private let queue = Render.queue
     private let ciContext = Render.context
-    /// 화면(모니터) 색 공간: 창이 있는 화면의 프로파일을 따른다
+    /// Display color space: follows the profile of the screen the window is on
     private var displaySpace = Render.displaySpace
-    /// 채널 보기 (0 합성, 1~ 채널)
+    /// Channel view (0 composite, 1… channels)
     var channelView = 0 { didSet { if channelView != oldValue { needsDisplay = true } } }
-    /// HDR로 보기: EDR 화면이면 1.0 넘는 밝기를 그대로
+    /// View as HDR: on EDR displays, keep brightness above 1.0
     var hdrView = UserDefaults.standard.bool(forKey: "view.hdr") { didSet { updateDisplaySpace() } }
 
-    /// 화면 프로파일·HDR에 맞춰 그리기 색 공간과 픽셀 형식을 바꾼다
+    /// Switches the drawing color space and pixel format to match the display profile / HDR
     func updateDisplaySpace() {
         let screen = window?.screen ?? NSScreen.main
         let base = screen?.colorSpace?.cgColorSpace ?? Render.displaySpace
@@ -142,9 +142,9 @@ final class CanvasView: MTKView {
     }
     private let background = CIImage(color: CIColor(red: 0.11, green: 0.11, blue: 0.12))
 
-    /// 개발용: 첫 화면을 PNG로 저장한다 (DUOCHROME_SNAPSHOT=경로).
+    /// Dev only: saves the first frame as PNG (DUOCHROME_SNAPSHOT=path).
     private var snapshotPath = ProcessInfo.processInfo.environment["DUOCHROME_SNAPSHOT"]
-    /// 개발용: 그릴 때마다 걸린 시간을 기록한다 (DUOCHROME_BENCH=1).
+    /// Dev only: logs the time of each draw (DUOCHROME_BENCH=1).
     private let bench = ProcessInfo.processInfo.environment["DUOCHROME_BENCH"] != nil
 
     init() {
@@ -190,7 +190,7 @@ final class CanvasView: MTKView {
     override var acceptsFirstResponder: Bool { true }
     override var isOpaque: Bool { true }
 
-    // MARK: - 확대와 이동
+    // MARK: - Zoom and pan
 
     private var backing: CGFloat { window?.backingScaleFactor ?? 2 }
 
@@ -201,18 +201,18 @@ final class CanvasView: MTKView {
     }
 
     func zoomToActual() {
-        // 원본 1픽셀 = 화면 1픽셀.
+        // 1 source pixel = 1 screen pixel.
         setZoom(1 / backing, around: nil)
     }
 
     func zoomBy(_ factor: CGFloat) { setZoom(zoom * factor, around: nil) }
 
-    /// 배율(%)로 확대한다. 100%는 원본 1픽셀 = 화면 1픽셀 (심화 보정 모드의 확대 슬라이더).
+    /// Zooms to a percentage. 100% is 1 source pixel = 1 screen pixel (the layer-edit mode zoom slider).
     func setZoomPercent(_ percent: CGFloat) { setZoom(percent / 100 / backing, around: nil) }
     var zoomPercent: CGFloat { zoom * backing * 100 }
 
-    /// 맞춤 보기에서 비워 둘 가장자리. 캔버스는 떠 있는 유리 막대 밑까지 깔리고(리퀴드 글래스),
-    /// 맞춤 보기의 사진은 막대 아래에서 시작한다.
+    /// Margins left empty in fit view. The canvas extends under the floating glass bars (Liquid Glass),
+    /// and the fitted photo starts below the bar.
     var fitInsets = NSEdgeInsets() {
         didSet {
             if fitting { applyFit(); needsDisplay = true }
@@ -224,23 +224,23 @@ final class CanvasView: MTKView {
     private func applyFit() {
         guard let doc = document, bounds.width > 0, bounds.height > 0 else { return }
         let margin: CGFloat = 24
-        // 창 막대 밑까지 깔린 캔버스면 그 높이(safe area)도 뺀다
+        // If the canvas extends under the toolbar, subtract its height (safe area) too
         let top = fitInsets.top + safeAreaInsets.top
         let area = NSRect(x: bounds.minX + fitInsets.left, y: bounds.minY + fitInsets.bottom,
                           width: bounds.width - fitInsets.left - fitInsets.right,
                           height: bounds.height - top - fitInsets.bottom)
         let w = max(area.width - margin * 2, 1), h = max(area.height - margin * 2, 1)
         zoom = min(w / doc.pixelSize.width, h / doc.pixelSize.height)
-        // 사진 가운데가 맞춤 영역 가운데에 오게 (영역이 뷰 가운데에서 벗어난 만큼 옮긴다)
+        // Center the photo in the fit area (shift by how far the area is off the view center)
         center = CGPoint(x: doc.pixelSize.width / 2 - (area.midX - bounds.midX) / zoom,
                          y: doc.pixelSize.height / 2 - (area.midY - bounds.midY) / zoom)
         reportZoom()
     }
 
-    /// `anchor`(뷰 좌표) 아래의 이미지 점이 제자리에 남도록 확대한다.
+    /// Zooms so the image point under `anchor` (view coordinates) stays put.
     private func setZoom(_ newZoom: CGFloat, around anchor: CGPoint?) {
         guard document != nil else { return }
-        // 아직 한 번도 맞추지 않았으면 가운데 점이 (0,0)이다. 먼저 맞춘 뒤 확대한다.
+        // If never fitted yet, the center point is (0,0). Fit first, then zoom.
         if fitting { applyFit() }
         let z = min(max(newZoom, 0.01), 32 / backing)
         let a = anchor ?? CGPoint(x: bounds.midX, y: bounds.midY)
@@ -266,7 +266,7 @@ final class CanvasView: MTKView {
         rulerTop.needsDisplay = true; rulerLeft.needsDisplay = true
     }
 
-    /// 이미지 좌표(원본 픽셀) → 뷰 좌표.
+    /// Image coordinates (source pixels) → view coordinates.
     func viewPoint(forImage p: CGPoint) -> CGPoint {
         CGPoint(x: bounds.midX + (p.x - center.x) * zoom, y: bounds.midY + (p.y - center.y) * zoom)
     }
@@ -301,7 +301,7 @@ final class CanvasView: MTKView {
         needsDisplay = true
     }
 
-    /// 두 번 누르면 화면 맞춤과 실제 픽셀을 오간다.
+    /// Double-click toggles between fit and actual pixels.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
@@ -316,7 +316,7 @@ final class CanvasView: MTKView {
     }
     override func mouseExited(with event: NSEvent) { onSample?(nil) }
 
-    /// 지금 화면에 쓰는 미리보기 단계 이미지에서 한 픽셀을 읽는다.
+    /// Reads one pixel from the draft-stage image currently on screen.
     private func sample(at p: CGPoint) {
         guard let doc = document, let onSample else { return }
         let ip = imagePoint(at: p)
@@ -331,7 +331,7 @@ final class CanvasView: MTKView {
         onSample([Int(px[0]), Int(px[1]), Int(px[2])])
     }
 
-    /// 패널·윗막대에 가리지 않은 가운데 (편집 포인터는 여기서만)
+    /// The center not covered by panels/top bar (edit cursors only here)
     var uncoveredRect: NSRect {
         let top = fitInsets.top + safeAreaInsets.top
         return NSRect(x: bounds.minX + fitInsets.left, y: bounds.minY + fitInsets.bottom,
@@ -397,19 +397,19 @@ final class CanvasView: MTKView {
         needsDisplay = true
     }
 
-    // MARK: - 그리기
+    // MARK: - Drawing
 
-    /// 화면 픽셀 배율에 맞는 가장 작은 미리보기 단계. 그 아래로 내려가면 흐려진다.
+    /// Smallest draft stage matching the screen pixel scale. Going lower gets blurry.
     private nonisolated func previewLevel(for pixelZoom: CGFloat) -> CGFloat {
         var level: CGFloat = 1
         while level > 1.0 / 8 && level / 2 >= pixelZoom { level /= 2 }
         return level
     }
 
-    /// 사진을 막 바꿨을 때 첫 장면에 먼저 보일 작은 그림(썸네일). RAW를 푸는 동안(약 1초) 이전 사진이 남아 있지 않게.
-    /// 한 장면만 이걸로 그리고 곧바로 진짜 그림으로 다시 그린다
+    /// Small image (thumbnail) shown in the first frame right after switching photos, so the previous photo doesn't linger while the RAW decodes (~1 s).
+    /// Only one frame is drawn with it, then immediately redrawn with the real image
     var placeholder: CGImage? { didSet { if placeholder != nil { needsDisplay = true } } }
-    /// 썸네일로 먼저 그린 장면 수 (시험용)
+    /// Number of frames drawn from the thumbnail first (for tests)
     private(set) var placeholderFrames = 0
 
     private func frameImage(size: CGSize) -> CIImage {
@@ -430,7 +430,7 @@ final class CanvasView: MTKView {
             DispatchQueue.main.async { [weak self] in self?.needsDisplay = true }
         }
         if splitCompare && !showOriginal {
-            // 보정 전을 왼쪽 절반에 겹친다 (화면 가운데 기준, 이미지 좌표로 환산).
+            // Overlay the before image on the left half (screen center, converted to image coordinates).
             let before = doc.originalImage(scale: level)
             let midX = (center.x + (bounds.midX - bounds.midX) / zoom) * level
             let left = CGRect(x: img.extent.minX, y: img.extent.minY, width: max(midX - img.extent.minX, 0), height: img.extent.height)
@@ -445,12 +445,12 @@ final class CanvasView: MTKView {
         if let id = maskLayerID, let m = doc.maskPreview(id, scale: level), maskStyle == 1 {
             img = m.applyingFilter("CIColorMatrix", parameters: [:]).cropped(to: img.extent)
         } else if let id = maskLayerID, let m = doc.maskPreview(id, scale: level), maskStyle == 2 || maskStyle == 3 {
-            // 선택 및 마스크: 선택 밖을 검정·흰색으로
+            // Select and Mask: outside the selection shown black/white
             let bg = CIImage(color: maskStyle == 2 ? .black : .white).cropped(to: img.extent)
             img = img.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: bg, kCIInputMaskImageKey: m]).cropped(to: img.extent)
         } else if let id = maskLayerID, let m0 = doc.maskPreview(id, scale: level) {
             let m = maskStyle == 4 ? m0.applyingFilter("CIColorInvert") : m0
-            // 마스크를 빨간색 반투명으로 겹친다.
+            // Overlay the mask in translucent red.
             let red = CIImage(color: CIColor(red: 1, green: 0.1, blue: 0.1)).cropped(to: img.extent)
             let half = m.applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": CIVector(x: 0.55, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: 0.55, z: 0, w: 0),
@@ -502,7 +502,7 @@ final class CanvasView: MTKView {
     }
 }
 
-/// 구도 격자: 3분할, 격자(8칸), 황금 분할. 사진 틀 안에만 그린다.
+/// Composition grids: thirds, grid (8 cells), golden ratio. Drawn only inside the photo frame.
 final class GridOverlayView: NSView {
     enum Mode: Int, CaseIterable { case none, thirds, grid, golden }
     weak var canvas: CanvasView?

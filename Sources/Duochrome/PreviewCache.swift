@@ -1,14 +1,14 @@
 import CoreImage
 import Foundation
 
-/// 미리보기 캐시 (카탈로그 안 Previews 폴더).
+/// Preview cache (Previews folder inside the catalog).
 ///
-/// 저장하는 것: RAW를 푼 결과(조정 전, 기본 모습·손 렌즈 보정 전), 긴 변 `AppSettings.previewSize`.
-/// 열쇠: 사진 경로 해시 + 파일 크기·수정 시각 + RAW 단계 값(색온도·노출·노이즈·RAW 샤프닝·렌즈 프로필 등) + 크기·품질·처리 버전.
-/// 화면 맞춤처럼 작은 배율은 캐시로 그리고, 캐시보다 큰 해상도(100%·내보내기)가 필요할 때만 원본을 푼다.
+/// Stores: the decoded RAW (before adjustments, before base look and manual lens correction), long side `AppSettings.previewSize`.
+/// Key: photo path hash + file size and mtime + RAW-stage values (temperature, exposure, noise, RAW sharpening, lens profile, etc.) + size, quality, pipeline version.
+/// Small zooms like fit view draw from the cache; the source is decoded only when a larger resolution is needed (100%, export).
 final class PreviewCache {
     static let shared = PreviewCache()
-    /// RAW 처리 방식이 바뀌면 올린다 (예전 캐시를 버리게)
+    /// Bump when RAW processing changes (discards old caches)
     static let version = 1
 
     private let queue = DispatchQueue(label: "duochrome.previews", qos: .utility, attributes: .concurrent)
@@ -16,7 +16,7 @@ final class PreviewCache {
     private let lock = NSLock()
     private var pending = Set<String>()
     private var memory: [String: CIImage] = [:]
-    /// 사진마다 가장 최근에 요청한 열쇠
+    /// Most recently requested key per photo
     private var latest: [String: String] = [:]
 
     var folder: URL? {
@@ -26,7 +26,7 @@ final class PreviewCache {
         return f
     }
 
-    /// 캐시 파일 이름
+    /// Cache file name
     func key(url: URL, settings s: DevelopSettings) -> String {
         let attrs = (try? FileManager.default.attributesOfItem(atPath: url.path)) ?? [:]
         let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
@@ -43,9 +43,9 @@ final class PreviewCache {
         folder?.appendingPathComponent(key + (AppSettings.previewQuality == 0 ? ".tif" : ".heic"))
     }
 
-    // MARK: 썸네일 바탕 (긴 변 약 360, 반정밀도 TIFF 약 1MB)
-    // RAW를 한 번 풀어 썸네일을 만들 때 해독 결과를 함께 남긴다. 다음에 보정을 바꿔 썸네일을 다시 만들 때는
-    // 이것에 노출·색온도 차이만 얹어 RAW 해독(장당 0.6~0.9초, 한 번에 하나씩)을 건너뛴다
+    // MARK: Thumbnail base (long side ~360, half-float TIFF ~1 MB)
+    // When a RAW is decoded once to build a thumbnail, keep the decoded result. When adjustments change and the thumbnail is rebuilt,
+    // only exposure/temperature deltas are applied on top, skipping the RAW decode (0.6–0.9 s per photo, one at a time)
 
     private func thumbFile(url: URL, settings: DevelopSettings) -> URL? {
         folder?.appendingPathComponent(key(url: url, settings: settings) + "-t.tif")
@@ -71,14 +71,14 @@ final class PreviewCache {
         }
     }
 
-    /// 이 설정의 미리보기가 이미 있는지 (파일만 확인, 읽지 않는다)
+    /// Whether a preview for these settings exists (checks the file only, doesn't read it)
     func hasPreview(url: URL, settings: DevelopSettings) -> Bool {
         let k = key(url: url, settings: settings)
         lock.lock(); let inMemory = memory[k] != nil; lock.unlock()
         return inMemory || (file(k).map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
     }
 
-    /// 캐시가 있으면 그 그림 (영역 원점 0, 선형 Rec.2020)
+    /// Cached image if present (extent origin 0, linear Rec.2020)
     func image(url: URL, settings: DevelopSettings) -> CIImage? {
         let k = key(url: url, settings: settings)
         lock.lock()
@@ -86,7 +86,7 @@ final class PreviewCache {
         lock.unlock()
         guard let f = file(k), FileManager.default.fileExists(atPath: f.path),
               let img = CIImage(contentsOf: f) else { return nil }
-        // 최근에 쓴 것을 남기려고 수정 시각을 지금으로 (용량이 넘치면 오래된 것부터 지운다)
+        // Touch mtime to now to keep recently used ones (when over capacity, oldest are deleted first)
         try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: f.path)
         let e = img.extent
         let normalized = img.transformed(by: .init(translationX: -e.minX, y: -e.minY))
@@ -97,12 +97,12 @@ final class PreviewCache {
         return normalized
     }
 
-    /// 뒤에서 캐시를 만든다 (이미 있거나 만드는 중이면 건너뛴다)
+    /// Builds the cache in the background (skipped if it exists or is in progress)
     func ensure(url: URL, settings: DevelopSettings, done: (() -> Void)? = nil) {
         let k = key(url: url, settings: settings)
         guard let f = file(k) else { return }
         lock.lock()
-        // 같은 사진은 가장 최근 요청만 만든다 (되돌리기·노출을 여러 번 바꾸면 지난 값의 미리보기가 줄줄이 쌓여 GPU를 붙잡았다)
+        // Only the latest request per photo is built (repeated undo/exposure changes queued stale previews and hogged the GPU)
         latest[url.path] = k
         if pending.contains(k) || FileManager.default.fileExists(atPath: f.path) { lock.unlock(); return }
         pending.insert(k)
@@ -129,7 +129,7 @@ final class PreviewCache {
         }
     }
 
-    /// RAW를 미리보기 크기로 푼다 (문서의 RAW 단계와 같은 값)
+    /// Decodes the RAW at preview size (same values as the document's RAW stage)
     static func decode(url: URL, settings s: DevelopSettings) -> CIImage? {
         guard let raw = CIRAWFilter(imageURL: url), let full = raw.outputImage else { return nil }
         let long = max(full.extent.width, full.extent.height)
@@ -166,7 +166,7 @@ final class PreviewCache {
         }
     }
 
-    /// 용량 한도를 넘으면 오래 안 쓴 것부터 지운다 (다시 만들 수 있다)
+    /// Over the capacity limit, deletes least recently used first (they can be rebuilt)
     func trim() {
         guard let folder else { return }
         let fm = FileManager.default

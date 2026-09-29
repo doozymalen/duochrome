@@ -1,18 +1,18 @@
 import AppKit
 
-/// 심화 보정 모드 화면.
-/// 왼쪽 떠 있는 레이어 패널, 위 떠 있는 도구 막대, 오른쪽 도구 옵션 패널, 가운데 캔버스.
-/// 캔버스와 조정·리터칭·형태·레이어 세부 패널은 대량 보정 모드의 것을 옮겨 붙인다 (같은 사진, 같은 되돌리기).
+/// Layer-edit mode view.
+/// Floating layers panel on the left, floating tool strip on top, tool options panel on the right, canvas in the center.
+/// The canvas and the adjust/retouch/geometry/layer detail panels are moved over from batch-edit mode (same photo, same undo).
 final class StudioModeController: NSViewController {
     weak var host: MainWindowController?
     let layersPanel = StudioLayersPanel()
     let strip = StudioToolStrip()
     let options = StudioOptionsPanel()
-    /// 여러 사진 탭 (캔버스 아래에 떠 있다, StudioExtras.swift)
+    /// Multiple photo tabs (floating below the canvas, StudioExtras.swift)
     let tabs = StudioTabsBar()
-    /// 왼쪽 레이어 패널 폭. 모드를 옮길 때 대량 보정·테더링의 왼쪽 패널 폭을 이어받는다 (Modes.swift).
+    /// Left layers panel width. Inherits the left panel width of batch edit/tethering when switching modes (Modes.swift).
     lazy var layersWidth = layersPanel.widthAnchor.constraint(equalToConstant: GlassLayoutController.sharedLeft)
-    /// 오른쪽 도구 옵션 패널 폭 (대량 보정·테더링의 오른쪽 패널과 같다)
+    /// Right tool options panel width (same as the right panel in batch edit/tethering)
     lazy var optionsWidth = options.widthAnchor.constraint(equalToConstant: GlassLayoutController.sharedRight)
     private let canvasHost = NSView()
     private(set) var currentTool = UserDefaults.standard.string(forKey: "studioTool") ?? "hand"
@@ -60,9 +60,9 @@ final class StudioModeController: NSViewController {
             tabs.centerXAnchor.constraint(equalTo: work.centerXAnchor),
             tabs.leadingAnchor.constraint(greaterThanOrEqualTo: work.leadingAnchor, constant: gap),
             tabs.trailingAnchor.constraint(lessThanOrEqualTo: work.trailingAnchor, constant: -gap),
-            // 리퀴드 글래스: 캔버스는 창 전체에 깔리고, 패널·도구 막대가 그 위에 유리로 뜬다.
-            // 맞춤 보기의 사진은 패널 사이(work)에 놓인다 (updateCanvasInsets).
-            canvasHost.topAnchor.constraint(equalTo: root.topAnchor),   // 창 막대 밑까지
+            // Liquid Glass: the canvas spans the window, and panels and the tool strip float over it as glass.
+            // The fitted photo sits between the panels (work) (updateCanvasInsets).
+            canvasHost.topAnchor.constraint(equalTo: root.topAnchor),   // under the toolbar
             canvasHost.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             canvasHost.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             canvasHost.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -87,7 +87,7 @@ final class StudioModeController: NSViewController {
         options.onReset = { [weak self] in self?.resetCurrentTool() }
     }
 
-    /// 패널 사이 작업 영역 (도구 막대 가운데, 맞춤 보기 사진 자리)
+    /// Work area between panels (center of the tool strip, where the fitted photo goes)
     private let work = NSLayoutGuide()
 
     private func applyPanels() {
@@ -99,7 +99,7 @@ final class StudioModeController: NSViewController {
         updateCanvasInsets()
     }
 
-    /// 캔버스가 패널 밑까지 깔려 있으므로, 맞춤 보기는 패널·도구 막대를 뺀 자리에 맞춘다.
+    /// The canvas extends under the panels, so fit view fits into the area excluding panels and the tool strip.
     func updateCanvasInsets() {
         guard let canvas = canvasHost.subviews.first(where: { $0 is CanvasView }) as? CanvasView else { return }
         let gap: CGFloat = 8
@@ -107,7 +107,7 @@ final class StudioModeController: NSViewController {
                                         bottom: tabs.isHidden ? 0 : 44, right: showsOptions ? gap + optionsWidth.constant : 0)
     }
 
-    // MARK: - 캔버스 옮겨 붙이기
+    // MARK: - Moving the canvas over
 
     func attachCanvas(_ canvas: NSView) {
         _ = view
@@ -123,7 +123,7 @@ final class StudioModeController: NSViewController {
         updateCanvasInsets()
     }
 
-    // MARK: - 도구
+    // MARK: - Tools
 
     func selectTool(_ id: String) {
         guard let tool = StudioTool.named(id), let host else { return }
@@ -135,7 +135,7 @@ final class StudioModeController: NSViewController {
         options.show(tool: tool, content: host.studioOptionsView(for: tool))
     }
 
-    /// 레이어 선택에 따라 내용이 달라지는 도구: 선택이 바뀌면 옵션 패널을 다시 채운다
+    /// Tools whose content depends on the layer selection: refill the options panel when the selection changes
     static let selectionTools: Set<String> = ["selSubject", "fill", "gradient", "lighten", "darken", "saturate", "desaturate",
                                                "sharpen", "soften", "maskPaint", "arrange"]
     func refreshOptionsForSelection() {
@@ -143,14 +143,14 @@ final class StudioModeController: NSViewController {
         options.show(tool: tool, content: host.studioOptionsView(for: tool))
     }
 
-    /// 패널 안에서 도구가 바뀌었을 때 표시만 맞춘다 (옵션 패널은 그대로).
+    /// When the tool changes inside a panel, only sync the indicator (options panel unchanged).
     func noteTool(_ id: String) {
         currentTool = id
         UserDefaults.standard.set(id, forKey: "studioTool")
         strip.reload(selected: id)
     }
 
-    /// 모드에 들어올 때 마지막 도구를 다시 건다 (옮겨 붙인 패널도 다시 가져온다).
+    /// Re-applies the last tool when entering the mode (and re-fetches moved panels).
     func restoreTool() { selectTool(StudioTool.named(currentTool) != nil ? currentTool : "hand") }
 
     private func resetCurrentTool() {
@@ -176,12 +176,12 @@ final class StudioModeController: NSViewController {
 }
 
 extension NSButton.BezelStyle {
-    /// 앱 전체 누름 단추 모양. macOS 26의 기본 누름 단추가 이미 유리 알약이다.
-    /// (.glass는 유리 패널 위에서 테두리가 거의 안 보여 글자처럼 보였다)
+    /// App-wide push button style. macOS 26's default push button is already a glass pill.
+    /// (.glass barely showed a border over glass panels and looked like plain text)
     static var appPush: NSButton.BezelStyle { .rounded }
 }
 
-/// 보통 화살표 포인터를 쓰는 투명한 바탕 (누르기는 통과)
+/// Transparent background with a plain arrow cursor (clicks pass through)
 final class ArrowCursorView: NSView {
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -195,11 +195,11 @@ enum StudioStyle {
     static let selection = NSColor.white.withAlphaComponent(0.1)
     static let accent = NSColor.controlAccentColor
 
-    /// 떠 있는 패널 모양. macOS 26부터는 리퀴드 글래스(NSGlassEffectView)를 뒤에 깐다.
-    /// interactive: 누를 수 있는 단추를 담은 막대(도구 막대·모드별 막대·창 막대 알약)는 누를 때 유리가 반응한다 (macOS 27).
+    /// Floating panel look. From macOS 26, Liquid Glass (NSGlassEffectView) sits behind.
+    /// interactive: bars holding clickable buttons (tool strip, per-mode bars, toolbar pills) have glass that reacts to presses (macOS 27).
     static func floating(_ v: NSView, radius: CGFloat = 16, interactive: Bool = false) {
         v.wantsLayer = true
-        // 떠 있는 패널 위는 보통 화살표 (아래 사진 화면의 편집 포인터가 비치지 않게)
+        // Plain arrow over floating panels (so the photo view's edit cursor doesn't show through)
         let arrow = ArrowCursorView(frame: v.bounds)
         arrow.autoresizingMask = [.width, .height]
         v.addSubview(arrow, positioned: .below, relativeTo: nil)
@@ -207,12 +207,12 @@ enum StudioStyle {
             let glass = NSGlassEffectView()
             glass.cornerRadius = radius
             glass.style = .regular
-            // 맑은 유리 (물들이지 않는다). 누를 때 막대 전체가 출렁이는 반응은 끈다
-            // — 도구를 고를 때 막대가 부풀어 보기 싫었다.
+            // Clear glass (untinted). The whole-bar wobble on press is turned off
+            // — the bar swelling when picking a tool looked bad.
             _ = interactive
             glass.frame = v.bounds
             glass.autoresizingMask = [.width, .height]
-            // 내용(형제 뷰)보다 뒤에: 유리는 배경일 뿐이다
+            // Behind the content (sibling views): the glass is only a background
             v.addSubview(glass, positioned: .below, relativeTo: nil)
             v.layer?.backgroundColor = NSColor.clear.cgColor
             v.layer?.cornerRadius = radius
@@ -248,13 +248,13 @@ enum StudioStyle {
     }
 }
 
-// MARK: - 도구 막대
+// MARK: - Tool strip
 
-/// 위에 떠 있는 도구 막대. 분류마다 무리를 짓고, 고른 도구는 둥근 바탕으로 표시한다.
+/// Tool strip floating on top. Grouped by category; the selected tool gets a round background.
 final class StudioToolStrip: NSView {
     var onPick: ((String) -> Void)?
     var onCustomize: (() -> Void)?
-    /// 사용자화 창의 미리보기처럼 누를 수 없게.
+    /// Not clickable, like the preview in the customization window.
     var interactive = true
     private let stack = NSStackView()
     private(set) var buttons: [String: NSButton] = [:]
@@ -325,9 +325,9 @@ final class ToolStripButton: BarToolButton {
     required init?(coder: NSCoder) { fatalError() }
 }
 
-// MARK: - 도구 옵션 패널
+// MARK: - Tool options panel
 
-/// 오른쪽에 떠 있는 도구 옵션. 제목은 도구 이름, 내용은 도구마다 다르다. 아래에 비교·초기화.
+/// Tool options floating on the right. Title is the tool name, content differs per tool. Compare/reset at the bottom.
 final class StudioOptionsPanel: NSView {
     var onCompare: (() -> Void)?
     var onSplit: (() -> Void)?
@@ -381,14 +381,14 @@ final class StudioOptionsPanel: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 도구 옵션을 보여 준다. `content`가 nil이면 준비 중 안내와 예정 옵션을 흐리게 보여 준다.
+    /// Shows tool options. With `content` nil, shows a work-in-progress note and planned options dimmed.
     func show(tool: StudioTool, content view: NSView?) {
         toolID = tool.id
         title.stringValue = tool.title
         resetButton.isEnabled = ["adjust", "whiteBalance"].contains(tool.id)
         content.subviews.forEach { $0.removeFromSuperview() }
         var v = view ?? Self.placeholder(tool)
-        // 스크롤이 없는 내용(효과 고르기 등)은 스크롤 안에 넣는다: 내용이 패널보다 길면 창이 늘어났다
+        // Content without its own scroll (effect picker etc.) goes inside a scroll view: longer content stretched the window
         if !(v is NSScrollView), !(v is SelfScrollingOptions), !v.subviews.contains(where: { $0 is NSScrollView }) { v = Self.scrolled(v) }
         v.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(v)
@@ -422,7 +422,7 @@ final class StudioOptionsPanel: NSView {
         return sc
     }
 
-    /// 아직 없는 도구: 옵션 자리를 보여 주되 누를 수 없게.
+    /// Tool not built yet: show where options go, but not clickable.
     static func placeholder(_ tool: StudioTool) -> NSView {
         let stack = FlippedStackView()
         stack.orientation = .vertical
@@ -449,30 +449,30 @@ final class StudioOptionsPanel: NSView {
     @objc private func resetTapped() { onReset?() }
 }
 
-// MARK: - 레이어 패널
+// MARK: - Layers panel
 
-/// 왼쪽에 떠 있는 레이어 패널: 제목과 단추, 혼합·불투명도, 목록, 검색.
+/// Floating layers panel on the left: title and buttons, blend/opacity, list, search.
 final class StudioLayersPanel: NSView, NSSearchFieldDelegate {
     var current: (() -> DevelopSettings?)?
     var onChange: ((DevelopSettings) -> Void)?
     var selectedID: (() -> String?)?
     var onSelect: ((String?) -> Void)?
-    /// 배경(RAW 현상) 줄의 썸네일과 크기.
+    /// Thumbnail and size of the background (RAW develop) row.
     var background: (() -> (image: NSImage?, name: String, size: CGSize)?)?
     var addMenu: (() -> NSMenu)?
     var moreMenu: (() -> NSMenu)?
     var onToggleMask: (() -> Void)?
-    /// 레이어 우클릭 메뉴 (nil = 배경)
+    /// Layer context menu (nil = background)
     var rowMenu: ((String?) -> NSMenu)?
 
     private let blend = NSPopUpButton()
     private let opacity = NSSlider(value: 1, minValue: 0, maxValue: 1, target: nil, action: nil)
     private let opacityValue = StudioStyle.label("100%", color: .secondaryLabelColor)
-    /// 레이어 목록 (끌어서 순서·그룹 바꾸기, Finder 그림 놓기 — DragDrop.swift)
+    /// Layer list (drag to reorder/regroup, drop Finder images — DragDrop.swift)
     let dropList = LayerDropList()
     private var list: FlippedStackView { dropList }
     private let search = ClickFocusSearchField()
-    /// 종류별 거르기 (전체·조정·이미지·글자·모양·칠·그룹)
+    /// Filter by kind (all, adjustment, image, text, shape, fill, group)
     let kindFilter = NSPopUpButton()
     static let kinds: [(String, (AdjustLayer) -> Bool)] = [
         ("전체", { _ in true }), ("조정", { $0.kind == "adjust" || $0.kind == "copy" }), ("이미지", { $0.isImage || $0.kind == "paint" }),
@@ -505,7 +505,7 @@ final class StudioLayersPanel: NSView, NSSearchFieldDelegate {
         opacity.isContinuous = true
         opacityValue.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         opacityValue.alignment = .right
-        // 두 줄: [혼합 모드 ········] / [불투명도  슬라이더  100%] (좁은 패널에서도 겹치지 않게)
+        // Two rows: [blend mode ········] / [opacity  slider  100%] (so they don't overlap in narrow panels)
         let opRow = NSStackView(views: [StudioStyle.label("불투명도"), opacity, opacityValue])
         opRow.spacing = 8
         opacityValue.widthAnchor.constraint(equalToConstant: 38).isActive = true
@@ -605,7 +605,7 @@ final class StudioLayersPanel: NSView, NSSearchFieldDelegate {
             list.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
         }
-        // 혼합·불투명도는 고른 레이어의 것. 배경을 고르면 끈다.
+        // Blend and opacity belong to the selected layer. Disabled when the background is selected.
         let layer = selected
         blend.isEnabled = layer != nil
         opacity.isEnabled = layer != nil
@@ -647,7 +647,7 @@ final class StudioLayersPanel: NSView, NSSearchFieldDelegate {
     @objc private func kindChanged() { reload() }
 }
 
-/// 누를 때만 초점을 받는 검색칸 (창이 처음 뜰 때 초점을 가져가지 않게).
+/// Search field that takes focus only on click (so it doesn't grab focus when the window first appears).
 final class ClickFocusSearchField: NSSearchField {
     override var acceptsFirstResponder: Bool {
         let t = NSApp.currentEvent?.type
@@ -655,7 +655,7 @@ final class ClickFocusSearchField: NSSearchField {
     }
 }
 
-/// 레이어 목록 한 줄: 눈, 내용 썸네일, 마스크 썸네일, 이름·종류.
+/// One layer list row: eye, content thumbnail, mask thumbnail, name/kind.
 final class StudioLayerRow: DraggableLayerRow {
     var contextMenu: (() -> NSMenu?)?
     override func menu(for event: NSEvent) -> NSMenu? { onClick?(); return contextMenu?() }
@@ -700,9 +700,9 @@ final class StudioLayerRow: DraggableLayerRow {
     }
 }
 
-// MARK: - 도구 사용자화
+// MARK: - Tool customization
 
-/// "도구 사용자화" 창. 분류별 도구를 보여 주고, 누르면 위 도구 막대에 넣거나 뺀다.
+/// "Customize Tools" window. Shows tools by category; clicking adds to or removes from the tool strip above.
 final class ToolCustomizeSheet: NSWindowController {
     var onDone: (([String]) -> Void)?
     private var working = StudioTool.strip
@@ -809,7 +809,7 @@ final class ToolCustomizeSheet: NSWindowController {
     func toggle(_ id: String) {
         if let i = working.firstIndex(of: id) {
             working.remove(at: i)
-            // 빈칸만 남은 곳은 정리한다.
+            // Clean up places left with only separators.
             var cleaned: [String] = []
             for x in working where !(x == StudioTool.separator && (cleaned.last == StudioTool.separator || cleaned.isEmpty)) { cleaned.append(x) }
             if cleaned.last == StudioTool.separator { cleaned.removeLast() }
@@ -820,7 +820,7 @@ final class ToolCustomizeSheet: NSWindowController {
         refresh()
     }
 
-    /// id를 도구 막대의 at번째 자리에 넣는다 (이미 있으면 그 자리로 옮긴다)
+    /// Inserts id at position `at` in the tool strip (moves it there if already present)
     func insert(_ id: String, at: Int) {
         var at = min(max(at, 0), working.count)
         if let old = working.firstIndex(of: id) {
@@ -841,7 +841,7 @@ final class ToolCustomizeSheet: NSWindowController {
     }
 }
 
-/// 사용자화 창의 도구 한 칸 (아이콘 + 이름). 도구 막대에 들어 있으면 둥근 테두리.
+/// One tool cell in the customization window (icon + name). Rounded border if it's in the tool strip.
 final class ToolTile: NSView {
     var onClick: (() -> Void)?
     var inStrip = false { didSet { layer?.borderWidth = inStrip ? 1.5 : 0 } }
@@ -885,7 +885,7 @@ final class ToolTile: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    // 누르면 넣기·빼기, 끌면 도구 막대의 원하는 자리에 넣기 (DragDrop.swift의 .duochromeTool)
+    // Click to add/remove, drag to place at a chosen spot in the strip (.duochromeTool in DragDrop.swift)
     var toolID = ""
     private var downAt: NSPoint?
     private var dragged = false
@@ -906,7 +906,7 @@ final class ToolTile: NSView {
 }
 
 
-/// 도구 사용자화 창에서 끄는 도구의 원천 (앱 안에서만 옮긴다)
+/// Drag source for tools in the customization window (moves only within the app)
 final class ToolDragSource: NSObject, NSDraggingSource {
     static let shared = ToolDragSource()
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
@@ -914,8 +914,8 @@ final class ToolDragSource: NSObject, NSDraggingSource {
     }
 }
 
-/// 사용자화 창 위쪽 도구 막대 미리보기에 덮는 끌기 판: 도구를 놓을 자리를 세로선으로 보이고 넣는다.
-/// 막대 안 도구를 끌면 순서를 바꾸고, 막대 밖에 놓으면 뺀다 (macOS 도구 막대 사용자화와 같다).
+/// Drag board over the tool strip preview at the top of the customization window: shows the drop position as a vertical line and inserts.
+/// Dragging a tool within the strip reorders it; dropping outside removes it (same as macOS toolbar customization).
 final class StripDragOverlay: NSView, NSDraggingSource {
     weak var strip: StudioToolStrip?
     var list: (() -> [String])?
@@ -939,7 +939,7 @@ final class StripDragOverlay: NSView, NSDraggingSource {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 막대의 도구 단추들 (working 순서, 빈칸 제외) → 이 판 좌표의 가로 가운데
+    /// Tool buttons in the strip (working order, separators excluded) → horizontal centers in this board's coordinates
     private func slots() -> [(id: String, index: Int, midX: CGFloat)] {
         guard let strip, let ids = list?() else { return [] }
         return ids.enumerated().compactMap { i, id in
@@ -978,7 +978,7 @@ final class StripDragOverlay: NSView, NSDraggingSource {
         return true
     }
 
-    // 막대 안 도구 끌기 (순서 바꾸기·빼기)
+    // dragging tools within the strip (reorder, remove)
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         downAt = event.locationInWindow
@@ -1001,7 +1001,7 @@ final class StripDragOverlay: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         context == .withinApplication ? .move : []
     }
-    /// 아무 데도 안 받으면(막대 밖에 놓음) 뺀다
+    /// If nothing accepts it (dropped outside the strip), remove it
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         if operation == [], let id = downID { onRemove?(id) }
         downID = nil

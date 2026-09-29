@@ -1,6 +1,6 @@
-# Duochrome 원격 엔진: 코랩 가상 머신의 커널 안에서만 돈다.
-# 웹 화면·원격 접속 없이, Duochrome이 공식 코랩 명령줄 도구로 파일을 올리고 이 함수들을 부른 뒤 결과를 받아 간다.
-# 엔진(ComfyUI)은 가상 머신 안 127.0.0.1에서만 듣는다 (바깥에 열지 않음).
+# Duochrome remote engine: runs only inside the Colab VM kernel.
+# No web UI or remote shell: Duochrome uploads files with the official Colab CLI, calls these functions, and fetches results.
+# The engine (ComfyUI) listens only on 127.0.0.1 inside the VM (never exposed).
 import os, sys, json, time, shutil, subprocess, urllib.request, urllib.error
 
 ST_ROOT = "/content/ComfyUI"
@@ -57,8 +57,8 @@ def duochrome_setup():
         dst = f"{m}/upscale_models/{url.rsplit('/', 1)[1]}"
         if not os.path.exists(dst):
             urllib.request.urlretrieve(url, dst)
-    # 반사 제거 (DSIT): Duochrome 전용 부품이 /content/xreflection, /content/reflection 을 쓴다.
-    # 배포 서버가 파이썬 이름의 요청을 거절해(403) curl로 받는다. 실패해도 다른 기능은 쓸 수 있게 넘어간다
+    # Reflection removal (DSIT): Duochrome's custom node uses /content/xreflection and /content/reflection.
+    # The host rejects Python user agents (403), so download with curl. On failure, continue so other features still work
     try:
         if not os.path.isdir("/content/xreflection"):
             subprocess.run(["git", "clone", "--depth", "1", "-q", "https://github.com/hainuo-wang/XReflection", "/content/xreflection"], check=False)
@@ -69,7 +69,7 @@ def duochrome_setup():
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "timm"], check=False)
     except Exception as e:
         _say(f"@@경고 반사 제거 모델을 받지 못함: {e}")
-    # Duochrome 전용 부품 (맥에서 올린 것). 바뀌었으면 엔진을 다시 켠다
+    # Duochrome custom nodes (uploaded from the Mac). Restart the engine if they changed
     changed = False
     if os.path.exists("/content/duochrome_nodes.py"):
         dst = f"{ST_ROOT}/custom_nodes/duochrome_nodes/__init__.py"
@@ -142,8 +142,8 @@ def duochrome_job(name, jpeg=False):
 _say("DUOCHROME_LOADED")
 
 
-# 오래 걸리는 일은 커널 안 뒤 스레드에서 돌리고, Duochrome은 짧은 명령으로 상태만 묻는다
-# (코랩 연결로 명령 하나를 30분씩 붙잡으면 응답을 잃고 멈출 때가 있었다)
+# Long jobs run on a background thread in the kernel; Duochrome only polls status with short commands
+# (holding one command for 30 minutes over the Colab connection sometimes lost the reply and hung)
 import threading as _th
 _st_tasks = {}
 

@@ -1,16 +1,16 @@
 import AppKit
 
-/// 카탈로그 하나에 보정값·작업 내역·레이어 그림·미리보기를 모은다.
+/// Gathers adjustments, history, layer images, and previews into one catalog.
 ///
 ///     Duochrome.duochromecatalog/
-///       catalog.sqlite   사진 목록·앨범·별점 + 보정값(adjustments)·작업 내역(history)
-///       Assets/          레이어 그림·AI 선택 마스크·LUT
-///       Previews/        미리보기
+///       catalog.sqlite   photo list, albums, ratings + adjustments and history
+///       Assets/          layer images, AI selection masks, LUTs
+///       Previews/        previews
 enum CatalogMigration {
     struct Report { var adjustments = 0, assets = 0, skipped = 0 }
 
-    /// 예전 방식(Application Support의 JSON 파일·레이어 그림 폴더)을 카탈로그 안으로 옮긴다. 한 번만 한다.
-    /// 옛 폴더는 지우지 않고 "(옮김 완료 날짜)"를 붙여 남긴다.
+    /// Moves the old layout (JSON files and layer image folder in Application Support) into the catalog. Done once.
+    /// The old folder is kept, not deleted, with "(moved on date)" appended.
     @discardableResult
     static func run(_ catalog: Catalog) -> Report? {
         guard catalog.meta("migrated.v1") == nil else { return nil }
@@ -28,7 +28,7 @@ enum CatalogMigration {
                 r.adjustments += 1
             }
         }
-        // 레이어 그림 (시험 실행은 사용자 폴더를 건드리지 않는다)
+        // Layer images (test runs don't touch the user's folders)
         if !testRun, let files = try? fm.contentsOfDirectory(atPath: LayerImageStore.legacyFolder.path) {
             for f in files {
                 let dst = LayerImageStore.url(f)
@@ -49,7 +49,7 @@ enum CatalogMigration {
     }
 }
 
-// MARK: - 작업 내역 저장 (다시 열어도 되돌리기가 이어지게)
+// MARK: - Saving history (undo continues after reopening)
 
 extension AdjustHistory {
     struct Stored: Codable {
@@ -65,10 +65,10 @@ extension AdjustHistory {
         return (try? JSONEncoder().encode(s)).map { String(decoding: $0, as: UTF8.self) }
     }
 
-    /// 저장된 내역을 되살린다. 마지막 상태가 지금 설정과 다르면 쓰지 않는다 (다른 곳에서 바뀐 경우).
+    /// Restores saved history. Unused if its last state differs from the current settings (changed elsewhere).
     mutating func restore(_ json: String, current: DevelopSettings) -> Bool {
         guard let s = try? JSONDecoder().decode(Stored.self, from: Data(json.utf8)) else { return false }
-        // 스냅샷은 내역이 어긋나도 살린다
+        // Snapshots are restored even if the history doesn't match
         if let l = s.snapLabels, let st = s.snapSettings { snapshots = zip(l, st).map { ($0, $1) } }
         guard !s.settings.isEmpty, s.settings.indices.contains(s.index), s.settings[s.index] == current else { return false }
         states = zip(s.labels, s.settings).map { ($0, $1) }
@@ -77,10 +77,10 @@ extension AdjustHistory {
     }
 }
 
-// MARK: - 백업
+// MARK: - Backup
 
 enum CatalogBackup {
-    /// 카탈로그를 백업 폴더에 "이름 날짜 시각.duochromecatalog"로 복사한다. DB는 쓰는 중에도 안전한 SQLite 백업으로.
+    /// Copies the catalog to the backup folder as "name date time.duochromecatalog". The DB uses SQLite's online backup, safe while in use.
     static func run(_ catalog: Catalog, to folder: URL, previews: Bool, keep: Int) throws -> URL {
         let fm = FileManager.default
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -98,7 +98,7 @@ enum CatalogBackup {
             let src = catalog.url.appendingPathComponent(sub)
             if fm.fileExists(atPath: src.path) { try fm.copyItem(at: src, to: dest.appendingPathComponent(sub)) }
         }
-        // 보관 개수를 넘으면 오래된 것부터 휴지통으로 (바로 지우지 않는다)
+        // Beyond the retention count, move the oldest to the Trash (not deleted outright)
         if keep > 0 {
             let olds = ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? [])
                 .filter { $0.hasPrefix(name + " ") && $0.hasSuffix(".duochromecatalog") }.sorted()
@@ -108,7 +108,7 @@ enum CatalogBackup {
         return dest
     }
 
-    /// 주기(매일·매주·매달)가 됐는지
+    /// Whether the interval (daily/weekly/monthly) is due
     static var due: Bool {
         let days: Double
         switch AppSettings.backupInterval {
@@ -133,7 +133,7 @@ extension MainWindowController {
         }
     }
 
-    /// 앱을 끌 때 (설정의 백업 주기에 따라)
+    /// On quit (per the backup interval setting)
     func backupOnQuit() {
         let env = ProcessInfo.processInfo.environment
         guard env["DUOCHROME_SNAPSHOT"] == nil, env["DUOCHROME_SELFTEST"] == nil else { return }
@@ -150,7 +150,7 @@ extension MainWindowController {
         }
     }
 
-    /// 다른 카탈로그 열기 / 새 카탈로그: 경로를 저장하고 앱을 다시 연다
+    /// Open another catalog / new catalog: save the path and relaunch the app
     func switchCatalog(to url: URL) {
         AppSettings.catalogPath = url.path
         var recent = AppSettings.recentCatalogs.filter { $0 != url.path }
@@ -172,26 +172,26 @@ extension MainWindowController {
 }
 
 extension MainWindowController {
-    /// 지금 사진과 앞뒤 두 장의 미리보기를 뒤에서 만든다 (넘길 때 바로 뜨게)
+    /// Builds previews for the current photo and two neighbors in the background (so stepping is instant)
     func prefetchPreviews(around item: PhotoItem, current doc: RawDocument) {
         PreviewCache.shared.ensure(url: doc.url, settings: doc.settings)
         guard let i = library.items.firstIndex(where: { $0 === item }) else { return }
-        // 넘기는 방향의 다음 한 장 먼저, 그다음 반대쪽 한 장 (넷씩 준비하면 빨리 넘길 때 GPU를 붙잡았다)
+        // The next one in the stepping direction first, then one the other way (preparing four at a time hogged the GPU when stepping fast)
         let dir = i >= Self.lastPrefetchIndex ? 1 : -1
         Self.lastPrefetchIndex = i
         let near = [i + dir, i - dir].filter { library.items.indices.contains($0) }.map { library.items[$0] }
         prefetch(near.filter { !$0.offline })
     }
 
-    /// 사진들의 미리보기를 저장된 조정(없으면 카메라 기록값) 기준으로 만든다.
-    /// 한 줄로 차례로 하고, 그사이 다른 사진으로 넘어갔으면 지난 요청은 건너뛴다 (빨리 넘기면 작업이 쌓여 CPU·메모리를 잡았다).
-    /// 문서를 다 만들지 않고 RAW 필터 하나로 기록값만 읽는다.
+    /// Builds previews for photos from their saved adjustments (or as-shot values).
+    /// One at a time in order; requests for photos already stepped past are skipped (fast stepping piled up work and held CPU/memory).
+    /// Reads only the as-shot values with a single RAW filter instead of building a whole document.
     func prefetch(_ items: [PhotoItem]) {
         let lib = library
         Self.prefetchGeneration += 1
         let gen = Self.prefetchGeneration
         let jobs = items.filter { $0.url.pathExtension.lowercased() != "psd" && $0.url.pathExtension.lowercased() != "psb" }.map(\.url)
-        // 사진을 빨리 넘기는 중이면 준비하지 않는다 (0.6초 머문 뒤에만, 그새 다른 사진이면 건너뛴다)
+        // Don't prepare while stepping fast (only after 0.6 s dwell; skip if the photo changed meanwhile)
         Self.prefetchQueue.asyncAfter(deadline: .now() + 0.6) {
             for url in jobs {
                 BackgroundGate.waitQuiet()

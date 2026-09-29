@@ -2,16 +2,16 @@ import AppKit
 import CoreImage
 import simd
 
-/// 선택: 픽셀을 보고 고르는 선택(자동 선택·빠른 선택·초점 영역·자석 올가미)의 계산과,
-/// 선택 합치기·반전·확장·축소·페더·테두리·저장·불러오기·퀵 마스크·선택 및 마스크 작업 공간.
+/// Selection: computations for pixel-based selections (magic wand, quick selection, focus area, magnetic lasso), and
+/// selection combine, invert, expand, contract, feather, border, save, load, quick mask, and the Select and Mask workspace.
 ///
-/// 픽셀 계산은 형태 보정을 뺀 원본 좌표의 그림(긴 변 1600px 안팎)에서 한다. 결과 마스크는
-/// 원본 좌표 전체를 덮는 흑백 그림(마스크 종류 image)이라 사진의 형태 보정을 그대로 따라간다.
+/// Pixel computations run on a source-coordinate image without geometry (around 1600 px long side). The resulting mask
+/// is a grayscale image covering the whole source (mask type image), so it follows the photo's geometry corrections.
 final class SelectionEngine {
     let w: Int, h: Int
-    /// 원본 픽셀 → 버퍼 픽셀 배율
+    /// Source pixels → buffer pixels scale
     let k: CGFloat
-    /// 화면 값 RGB (0~1), 위 행부터
+    /// Display RGB (0–1), from the top row
     private(set) var rgb: [Float]
     private var edges: [Float]?
 
@@ -36,7 +36,7 @@ final class SelectionEngine {
         for i in 0..<(w * h) { rgb[i * 3] = buf[i * 4]; rgb[i * 3 + 1] = buf[i * 4 + 1]; rgb[i * 3 + 2] = buf[i * 4 + 2] }
     }
 
-    /// 원본 좌표 → 버퍼 칸 (위 행이 0)
+    /// Source coordinates → buffer cell (top row is 0)
     func cell(_ p: CGPoint) -> (Int, Int)? {
         let x = Int(p.x * k), y = h - 1 - Int(p.y * k)
         guard x >= 0, x < w, y >= 0, y < h else { return nil }
@@ -46,7 +46,7 @@ final class SelectionEngine {
 
     private func color(_ i: Int) -> SIMD3<Float> { SIMD3(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]) }
 
-    /// 자동 선택 (마술봉): 누른 색과 허용치(0~255, 채널 최대 차) 안의 픽셀. 인접만이면 이어진 곳만
+    /// Magic wand: pixels within the tolerance (0–255, max channel difference) of the clicked color. Contiguous only if set
     func wand(at p: CGPoint, tolerance: Float, contiguous: Bool) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: w * h)
         guard let (sx, sy) = cell(p) else { return out }
@@ -71,7 +71,7 @@ final class SelectionEngine {
         return out
     }
 
-    /// 빠른 선택: 붓 자리의 평균 색에서 가까운 색으로 이어진 곳을 붓 반경의 몇 배까지 키운다 (기존 선택에 더한다)
+    /// Quick selection: grows areas connected by colors close to the brush-area mean, up to a few brush radii (adds to the selection)
     func quickGrow(_ points: [CGPoint], radius: CGFloat, into base: inout [UInt8], subtract: Bool) {
         let r = max(Int(radius * k), 1), reach = r * 4
         var seeds: [Int] = []
@@ -87,7 +87,7 @@ final class SelectionEngine {
         }
         guard n > 0 else { return }
         let mean = sum / n
-        // 붓 안 색들의 퍼짐을 보고 허용치를 정한다 (결이 많으면 넓게)
+        // Set tolerance from the color spread within the brush (wider with more texture)
         var spread: Float = 0
         for i in seeds.prefix(4000) { let d = color(i) - mean; spread += (d * d).sum() }
         let tol = max(sqrt(spread / min(n, 4000)) * 2.5, 0.06)
@@ -110,7 +110,7 @@ final class SelectionEngine {
         }
     }
 
-    /// 초점 영역: 밝기 라플라시안의 크기를 넓게 흐린 뒤 한계값(0~1)을 넘는 곳
+    /// Focus area: magnitude of the luminance Laplacian, broadly blurred, above the threshold (0–1)
     func focusArea(threshold: Float) -> [UInt8] {
         var lum = [Float](repeating: 0, count: w * h)
         for i in 0..<(w * h) { let c = color(i); lum[i] = 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
@@ -145,7 +145,7 @@ final class SelectionEngine {
         return out
     }
 
-    /// 가장자리 세기 (소벨)
+    /// Edge strength (Sobel)
     private func edgeMap() -> [Float] {
         if let e = edges { return e }
         var lum = [Float](repeating: 0, count: w * h)
@@ -161,7 +161,7 @@ final class SelectionEngine {
         return e
     }
 
-    /// 자석 올가미: 원본 좌표 점을 반경 안에서 가장 센 가장자리로 옮긴다
+    /// Magnetic lasso: moves a source-coordinate point to the strongest edge within the radius
     func snap(_ p: CGPoint, radius: CGFloat) -> CGPoint {
         guard let (cx, cy) = cell(p) else { return p }
         let e = edgeMap(), r = max(Int(radius * k), 2)
@@ -169,14 +169,14 @@ final class SelectionEngine {
         for dy in -r...r { for dx in -r...r where dx * dx + dy * dy <= r * r {
             let x = cx + dx, y = cy + dy
             guard x >= 0, x < w, y >= 0, y < h else { continue }
-            // 가운데에서 멀수록 조금 깎는다 (마우스를 따라가게)
+            // Slight penalty with distance from center (so it follows the mouse)
             let v = e[y * w + x] * (1 - 0.3 * Float(dx * dx + dy * dy) / Float(r * r))
             if v > bv { bv = v; best = y * w + x }
         } }
         return bv > 0.05 ? native(best % w, best / w) : p
     }
 
-    /// 흑백 마스크를 레이어 그림 폴더에 PNG로 저장 (원본 좌표 전체를 덮는다)
+    /// Saves a grayscale mask as PNG into the layer image folder (covering the whole source)
     func save(_ mask: [UInt8]) -> String? {
         var data = mask
         guard let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
@@ -187,7 +187,7 @@ final class SelectionEngine {
         return try? LayerImageStore.importData(png, ext: "png")
     }
 
-    /// 저장된 마스크 그림을 버퍼로 (빠른 선택 이어 칠하기)
+    /// Saved mask image → buffer (continuing quick selection)
     func load(_ file: String) -> [UInt8]? {
         guard let img = NSImage(contentsOf: LayerImageStore.url(file)),
               let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
@@ -199,16 +199,16 @@ final class SelectionEngine {
     }
 }
 
-/// 저장한 선택 (알파 채널)
+/// Saved selections (alpha channels)
 struct SavedSelection: Equatable, Codable {
     var name: String
     var mask: LayerMask
 }
 
 extension MainWindowController {
-    // MARK: - 선택 대상과 합치기
+    // MARK: - Selection target and combining
 
-    /// 수정 키로 합치기 방식: ⇧ 더하기, ⌥ 빼기, ⇧⌥ 교차. 없으면 옵션에서 고른 방식.
+    /// Combine mode from modifiers: ⇧ add, ⌥ subtract, ⇧⌥ intersect. Otherwise the mode chosen in options.
     func selectionOp(_ flags: NSEvent.ModifierFlags) -> MaskCombo.Op? {
         let sh = flags.contains(.shift), op = flags.contains(.option)
         if sh && op { return .intersect }
@@ -217,7 +217,7 @@ extension MainWindowController {
         return MaskCombo.Op(rawValue: UserDefaults.standard.string(forKey: "selection.mode") ?? "")
     }
 
-    /// 선택을 받을 레이어: 고른 조정 레이어, 없으면 새 "선택" 레이어
+    /// Layer receiving the selection: the selected adjustment layer, else a new "선택" layer
     func selectionTarget() -> Int? {
         guard var s = photo?.settings else { return nil }
         if let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }), !s.layers[i].isGroup { return i }
@@ -229,7 +229,7 @@ extension MainWindowController {
         return photo?.settings.layers.firstIndex { $0.id == l.id }
     }
 
-    /// 새 모양을 선택에 넣는다. 합치기가 없거나 비어 있던 선택이면 바꾸고, 있으면 더하기·빼기·교차
+    /// Puts a new shape into the selection. Replaces if no combine or the selection was empty; otherwise add/subtract/intersect
     func commitSelection(_ newMask: LayerMask, flags: NSEvent.ModifierFlags, label: String) {
         guard let i = selectionTarget(), var s = photo?.settings else { return }
         guard !s.layers[i].locked else { NSSound.beep(); return }
@@ -240,7 +240,7 @@ extension MainWindowController {
             m.combos = (m.combos ?? []) + [MaskCombo(op: op, mask: newMask)]
         } else {
             var n = newMask
-            // 다듬기 값(페더·확장 등)은 그대로 둔다
+            // Refinement values (feather, expand, etc.) are kept
             n.feather = m.feather; n.grow = m.grow; n.border = m.border; n.smooth = m.smooth
             n.contrast = m.contrast; n.shiftEdge = m.shiftEdge; n.refine = m.refine
             n.lumaMin = m.lumaMin; n.lumaMax = m.lumaMax; n.lumaSoft = m.lumaSoft
@@ -250,7 +250,7 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: label)
     }
 
-    // MARK: - 픽셀로 고르는 선택
+    // MARK: - Pixel-based selections
 
     var selectionEngine: SelectionEngine? {
         guard let doc = photo else { return nil }
@@ -309,7 +309,7 @@ extension MainWindowController {
         commitSelection(m, flags: flags, label: column ? "열 선택" : "행 선택")
     }
 
-    // MARK: - 선택 메뉴
+    // MARK: - Select menu
 
     func editSelected(_ label: String, _ f: (inout LayerMask) -> Void) {
         guard var s = photo?.settings, let id = layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }) else { NSSound.beep(); return }
@@ -355,7 +355,7 @@ extension MainWindowController {
         editSelected("선택 매끄럽게") { $0.smooth = max(v, 0) }
     }
 
-    // MARK: - 선택 저장·불러오기 (알파 채널)
+    // MARK: - Save / load selection (alpha channels)
 
     @objc func saveSelection(_ sender: Any?) {
         guard var s = photo?.settings, let id = layersTab.selectedID, let l = s.layers.first(where: { $0.id == id }) else { NSSound.beep(); return }
@@ -364,11 +364,11 @@ extension MainWindowController {
         replaceSettings(s, recordUndo: true, label: "선택 저장")
     }
 
-    /// 저장한 선택을 고른 레이어에 불러온다 (op: nil 바꾸기, 아니면 합치기)
+    /// Loads a saved selection onto the selected layer (op: nil replaces, otherwise combines)
     func loadSelection(_ i: Int, op: MaskCombo.Op?) {
         guard let ch = photo?.settings.channels, ch.indices.contains(i) else { return }
         var m = ch[i].mask
-        m.combos = nil   // 합칠 모양은 합치기를 안 갖는다 → 합치기가 있으면 바꾸기로
+        m.combos = nil   // Combined shapes can't have combines → if it has combines, replace
         if (ch[i].mask.combos ?? []).isEmpty, let op {
             let f: NSEvent.ModifierFlags = op == .add ? .shift : (op == .subtract ? .option : [.shift, .option])
             commitSelection(m, flags: f, label: "선택 불러오기")
@@ -403,9 +403,9 @@ extension MainWindowController {
         return m
     }
 
-    // MARK: - 퀵 마스크, 선택 및 마스크
+    // MARK: - Quick mask, Select and Mask
 
-    /// 퀵 마스크 (Q): 고른 레이어의 마스크를 빨간 막으로 보이고 붓으로 고친다 (선택 밖이 빨갛다)
+    /// Quick mask (Q): shows the selected layer's mask as a red overlay and edits it with a brush (outside the selection is red)
     @objc func toggleQuickMask(_ sender: Any?) {
         guard let id = layersTab.selectedID else { NSSound.beep(); return }
         if canvas.maskLayerID == id, canvas.maskStyle == 4 {
@@ -427,7 +427,7 @@ extension MainWindowController {
 }
 
 extension DevelopSettings {
-    /// 픽셀 선택 계산을 다시 해야 하는지 가르는 값 (형태 보정은 빼고 본다)
+    /// Values deciding whether pixel selection must be recomputed (geometry excluded)
     var hashValueForSelection: Int {
         var flat = self
         flat.adoptGeometry(from: DevelopSettings())
@@ -435,7 +435,7 @@ extension DevelopSettings {
     }
 }
 
-/// 선택 및 마스크 작업 공간: 보기 방식 + 가장자리 다듬기 값
+/// Select and Mask workspace: view mode + refine edge values
 final class SelectAndMaskPanel: NSWindowController {
     private weak var host: MainWindowController?
     private let view = NSPopUpButton()
@@ -505,7 +505,7 @@ final class SelectAndMaskPanel: NSWindowController {
     }
 }
 
-/// 심화 보정 선택 도구 옵션: 합치기 방식, 도구별 값, 선택 다듬기 단추
+/// Layer-edit selection tool options: combine mode, per-tool values, refine selection buttons
 final class SelectionOptionsView: NSStackView {
     private weak var host: MainWindowController?
     private let modePopup = NSPopUpButton()
@@ -629,11 +629,11 @@ final class SelectionOptionsView: NSStackView {
     }
 }
 
-/// 알파 채널 메뉴를 열 때 채운다 (첫 항목은 풀다운 제목)
+/// Fills the alpha channel menu when it opens (the first item is the pull-down title)
 final class ChannelsMenuDelegate: NSObject, NSMenuDelegate {
     static let shared = ChannelsMenuDelegate()
     func menuNeedsUpdate(_ menu: NSMenu) {
-        // 풀다운 단추의 제목 항목(동작·하위 메뉴 없음)만 남긴다. 메뉴 막대의 하위 메뉴에는 없다
+        // Keep only the pull-down button's title item (no action or submenu). It's absent from the menu bar submenu
         let title = menu.items.first.flatMap { $0.action == nil && $0.submenu == nil ? $0 : nil }
         menu.removeAllItems()
         if let title { menu.addItem(title) }

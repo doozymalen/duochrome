@@ -1,13 +1,13 @@
 import AppKit
 
-/// main.swift 최상위 코드는 메인 액터가 아니어서 AppKit 객체를 만들면
-/// 격리 검사에 걸린다. @main 진입점을 메인 액터로 두면 깔끔하다.
+/// Top-level code in main.swift isn't on the main actor, so creating AppKit objects
+/// trips isolation checks. An @main entry point on the main actor is cleaner.
 @main
 struct DuochromeApp {
     @MainActor
     static func main() {
-        // .app 묶음으로만 켠다. 실행 파일만 따로 켜면 알리고 끝낸다.
-        // 개발 시험은 DUOCHROME_DEV=1로 풀어 준다
+        // Launch only as an .app bundle. Running the bare executable shows a notice and quits.
+        // Dev testing unlocks it with DUOCHROME_DEV=1
         if Bundle.main.bundleURL.pathExtension != "app", ProcessInfo.processInfo.environment["DUOCHROME_DEV"] == nil {
             FileHandle.standardError.write(Data("Duochrome은 Duochrome.app(응용 프로그램 폴더)으로 켜 주세요.\n".utf8))
             let a = NSAlert()
@@ -18,8 +18,8 @@ struct DuochromeApp {
         }
         if ProcessInfo.processInfo.environment["DUOCHROME_SELFTEST"] != nil { SelfTest.run() }
         if let pkg = ProcessInfo.processInfo.environment["DUOCHROME_CATALOG_TEST"] { SelfTest.catalogImport(pkg) }
-        // 강조 색을 초록으로: 앱 설정 영역에 시스템 강조 색 값(3 = 초록)을 둔다.
-        // 기본 조작 요소(체크 상자·팝업·슬라이더·글자 선택)가 모두 이 값을 따른다.
+        // Green accent color: set the system accent value (3 = green) in the app's defaults domain.
+        // Standard controls (checkboxes, popups, sliders, text selection) all follow it.
         UserDefaults.standard.register(defaults: ["AppleAccentColor": 3, "AppleHighlightColor": "0.752941 0.964706 0.678431 Green"])
         let app = NSApplication.shared
         if ProcessInfo.processInfo.environment["DUOCHROME_ACCENT_CHECK"] != nil {
@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
         NSApp.mainMenu = MainMenu.build()
-        // 개발용: 실제 포인터 모양을 로그로 (위치 · 핫스폿 · 종류)
+        // Dev only: log the actual cursor (position · hotspot · kind)
         if ProcessInfo.processInfo.environment["DUOCHROME_CURSORLOG"] != nil {
             var last = ""
             Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         windowController?.showWindow(nil)
         if ProcessInfo.processInfo.environment["DUOCHROME_FIELDTEST"] == nil { ColabEngine.shared.cleanupStale() }
-        // 개발용: 실제 마우스 누름이 어느 뷰에 닿는지 기록 (DUOCHROME_HITLOG=1)
+        // Dev only: log which view real mouse-downs hit (DUOCHROME_HITLOG=1)
         if ProcessInfo.processInfo.environment["DUOCHROME_HITLOG"] != nil {
             NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .scrollWheel, .magnify]) { e in
                 NSLog("HITLOG 사건 %d %@", e.type.rawValue, NSStringFromPoint(e.locationInWindow))
@@ -88,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return e
             }
         }
-        // 매일·매주·매달 백업: 때가 됐으면 뒤에서
+        // Daily/weekly/monthly backup: in the background when due
         if AppSettings.backupInterval >= 3, CatalogBackup.due, ProcessInfo.processInfo.environment["DUOCHROME_SNAPSHOT"] == nil,
            let wc = windowController {
             DispatchQueue.global(qos: .utility).async {
@@ -100,10 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("after show frame %@ visible %d", NSStringFromRect(w.frame), w.isVisible ? 1 : 0)
         }
         NSApp.activate(ignoringOtherApps: true)
-        // 개발용: 화면이 잠겨 screencapture가 안 될 때를 위해 창 내용을 앱이 직접 PNG로 (DUOCHROME_WINDOW_PNG=경로)
+        // Dev only: when the screen is locked and screencapture fails, the app writes its window as PNG (DUOCHROME_WINDOW_PNG=path)
         if let out = ProcessInfo.processInfo.environment["DUOCHROME_WINDOW_PNG"], let w = windowController?.window {
             let delay = Double(ProcessInfo.processInfo.environment["DUOCHROME_WINDOW_PNG_DELAY"] ?? "") ?? 3
-            // 개발용: 속성 패널을 이 카드까지 굴린다 (DUOCHROME_REVEAL=editor 등)
+            // Dev only: scroll the inspector to this card (DUOCHROME_REVEAL=editor etc.)
             if let card = ProcessInfo.processInfo.environment["DUOCHROME_REVEAL"] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + max(delay - 1, 0.5)) { [weak self] in
                     self?.windowController?.inspector.reveal(card)
@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSLog("window png %@", out)
             }
         }
-        // 개발용: 실행하자마자 사진을 연다.
+        // Dev only: open a photo right after launch.
         if let path = ProcessInfo.processInfo.environment["DUOCHROME_FOLDER"] {
             windowController?.openFolder(URL(fileURLWithPath: path))
         }
@@ -126,9 +126,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Finder에서 "다음으로 열기"로 넘어온 파일.
+    /// Files passed in via Finder "Open With".
     func application(_ sender: NSApplication, open urls: [URL]) {
-        // duochrome:// 주소는 단축어·다른 앱에서 온 명령
+        // duochrome:// URLs are commands from Shortcuts or other apps
         for url in urls where url.scheme == "duochrome" { windowController?.handleURL(url) }
         if let url = urls.first(where: { $0.isFileURL }) { windowController?.openFileOrFolder(url) }
     }

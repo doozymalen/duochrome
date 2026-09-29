@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-/// macOS에 들어 있는 SQLite를 얇게 감싼 것. 카탈로그와 외부 카탈로그 읽기에 쓴다.
+/// Thin wrapper over the SQLite bundled with macOS. Used for the catalog and reading external catalogs.
 final class SQLiteDB {
     struct Failure: LocalizedError {
         let message: String
@@ -82,7 +82,7 @@ final class SQLiteDB {
         return v
     }
 
-    /// 쓰는 중에도 안전한 온라인 백업 (SQLite 백업 API)
+    /// Online backup that's safe while in use (SQLite backup API)
     func backup(to path: String) throws {
         var dest: OpaquePointer?
         guard sqlite3_open(path, &dest) == SQLITE_OK else { throw Failure(message: "\(path): 열 수 없음") }

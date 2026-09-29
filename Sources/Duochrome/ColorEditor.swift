@@ -1,39 +1,39 @@
 import AppKit
 import CoreImage
 
-/// 컬러 에디터: 기본 / 고급 / 스킨 톤 탭.
-/// - 기본: 사진의 색조 분포 그래프 + 여덟 색 칸, 색조·채도·밝기
-/// - 고급: 큰 색조 휠에서 범위를 끌어 정하고, 스포이트로 범위를 더한다 (최대 35개). 조정 목록, 선택한 범위 보기
-/// - 스킨 톤: 피부색 집기, 색조·채도·밝기 균일
-/// 값은 `settings`를 바꾸고 `onChange`로 알린다 (속성 패널이 받아 저장).
+/// Color editor: Basic / Advanced / Skin Tone tabs.
+/// - Basic: hue distribution graph of the photo + eight color swatches, hue/saturation/lightness
+/// - Advanced: drag a range on the large hue wheel, add ranges with the eyedropper (up to 35). Adjustment list, view selected range
+/// - Skin Tone: pick skin color, uniformity of hue/saturation/lightness
+/// Values change `settings` and are reported through `onChange` (the inspector saves them).
 final class ColorEditorView: NSStackView {
     var settings = DevelopSettings()
     var onChange: ((DevelopSettings, Bool) -> Void)?
-    /// 캔버스에서 색 집기 (0 범위 더하기, 1 피부색)
+    /// Picking a color on the canvas (0 add range, 1 skin color)
     var onPick: ((Int) -> Void)?
-    /// 선택한 색 범위 보기 (nil이면 끔)
+    /// View selected color range (nil = off)
     var onViewRange: ((ColorRange?) -> Void)?
-    /// 색조 분포를 잴 사진 (sync 때 넣는다)
+    /// Photo for measuring the hue distribution (set on sync)
     weak var doc: RawDocument?
 
     private let tabs = NSSegmentedControl(labels: ["기본", "고급", "스킨 톤"], trackingMode: .selectOne, target: nil, action: nil)
     private let basicPage = NSStackView(), advancedPage = NSStackView(), skinPage = NSStackView()
-    /// 고른 범위 (0~7 기본, 8~ 고급)
+    /// Selected range (0–7 basic, 8… advanced)
     private(set) var index = 0
     private var measureGeneration = 0
 
-    // 기본
+    // Basic
     private let histogram = HueHistogramView()
     private var basicRows: [SliderRow] = []
-    // 고급
+    // Advanced
     private let wheel = HueRangeWheel()
     private var advancedRows: [SliderRow] = []
     private let list = NSStackView()
     private let viewRange = NSButton(checkboxWithTitle: "선택한 색 범위 보기", target: nil, action: nil)
     private let removeButton = NSButton()
-    // 전·후
+    // before/after
     private let compareBasic = BeforeAfterView(), compareAdvanced = BeforeAfterView()
-    // 스킨 톤
+    // Skin Tone
     private let skinSwatch = NSView()
     private let skinOn = NSButton(checkboxWithTitle: "사용", target: nil, action: nil)
     private var skinRows: [SliderRow] = []
@@ -78,7 +78,7 @@ final class ColorEditorView: NSStackView {
         refreshDecor()
     }
 
-    // MARK: 기본
+    // MARK: Basic
 
     private func buildBasic() {
         histogram.onPick = { [weak self] i in self?.select(i) }
@@ -96,7 +96,7 @@ final class ColorEditorView: NSStackView {
         add(compareBasic, to: basicPage)
     }
 
-    // MARK: 고급
+    // MARK: Advanced
 
     private func buildAdvanced() {
         wheel.onChange = { [weak self] hue, width, soft, dragging in
@@ -157,7 +157,7 @@ final class ColorEditorView: NSStackView {
         return b
     }
 
-    // MARK: 스킨 톤
+    // MARK: Skin Tone
 
     private func buildSkin() {
         skinSwatch.wantsLayer = true
@@ -194,7 +194,7 @@ final class ColorEditorView: NSStackView {
         add(hint, to: skinPage)
     }
 
-    // MARK: 동작
+    // MARK: Actions
 
     @objc private func tabChanged() {
         let t = max(tabs.selectedSegment, 0)
@@ -202,7 +202,7 @@ final class ColorEditorView: NSStackView {
         basicPage.isHidden = t != 0
         advancedPage.isHidden = t != 1
         skinPage.isHidden = t != 2
-        // 탭에 맞는 범위를 고른다
+        // Pick the range matching the tab
         if t == 0, index >= basicCount { index = 0 }
         if t == 1, index < basicCount, ranges.count > basicCount { index = basicCount }
         if t != 1, viewRange.state == .on { viewRange.state = .off; onViewRange?(nil) }
@@ -245,18 +245,18 @@ final class ColorEditorView: NSStackView {
         onChange?(settings, false)
     }
 
-    // MARK: 화면 맞추기
+    // MARK: Syncing the view
 
     func sync(_ s: DevelopSettings, doc: RawDocument?) {
         settings = s
         if doc !== self.doc {
             self.doc = doc
             histogram.bins = []
-            // 색조 분포는 뒤에서 잰다 (주 스레드에서 재면 사진을 열 때마다 1초 넘게 멈췄다)
+            // Measure the hue distribution in the background (on the main thread it stalled over a second on every photo open)
             measureGeneration += 1
             let gen = measureGeneration
             if doc != nil {
-                // 사진을 빨리 넘기면 재지 않는다 (0.8초 머문 뒤에만)
+                // Don't measure while stepping fast (only after 0.8 s dwell)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                     guard let self, gen == self.measureGeneration, let doc = self.doc else { return }
                     let img = doc.analysisImage()
@@ -291,7 +291,7 @@ final class ColorEditorView: NSStackView {
         refreshDecor()
     }
 
-    /// 트랙 색, 휠, 전·후 칸, 범위 보기처럼 값에 따라 모양만 바뀌는 것
+    /// Things whose look depends only on values: track colors, wheel, before/after swatches, range view
     private func refreshDecor() {
         guard ranges.indices.contains(index) else { return }
         let r = ranges[index]
@@ -340,9 +340,9 @@ final class ColorEditorView: NSStackView {
     }
 }
 
-// MARK: - 조정 목록 한 줄
+// MARK: - Adjustment list row
 
-/// [체크] [색 점] ΔH ΔS ΔL
+/// [check] [color dot] ΔH ΔS ΔL
 final class RangeListRow: NSView {
     var onClick: (() -> Void)?
     var onToggle: ((Bool) -> Void)?
@@ -393,9 +393,9 @@ final class RangeListRow: NSView {
     override func mouseDown(with event: NSEvent) { onClick?() }
 }
 
-// MARK: - 전·후 색 칸
+// MARK: - Before/after swatches
 
-/// 고른 범위의 가운데 색이 조정 전·후에 어떻게 되는지 (RGB·HSL 숫자와 함께)
+/// What the selected range's center color becomes before/after (with RGB/HSL numbers)
 final class BeforeAfterView: NSView {
     private let before = NSView(), after = NSView()
     private let beforeText = NSTextField(labelWithString: ""), afterText = NSTextField(labelWithString: "")
@@ -433,7 +433,7 @@ final class BeforeAfterView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 엔진(ColorLUT)과 같은 식으로 가운데 색을 옮겨 본다
+    /// Moves the center color with the same formula as the engine (ColorLUT)
     func show(_ r: ColorRange) {
         let s0: Float = 0.7, v0: Float = 0.8
         let h1 = r.hue + (r.off == true ? 0 : r.dHue)
@@ -454,10 +454,10 @@ final class BeforeAfterView: NSView {
     }
 }
 
-// MARK: - 색조 분포 그래프 + 여덟 색 칸
+// MARK: - Hue distribution graph + eight swatches
 
 final class HueHistogramView: NSView {
-    /// 색조 90칸 (4°씩), 채도로 무게를 준 분포
+    /// 90 hue bins (4° each), weighted by saturation
     var bins: [Float] = [] { didSet { needsDisplay = true } }
     var selected = 0 { didSet { needsDisplay = true } }
     var ranges: [ColorRange] = ColorRange.basic { didSet { needsDisplay = true } }
@@ -466,10 +466,10 @@ final class HueHistogramView: NSView {
     private var graph: NSRect { NSRect(x: 0, y: 26, width: bounds.width, height: bounds.height - 26) }
     private var strip: NSRect { NSRect(x: 0, y: 0, width: bounds.width, height: 20) }
 
-    /// 사진 작게 → 색조 분포
+    /// Downscaled photo → hue distribution
     static func measure(_ doc: RawDocument) -> [Float] { measure(doc.image(scale: Develop.guideScale)) }
 
-    /// 그림 → 색조 분포 (뒤 스레드에서 불러도 된다)
+    /// Image → hue distribution (safe on a background thread)
     static func measure(_ img: CIImage) -> [Float] {
         let k = 128 / max(img.extent.width, img.extent.height, 1)
         let small = img.transformed(by: .init(scaleX: k, y: k))
@@ -492,7 +492,7 @@ final class HueHistogramView: NSView {
         let g = graph
         NSColor.black.withAlphaComponent(0.25).setFill()
         NSBezierPath(roundedRect: g, xRadius: 6, yRadius: 6).fill()
-        // 격자
+        // grid
         NSColor.white.withAlphaComponent(0.06).setStroke()
         for i in 1..<4 {
             let x = g.minX + g.width * CGFloat(i) / 4
@@ -506,14 +506,14 @@ final class HueHistogramView: NSView {
                 NSRect(x: g.minX + CGFloat(i) * bw, y: g.minY + 2, width: max(bw - 0.5, 1), height: hgt).fill()
             }
         }
-        // 고른 범위 표시 (그래프 위 얇은 띠)
+        // Selected range marker (thin band over the graph)
         if ranges.indices.contains(selected) {
             let r = ranges[selected]
             let x0 = CGFloat((r.hue - r.width / 2) / 360), x1 = CGFloat((r.hue + r.width / 2) / 360)
             NSColor.white.withAlphaComponent(0.12).setFill()
             for (a, b) in wrap(x0, x1) { NSRect(x: g.minX + a * g.width, y: g.minY, width: (b - a) * g.width, height: g.height).fill() }
         }
-        // 여덟 색 칸
+        // eight swatches
         let n = ColorRange.basic.count
         let cw = strip.width / CGFloat(n)
         let bg = NSBezierPath(roundedRect: strip, xRadius: 5, yRadius: 5)
@@ -530,7 +530,7 @@ final class HueHistogramView: NSView {
             NSColor(hue: CGFloat(r.hue / 360), saturation: 0.85, brightness: 0.95, alpha: 1).setFill()
             NSBezierPath(roundedRect: sq, xRadius: 2, yRadius: 2).fill()
             if !r.isNeutral {
-                // 바꾼 색은 아래 작은 점
+                // Changed colors get a small dot below
                 NSColor.white.setFill()
                 NSBezierPath(ovalIn: NSRect(x: cell.midX - 1.5, y: cell.minY + 1, width: 3, height: 3)).fill()
             }
@@ -549,7 +549,7 @@ final class HueHistogramView: NSView {
         if strip.insetBy(dx: 0, dy: -4).contains(p) {
             onPick?(min(max(Int((p.x - strip.minX) / (strip.width / CGFloat(n))), 0), n - 1))
         } else if graph.contains(p) {
-            // 그래프를 누르면 가장 가까운 기본 색
+            // Clicking the graph picks the nearest basic color
             let hue = Float((p.x - graph.minX) / graph.width * 360)
             let best = ColorRange.basic.enumerated().min { a, b in
                 func d(_ h: Float) -> Float { let x = abs(h - hue).truncatingRemainder(dividingBy: 360); return min(x, 360 - x) }
@@ -560,12 +560,12 @@ final class HueHistogramView: NSView {
     }
 }
 
-// MARK: - 큰 색조 휠 (고급)
+// MARK: - Large hue wheel (Advanced)
 
-/// 바깥 고리가 색조. 고른 범위는 부채꼴로 보이고, 가운데 손잡이를 끌면 색조, 양쪽 손잡이를 끌면 넓이,
-/// 바깥 눈금(부드러움 끝)을 끌면 부드러움이 바뀐다.
+/// The outer ring is hue. The selected range shows as a wedge: drag the center handle for hue, side handles for width,
+/// and the outer ticks (falloff ends) for smoothness.
 final class HueRangeWheel: NSView {
-    /// (색조, 넓이, 부드러움, 끄는 중인지)
+    /// (hue, width, smoothness, dragging)
     var onChange: ((Float, Float, Float, Bool) -> Void)?
     private var hue: Float = 0, width: Float = 45, soft: Float = 0.6
     private var others: [Float] = []
@@ -579,7 +579,7 @@ final class HueRangeWheel: NSView {
     private var outerR: CGFloat { min(bounds.width, bounds.height) / 2 - 12 }
     private var innerR: CGFloat { outerR * 0.62 }
     private var center: NSPoint { NSPoint(x: bounds.midX, y: bounds.midY) }
-    /// 색조 → 화면 각도 (빨강이 위, 색 균형 휠과 같다)
+    /// Hue → screen angle (red at top, same as the color balance wheel)
     private func angle(_ h: Float) -> CGFloat { (CGFloat(h) + ColorWheelView.hueOffset) * .pi / 180 }
     private func point(_ h: Float, _ r: CGFloat) -> NSPoint {
         NSPoint(x: center.x + cos(angle(h)) * r, y: center.y + sin(angle(h)) * r)
@@ -589,18 +589,18 @@ final class HueRangeWheel: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext, let ring = Self.ring else { return }
         let rect = NSRect(x: center.x - outerR, y: center.y - outerR, width: outerR * 2, height: outerR * 2)
-        // 고리
+        // ring
         ctx.saveGState()
         ctx.addEllipse(in: rect)
         ctx.addEllipse(in: rect.insetBy(dx: outerR - innerR, dy: outerR - innerR))
         ctx.clip(using: .evenOdd)
         ctx.draw(ring, in: rect)
         ctx.restoreGState()
-        // 가운데 어두운 원
+        // dark center disc
         NSColor(white: 0.14, alpha: 1).setFill()
         NSBezierPath(ovalIn: rect.insetBy(dx: outerR - innerR + 1, dy: outerR - innerR + 1)).fill()
 
-        // 범위 부채꼴: 부드러움 끝까지는 옅게, 넓이 안은 진하게
+        // Range wedge: faint out to the falloff ends, solid within the width
         func wedge(_ from: Float, _ to: Float, alpha: CGFloat) {
             let p = NSBezierPath()
             p.move(to: center)
@@ -611,23 +611,23 @@ final class HueRangeWheel: NSView {
         }
         wedge(hue - softEdge, hue + softEdge, alpha: 0.10)
         wedge(hue - width / 2, hue + width / 2, alpha: 0.20)
-        // 테두리 선
+        // outline
         NSColor.white.withAlphaComponent(0.8).setStroke()
         for h in [hue - width / 2, hue + width / 2] {
             let l = NSBezierPath(); l.move(to: point(h, innerR * 0.35)); l.line(to: point(h, outerR + 4)); l.lineWidth = 1.2; l.stroke()
         }
-        // 바깥 눈금 셋: 가운데, 부드러움 양 끝
+        // Three outer ticks: center and both falloff ends
         for h in [hue - softEdge, hue, hue + softEdge] {
             let t = NSBezierPath(); t.move(to: point(h, outerR + 3)); t.line(to: point(h, outerR + 10))
             NSColor.white.withAlphaComponent(0.85).setStroke(); t.lineWidth = 2; t.stroke()
         }
-        // 다른 범위는 고리 위 작은 점
+        // Other ranges as small dots on the ring
         for h in others {
             let p = point(h, (innerR + outerR) / 2)
             NSColor.white.withAlphaComponent(0.6).setStroke()
             let o = NSBezierPath(ovalIn: NSRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)); o.lineWidth = 1; o.stroke()
         }
-        // 손잡이: 가운데(색조), 양쪽(넓이)
+        // Handles: center (hue), sides (width)
         knob(point(hue, (innerR + outerR) / 2), 7)
         knob(point(hue - width / 2, innerR * 0.8), 5)
         knob(point(hue + width / 2, innerR * 0.8), 5)
@@ -668,7 +668,7 @@ final class HueRangeWheel: NSView {
             part = d < 0 ? .left : .right
         } else {
             part = .hue
-            grabOffset = abs(d) < width / 2 ? d : 0   // 부채꼴 안을 잡으면 잡은 자리 그대로 돌린다
+            grabOffset = abs(d) < width / 2 ? d : 0   // Grabbing inside the wedge rotates it from where it was grabbed
         }
         if event.clickCount == 2 { soft = 0.6; width = 45; onChange?(hue, width, soft, false); needsDisplay = true; return }
         drag(p, dragging: true)
@@ -704,7 +704,7 @@ final class HueRangeWheel: NSView {
                 var h = atan2(dy, dx) * 180 / .pi - Double(ColorWheelView.hueOffset)
                 while h < 0 { h += 360 }
                 let r = hypot(dx, dy)
-                // 안쪽은 흐리게, 바깥은 선명하게
+                // dim inside, crisp outside
                 let c = NSColor(hue: h.truncatingRemainder(dividingBy: 360) / 360, saturation: 0.35 + 0.5 * min(r, 1), brightness: 0.8, alpha: 1)
                 let i = (y * n + x) * 4
                 px[i] = UInt8(c.redComponent * 255); px[i + 1] = UInt8(c.greenComponent * 255)
@@ -718,7 +718,7 @@ final class HueRangeWheel: NSView {
     }
 }
 
-// MARK: - 선택한 색 범위 보기 (캔버스)
+// MARK: - View selected color range (canvas)
 
 enum RangeView {
     private static let kernel = CIColorKernel(source: """
@@ -746,7 +746,7 @@ enum RangeView {
     }
     """)
 
-    /// 범위 밖을 어두운 회색으로 (화면 sRGB 값에서 재고 다시 작업 공간으로)
+    /// Dark gray outside the range (measured on display sRGB values, then back to working space)
     static func apply(_ img: CIImage, _ r: ColorRange) -> CIImage {
         let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
         guard let k = kernel, let inS = img.matchedFromWorkingSpace(to: srgb) else { return img }

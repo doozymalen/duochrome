@@ -1,14 +1,14 @@
 import AppKit
 
-/// 창 막대 (세 모드 공통). 단추를 알약 모양 묶음에 담는다.
-/// 왼쪽: [패널 단추 | 패널 메뉴] [− 확대 +] 다음에 제목. 가운데: 모드 전환. 오른쪽: [실행 취소 · 다시] [비교 · 내보내기 · 더 보기] [오른쪽 패널].
+/// Toolbar (shared by the three modes). Buttons are grouped into pills.
+/// Left: [panel button | panel menu] [− zoom +] then the title. Center: mode switch. Right: [undo · redo] [compare · export · more] [right panel].
 final class ToolbarCapsule: NSView {
     static let height: CGFloat = 30
     private let stack = NSStackView()
 
     init(_ items: [NSView]) {
         super.init(frame: .zero)
-        // 창 막대 알약도 리퀴드 글래스 (macOS 26 이전에는 옅은 반투명 알약)
+        // Toolbar pills are Liquid Glass too (before macOS 26, faint translucent pills)
         StudioStyle.floating(self, radius: Self.height / 2, interactive: true)
         if #unavailable(macOS 26) {
             shadow = nil
@@ -31,7 +31,7 @@ final class ToolbarCapsule: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
 
-    /// 알약 안 단추 (테두리 없음, 아이콘만)
+    /// Button inside a pill (borderless, icon only)
     static func button(_ symbol: String, _ tip: String, target: AnyObject?, action: Selector?, width: CGFloat = 32) -> NSButton {
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
         let b = NSButton(image: (NSImage(systemSymbolName: symbol, accessibilityDescription: tip) ?? NSImage())
@@ -46,7 +46,7 @@ final class ToolbarCapsule: NSView {
         return b
     }
 
-    /// 누르면 메뉴가 뜨는 단추 (패널 단추 옆 ⌄, 더 보기 ⋯)
+    /// Button that opens a menu (⌄ next to the panel button, ⋯ more)
     static func menuButton(_ symbol: String, _ tip: String, width: CGFloat = 24, menu: @escaping () -> NSMenu) -> NSButton {
         let b = MenuCapsuleButton(image: NSImage(), target: nil, action: nil)
         let config = NSImage.SymbolConfiguration(pointSize: symbol == "chevron.down" ? 10 : 14, weight: symbol == "chevron.down" ? .semibold : .regular)
@@ -63,7 +63,7 @@ final class ToolbarCapsule: NSView {
         return b
     }
 
-    /// 알약 안 칸막이 (패널 단추와 ⌄ 사이 선)
+    /// Divider inside a pill (line between the panel button and ⌄)
     static func divider() -> NSView {
         let v = NSBox()
         v.boxType = .custom
@@ -83,7 +83,7 @@ final class MenuCapsuleButton: NSButton {
     }
 }
 
-/// 확대 슬라이더: 가는 줄, 왼쪽부터 손잡이까지 강조 색, 작은 흰 손잡이
+/// Zoom slider: thin track, accent color from the left to the knob, small white knob
 final class CapsuleSliderCell: NSSliderCell {
     override func drawBar(inside rect: NSRect, flipped: Bool) {
         let h: CGFloat = 3
@@ -121,7 +121,7 @@ extension NSToolbarItem.Identifier {
 }
 
 extension MainWindowController {
-    /// 공통 창 막대의 항목 순서
+    /// Item order of the shared toolbar
     var titleBarItems: [NSToolbarItem.Identifier] {
         [.barPanels, .studioZoom, .flexibleSpace, .modeSwitch, .flexibleSpace, .barAI, .barHistory, .barActions, .barInspector]
     }
@@ -132,7 +132,7 @@ extension MainWindowController {
             it.label = label
             it.view = capsule
             it.isBordered = false
-            // 제목보다 앞(왼쪽)에 둔다 — [패널] [확대] 다음에 제목
+            // Before (left of) the title — [panel] [zoom] then the title
             it.isNavigational = navigational
             return it
         }
@@ -148,7 +148,7 @@ extension MainWindowController {
             let minus = T.button("minus", "축소", target: self, action: #selector(studioZoomOut(_:)), width: 22)
             let plus = T.button("plus", "확대", target: self, action: #selector(studioZoomIn(_:)), width: 22)
             for b in [minus, plus] { b.contentTintColor = .secondaryLabelColor }
-            // 슬라이더는 배율의 로그 (1% ~ 1600%)
+            // slider is the log of zoom (1% – 1600%)
             let slider = NSSlider(value: 2, minValue: 0, maxValue: log10(1600), target: self, action: #selector(studioZoomSlid(_:)))
             slider.cell = CapsuleSliderCell()
             slider.minValue = 0; slider.maxValue = log10(1600); slider.doubleValue = 2
@@ -228,7 +228,7 @@ extension MainWindowController {
     @objc func zoomActiveActual(_ sender: Any?) { activeCanvas.zoomToActual() }
 }
 
-/// 모드 전환 (창 가운데). 알약 안에 세 칸, 고른 칸은 안쪽 알약으로 칠한다.
+/// Mode switch (window center). Three segments in a pill; the selected one is filled with an inner pill.
 final class ModeSwitch: NSView {
     var onPick: ((Int) -> Void)?
     var selectedSegment = 0 { didSet { restyle() } }
@@ -238,7 +238,7 @@ final class ModeSwitch: NSView {
     init(items: [(symbol: String, title: String, tip: String)]) {
         var bs: [NSButton] = []
         for (i, it) in items.enumerated() {
-            // 아이콘과 글자 사이를 조금 띄운다
+            // small gap between icon and text
             let b = NSButton(title: " " + it.title, image: NSImage(systemSymbolName: it.symbol, accessibilityDescription: it.title)?
                 .withSymbolConfiguration(.init(pointSize: 14, weight: .regular)) ?? NSImage(), target: nil, action: nil)
             b.imagePosition = .imageLeading

@@ -3,10 +3,11 @@ build/
 .DS_Store
 .swiftpm/
 *.xcuserstate
-# 카메라 맞춤 보정표는 공개하지 않는다 (이 맥에서만)
+# Camera-fitted look tables are not published (local only)
 Resources/Looks/
-# 개발 기록·개발 도구·시험 파일은 공개하지 않는다 (이 맥에서만)
+# Dev notes, dev tools, and test files are not published (local only)
 ROADMAP.md
 docs/DEVELOPMENT.md
 Tests/Fixtures/
 scripts/snap.sh
+__pycache__/

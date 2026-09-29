@@ -1,14 +1,14 @@
 import AppKit
 import CoreImage
 
-/// 레이어 스타일 (fx): 모양이 있는 레이어(이미지·칠·글자·모양)의 알파를 따라 그린다.
-/// 거리·크기는 원본 픽셀. 색은 화면 값 RGB 0~1.
+/// Layer styles (fx): drawn along the alpha of layers with shape (image, fill, text, shape).
+/// Distances and sizes in source pixels. Colors are display RGB 0–1.
 struct LayerStyles: Equatable, Codable {
     struct Shadow: Equatable, Codable {
         var enabled = false
         var color: [Float] = [0, 0, 0]
         var opacity: Float = 0.6
-        var angle: Float = 120          // 빛이 오는 방향 (°)
+        var angle: Float = 120          // light direction (°)
         var distance: Float = 15
         var size: Float = 20
         var spread: Float = 0           // 0~100 %
@@ -25,7 +25,7 @@ struct LayerStyles: Equatable, Codable {
         var color: [Float] = [1, 1, 1]
         var opacity: Float = 1
         var size: Float = 6
-        /// 0 바깥, 1 안쪽, 2 가운데
+        /// 0 outside, 1 inside, 2 center
         var position = 0
     }
     struct Bevel: Equatable, Codable {
@@ -42,7 +42,7 @@ struct LayerStyles: Equatable, Codable {
         var color2: [Float] = [0.2, 0.3, 1]
         var opacity: Float = 1
         var angle: Float = 90
-        /// 무늬: 0 체크, 1 줄무늬, 2 구름, 3 점
+        /// Pattern: 0 checker, 1 stripes, 2 clouds, 3 dots
         var pattern = 0
         var scale: Float = 40
     }
@@ -71,9 +71,9 @@ struct LayerStyles: Equatable, Codable {
             || colorOverlay.enabled || gradientOverlay.enabled || patternOverlay.enabled || satin.enabled
     }
 
-    // MARK: - 그리기
+    // MARK: - Drawing
 
-    /// 내용(알파가 있는 그림)에 스타일을 입힌다. 결과는 원래 영역.
+    /// Applies styles to content (an image with alpha). Result in the original extent.
     static func apply(_ st: LayerStyles, _ content: CIImage, scale: CGFloat) -> CIImage {
         guard st.isActive else { return content }
         let e = content.extent
@@ -81,7 +81,7 @@ struct LayerStyles: Equatable, Codable {
         func px(_ v: Float) -> CGFloat { CGFloat(v) * scale }
         func shift(_ m: CIImage, angle: Float, distance: Float, sign: CGFloat = 1) -> CIImage {
             let r = Double(angle) * .pi / 180
-            // 빛이 오는 반대쪽으로 그림자가 진다
+            // Shadows fall away from the light
             return m.transformed(by: .init(translationX: -CGFloat(cos(r)) * px(distance) * sign, y: -CGFloat(sin(r)) * px(distance) * sign))
         }
         var under: [CIImage] = [], over: [CIImage] = []
@@ -138,11 +138,11 @@ struct LayerStyles: Equatable, Codable {
             let b = st.bevel
             let height = soften(a, px(b.size) / 2)
             let r = Double(b.angle) * .pi / 180
-            // 기울기 = 빛 쪽 높이 − 반대쪽 높이 (크기의 1/4 떨어진 두 점).
-            // 이웃 픽셀 차이로 재면 흐림의 내부 축소·확대 때문에 계단이 생겼다.
+            // Slope = height toward the light − height away (two points 1/4 of the size apart).
+            // Measuring with neighboring pixel differences caused steps due to the blur's internal down/upscaling.
             let d = max(px(b.size) / 4, 1)
             let lx = CGFloat(cos(r)) * d, ly = CGFloat(sin(r)) * d
-            // 빛을 받는 면 = 빛 반대쪽으로 갈수록 높아지는 곳: h(p − l) − h(p + l) > 0
+            // Lit faces = where height rises away from the light: h(p − l) − h(p + l) > 0
             let toward = height.clampedToExtent().transformed(by: .init(translationX: lx, y: ly)).cropped(to: e)
             let away = height.clampedToExtent().transformed(by: .init(translationX: -lx, y: -ly)).cropped(to: e)
             let k = CGFloat(b.depth / 100) * 2
@@ -175,12 +175,12 @@ struct LayerStyles: Equatable, Codable {
         }
         var out = content
         for u in under.reversed() { out = out.applyingFilter("CISourceOverCompositing", parameters: [kCIInputBackgroundImageKey: u]) }
-        // 겹치는 스타일은 내용 안에서만 (바깥 획은 이미 바깥 모양)
+        // Overlay styles only inside the content (the outer stroke is already the outer shape)
         for o in over { out = o.applyingFilter("CISourceOverCompositing", parameters: [kCIInputBackgroundImageKey: out]) }
         return out.cropped(to: e)
     }
 
-    // MARK: 도움 함수
+    // MARK: Helpers
 
     static func alphaGray(_ i: CIImage) -> CIImage {
         i.applyingFilter("CIColorMatrix", parameters: [
@@ -201,13 +201,13 @@ struct LayerStyles: Equatable, Codable {
     static func mul(_ a: CIImage, _ b: CIImage) -> CIImage {
         a.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: b]).cropped(to: a.extent)
     }
-    /// a − b (둘 다 흑백 마스크): a × (1 − b)
+    /// a − b (both grayscale masks): a × (1 − b)
     static func sub(_ a: CIImage, _ b: CIImage) -> CIImage { mul(a, invert(b)) }
     static func ciColor(_ c: [Float]) -> CIColor {
         let v = (c + [0, 0, 0]).prefix(3).map { CGFloat(pow(max($0, 0), 2.2)) }
         return CIColor(red: v[0], green: v[1], blue: v[2], alpha: 1, colorSpace: Render.workingSpace) ?? CIColor(red: v[0], green: v[1], blue: v[2])
     }
-    /// 단색을 마스크 모양·불투명도로
+    /// Solid color in the mask shape and opacity
     static func colored(_ c: [Float], _ m: CIImage, opacity: Float, _ e: CGRect) -> CIImage {
         masked(CIImage(color: ciColor(c)).cropped(to: e), m, opacity: opacity, e)
     }
@@ -241,7 +241,7 @@ struct LayerStyles: Equatable, Codable {
     }
 }
 
-// MARK: - 편집기 (심화 보정 스타일 도구, 레이어 탭 "스타일" 카드)
+// MARK: - Editor (layer-edit styles tool, layers tab "Styles" card)
 
 final class LayerStylesEditor: NSStackView {
     var onChange: ((LayerStyles, Bool) -> Void)?
@@ -405,7 +405,7 @@ final class LayerStylesEditor: NSStackView {
     }
 }
 
-/// 버튼·스위치 동작을 클로저로 (target이 약하게 잡히므로 연관 객체로 붙잡아 둔다)
+/// Button/switch actions as closures (target is held weakly, so retained via associated objects)
 final class ClosureTarget: NSObject {
     static var key = 0
     let f: () -> Void

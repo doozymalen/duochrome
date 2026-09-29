@@ -1,13 +1,13 @@
 import Foundation
 import simd
 
-/// PSD 조정 레이어 자료 → 색 함수 (sRGB 감마 값 0~1 → 0~1).
-/// 가져올 때 이 함수를 33³ .cube LUT로 구워 조정 레이어에 건다. 수식은 명세의 자료 배치와
-/// PSD 파일에 든 합친 그림과의 비교로 맞췄다 (SelfTest 21).
+/// PSD adjustment layer data → color function (sRGB gamma values 0–1 → 0–1).
+/// On import this function is baked into a 33³ .cube LUT on an adjustment layer. Formulas were matched against the spec's data layout
+/// and against the merged image stored in PSD files (SelfTest 21).
 enum PSDAdjust {
     typealias Fn = (SIMD3<Float>) -> SIMD3<Float>
 
-    /// LUT로 옮기는 조정 키
+    /// Adjustment keys converted to LUTs
     static let keys: Set<String> = ["levl", "curv", "hue2", "brit", "CgEd", "blnc", "selc", "mixr", "phfl", "grdm", "expA", "vibA", "blwh", "nvrt", "post", "thrs"]
     static let titles: [String: String] = [
         "levl": "레벨", "curv": "커브", "hue2": "색조/채도", "brit": "명도/대비", "CgEd": "명도/대비", "blnc": "색상 균형",
@@ -33,7 +33,7 @@ enum PSDAdjust {
             case "curv": return try curves(&r)
             case "hue2": return try hueSat(&r)
             case "brit", "CgEd":
-                // 새 방식 값은 CgEd 설명자에, 옛 방식은 brit에
+                // New-style values are in the CgEd descriptor, old-style in brit
                 var b: Float = 0, c: Float = 0, legacy = false
                 if let ce = blocks.first(where: { $0.key == "CgEd" })?.data, let desc = PSD.versionedDescriptor(ce) {
                     b = Float(desc.double("Brgh") ?? 0); c = Float(desc.double("Cntr") ?? 0)
@@ -50,7 +50,7 @@ enum PSDAdjust {
             case "expA":
                 _ = try r.u16()
                 let e = try r.f32(), o = try r.f32(), g = try r.f32()
-                // 노출: 2.2 제곱 공간에서 곱하고 오프셋을 더한 뒤 1/(2.2×감마)로 돌린다
+                // Exposure: multiply in the 2.2-power space, add the offset, then back by 1/(2.2×gamma)
                 return { v in
                     let lin = v.pow(2.2) * pow(2, e) + o
                     return simd_max(lin, SIMD3(repeating: 0)).pow(1 / (2.2 * max(g, 0.01)))
@@ -66,7 +66,7 @@ enum PSDAdjust {
         } catch { return nil }
     }
 
-    // MARK: - 감마
+    // MARK: - Gamma
 
     static func toLinear(_ v: SIMD3<Float>) -> SIMD3<Float> {
         SIMD3(lin(v.x), lin(v.y), lin(v.z))
@@ -79,7 +79,7 @@ enum PSDAdjust {
 
     static func luma(_ v: SIMD3<Float>) -> Float { 0.3 * v.x + 0.59 * v.y + 0.11 * v.z }
 
-    // MARK: - 레벨
+    // MARK: - Levels
 
     private static func levels(_ r: inout PSD.Reader) throws -> Fn {
         _ = try r.u16()
@@ -98,9 +98,9 @@ enum PSDAdjust {
         }
     }
 
-    // MARK: - 커브
+    // MARK: - Curves
 
-    /// 자연 3차 스플라인
+    /// Natural cubic spline
     static func spline(_ pts: [(Float, Float)]) -> (Float) -> Float {
         let p = pts.sorted { $0.0 < $1.0 }
         let n = p.count
@@ -151,7 +151,7 @@ enum PSDAdjust {
         return { v in SIMD3(m(rr(v.x)), m(gg(v.y)), m(bb(v.z))) }
     }
 
-    // MARK: - 색조/채도
+    // MARK: - Hue/Saturation
 
     static func rgbToHSL(_ v: SIMD3<Float>) -> SIMD3<Float> {
         let mx = v.max(), mn = v.min()
@@ -204,7 +204,7 @@ enum PSDAdjust {
                 return lightness(c, cl)
             }
         }
-        // 색 범위 무게: 범위 (시작 경사, 시작 유지, 끝 유지, 끝 경사) — 각도. 0을 넘어가면 360을 더한다.
+        // Color range weight: range (start ramp, start hold, end hold, end ramp) — degrees. Add 360 when crossing 0.
         func weight(_ h: Float, _ rg: [Float]) -> Float {
             var a = rg[0], b = rg[1], c = rg[2], d = rg[3]
             if b < a { b += 360 }; if c < b { c += 360 }; if d < c { d += 360 }
@@ -231,7 +231,7 @@ enum PSDAdjust {
         }
     }
 
-    // MARK: - 명도/대비
+    // MARK: - Brightness/Contrast
 
     private static func brightnessContrast(_ b: Float, _ c: Float, legacy: Bool) -> Fn {
         if legacy {
@@ -240,8 +240,8 @@ enum PSDAdjust {
                 return (x - 0.5) * (1 + c / 100) + 0.5
             }
         }
-        // 새 방식 (PSD 합친 그림에 맞춘 근사): 명도는 끝점을 고정한 두 점 커브, 대비는 (64, 64−c/4)·(191, 191+c/4) S자 커브
-        let anchors: [(Float, Float, Float, Float, Float)] = [   // 명도, 기울기, 점1 x, 점2 x, 점2 y
+        // New style (approximation fitted to PSD merged images): brightness is a two-point curve with fixed ends, contrast an S-curve through (64, 64−c/4)·(191, 191+c/4)
+        let anchors: [(Float, Float, Float, Float, Float)] = [   // brightness, slope, point 1 x, point 2 x, point 2 y
             (-150, 0.45, 0.8, 0.95, 0.72), (-60, 0.74, 0.78, 0.94, 0.8172), (0, 1, 0.33, 0.66, 0.66),
             (40, 1.28, 0.32, 0.81, 0.9196), (150, 2.04, 0.45, 0.55, 0.958),
         ]
@@ -260,13 +260,13 @@ enum PSDAdjust {
         return { v in SIMD3(contrast(bright(v.x)), contrast(bright(v.y)), contrast(bright(v.z))) }
     }
 
-    // MARK: - 색상 균형
+    // MARK: - Color Balance
 
     private static func colorBalance(_ r: inout PSD.Reader) throws -> Fn {
         var v: [[Float]] = []
         for _ in 0 ..< 3 { v.append([Float(try r.i16()) / 100, Float(try r.i16()) / 100, Float(try r.i16()) / 100]) }
         let preserve: Bool = ((try? r.u8()) ?? 1) != 0
-        // 합친 그림에 맞춘 근사: 어두운 영역·중간 영역은 감마, 밝은 영역은 흰 점(+감마). 채널마다 따로.
+        // Approximation fitted to the merged image: shadows/midtones via gamma, highlights via white point (+gamma). Per channel.
         func channel(_ c: Int) -> (Float) -> Float {
             let sh = v[0][c], md = v[1][c], hl = v[2][c]
             let gs = sh >= 0 ? pow(2, -sh * 0.49) : pow(2, -sh * 0.28)
@@ -286,7 +286,7 @@ enum PSDAdjust {
         return { c in
             var o = simd_clamp(SIMD3(fr(c.x), fg(c.y), fb(c.z)), SIMD3(repeating: 0), SIMD3(repeating: 1))
             if preserve {
-                // 모든 채널에 같은 감마를 걸어 HSL 밝기를 원래대로 (광도 유지)
+                // Apply the same gamma to all channels to restore HSL lightness (preserve luminosity)
                 let target = (c.max() + c.min()) / 2
                 var lo: Float = 0.2, hi: Float = 5
                 for _ in 0 ..< 14 {
@@ -300,19 +300,19 @@ enum PSDAdjust {
         }
     }
 
-    // MARK: - 선택 색상
+    // MARK: - Selective Color
 
     private static func selectiveColor(_ r: inout PSD.Reader) throws -> Fn {
         _ = try r.u16()
         let absolute = try r.u16() == 1
         var recs: [SIMD4<Float>] = []
         for _ in 0 ..< 10 { recs.append(SIMD4(Float(try r.i16()), Float(try r.i16()), Float(try r.i16()), Float(try r.i16())) / 100) }
-        // 1 빨강, 2 노랑, 3 초록, 4 청록, 5 파랑, 6 자홍, 7 흰색, 8 중간, 9 검정
+        // 1 red, 2 yellow, 3 green, 4 cyan, 5 blue, 6 magenta, 7 white, 8 neutral, 9 black
         return { v in
             let mx = v.max(), mn = v.min()
             let mid = v.x + v.y + v.z - mx - mn
             var w = [Float](repeating: 0, count: 10)
-            // 주색(가장 큰 채널)과 보색(가장 작은 채널)
+            // primary (largest channel) and complement (smallest channel)
             if mx > mn {
                 if v.x == mx { w[1] = mx - mid } else if v.y == mx { w[3] = mx - mid } else { w[5] = mx - mid }
                 if v.x == mn { w[4] = mid - mn } else if v.y == mn { w[6] = mid - mn } else { w[2] = mid - mn }
@@ -328,7 +328,7 @@ enum PSDAdjust {
                     let amt = a[c]
                     var d = absolute ? amt : amt * ink
                     d += absolute ? a.w : a.w * ink
-                    // 잉크를 더하면(+) 채널이 어두워진다
+                    // Adding ink (+) darkens the channel
                     let lim: Float = d > 0 ? v[c] : 1 - v[c]
                     o[c] -= w[i] * max(-lim, min(lim, d))
                 }
@@ -337,7 +337,7 @@ enum PSDAdjust {
         }
     }
 
-    // MARK: - 채널 혼합
+    // MARK: - Channel Mixer
 
     private static func mixer(_ r: inout PSD.Reader) throws -> Fn {
         _ = try r.u16()
@@ -356,13 +356,13 @@ enum PSDAdjust {
         }
     }
 
-    // MARK: - 포토 필터
+    // MARK: - Photo Filter
 
     private static func photoFilter(_ r: inout PSD.Reader) throws -> Fn {
         let ver = try r.u16()
         var color = SIMD3<Float>(0.93, 0.54, 0)
         if ver == 3 {
-            // XYZ (각 4바이트 고정소수) → sRGB 근사
+            // XYZ (4-byte fixed point each) → approximate sRGB
             let x = Float(try r.i32()) / 65536, y = Float(try r.i32()) / 65536, z = Float(try r.i32()) / 65536
             let lin = SIMD3(3.2406 * x - 1.5372 * y - 0.4986 * z, -0.9689 * x + 1.8758 * y + 0.0415 * z, 0.0557 * x - 0.2040 * y + 1.0570 * z) / 100
             color = toGamma(simd_clamp(lin, SIMD3(repeating: 0), SIMD3(repeating: 1)))
@@ -384,11 +384,11 @@ enum PSDAdjust {
         }
     }
 
-    // MARK: - 그라디언트 맵
+    // MARK: - Gradient Map
 
     struct GradientStop { var loc: Float; var mid: Float; var color: SIMD3<Float> }
 
-    /// "클래식" 그라디언트 (매끄러움 100%): 채널마다 캣멀-롬 기울기의 에르미트 곡선, 양 끝 기울기는 한쪽 차이의 절반
+    /// "Classic" gradient (100% smoothness): per-channel Hermite curve with Catmull–Rom slopes; end slopes are half the one-sided difference
     static func sample(_ stops: [GradientStop], _ t: Float) -> SIMD3<Float> {
         guard let first = stops.first, let last = stops.last else { return SIMD3(repeating: t) }
         if t <= first.loc { return first.color }
@@ -438,19 +438,19 @@ enum PSDAdjust {
         return { v in sample(stops, luma(v)) }
     }
 
-    // MARK: - 활기
+    // MARK: - Vibrance
 
     private static func vibrance(_ vib: Float, _ sat: Float) -> Fn {
         { v in
             var o = v
             if vib != 0 {
-                // 가장 센 채널은 두고 나머지를 밀어내거나(+) 당긴다(−). +는 채도가 낮을수록 더.
+                // Keep the strongest channel and push (+) or pull (−) the others. + applies more to less saturated colors.
                 let mx = o.max(), s = mx > 0 ? (mx - o.min()) / mx : 0
                 let k = vib > 0 ? 1 + 0.2 * vib / 100 * (1 - s * s * s * s) : 1 + 0.67 * vib / 100
                 o = mx - (mx - o) * k
             }
             if sat != 0 {
-                // 채도는 Lab 채도(C*)를 곱한다
+                // Saturation multiplies Lab chroma (C*)
                 var lab = toLab(simd_clamp(o, SIMD3(repeating: 0), SIMD3(repeating: 1)))
                 lab.y *= 1 + sat / 100; lab.z *= 1 + sat / 100
                 o = fromLab(lab)
@@ -478,7 +478,7 @@ enum PSDAdjust {
         return toGamma(simd_clamp(SIMD3(r, gg, b), SIMD3(repeating: 0), SIMD3(repeating: 1)))
     }
 
-    // MARK: - 흑백
+    // MARK: - Black & White
 
     private static func blackWhite(_ d: PSD.Descriptor) -> Fn {
         func w(_ k: String, _ def: Float) -> Float { Float(d.double(k) ?? Double(def)) / 100 }
@@ -503,7 +503,7 @@ enum PSDAdjust {
 
     // MARK: - LUT
 
-    /// 색 함수를 .cube 글로 굽는다 (빨강이 가장 빨리 바뀌는 순서)
+    /// Bakes a color function into .cube text (red changes fastest)
     static func cube(_ f: Fn, size n: Int = 33, title: String = "Duochrome") -> String {
         var s = "TITLE \"\(title)\"\nLUT_3D_SIZE \(n)\n"
         s.reserveCapacity(n * n * n * 28)

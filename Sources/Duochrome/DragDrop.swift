@@ -1,45 +1,45 @@
 import AppKit
 import UniformTypeIdentifiers
 
-// 끌어 놓기 (체크리스트 "드레그 드롭"):
-// ① 사진 목록 → 사이드바 앨범: 앨범에 넣기
-// ② 사진 → 다른 사진: 조정 복사 (조정 적용과 같은 갈래)
-// ③ 레이어 목록 안: 순서 바꾸기, 그룹 안으로 넣기
-// ④ Finder 그림 → 레이어 목록·캔버스: 이미지 레이어
-// ⑤ Finder 폴더·사진 → 창: 열기 (DropWindow)
-// ⑥ 도구 사용자화: 도구를 끌어 막대에 넣기·순서 바꾸기 (Studio.swift ToolCustomizeSheet)
+// Drag and drop (checklist "drag and drop"):
+// ① photo list → sidebar album: add to album
+// ② photo → another photo: copy adjustments (same groups as Apply Adjustments)
+// ③ within the layer list: reorder, move into a group
+// ④ Finder image → layer list / canvas: image layer
+// ⑤ Finder folder / photo → window: open (DropWindow)
+// ⑥ Tool customization: drag tools into the bar, reorder (Studio.swift ToolCustomizeSheet)
 
 extension NSPasteboard.PasteboardType {
-    /// 앱 안 사진 끌기 (값: 사진 경로들, 줄바꿈으로)
+    /// In-app photo drag (value: photo paths, newline-separated)
     static let duochromePhotos = NSPasteboard.PasteboardType("com.doozymalen.duochrome.photos")
-    /// 앱 안 레이어 끌기 (값: 레이어 id)
+    /// In-app layer drag (value: layer id)
     static let duochromeLayer = NSPasteboard.PasteboardType("com.doozymalen.duochrome.layer")
-    /// 도구 사용자화 창의 도구 끌기 (값: 도구 id)
+    /// Tool drag in the tool customization window (value: tool id)
     static let duochromeTool = NSPasteboard.PasteboardType("com.doozymalen.duochrome.tool")
 }
 
 enum DragFiles {
-    /// 끌어 온 파일 URL들
+    /// Dragged file URLs
     static func urls(_ info: NSDraggingInfo) -> [URL] {
         (info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
     }
 
-    /// 레이어로 넣을 수 있는 그림 (RAW는 아니다 — RAW는 사진으로 연다)
+    /// Images that can become layers (not RAW — RAW opens as a photo)
     static func isLayerImage(_ u: URL) -> Bool {
         guard let t = UTType(filenameExtension: u.pathExtension.lowercased()) else { return false }
         return t.conforms(to: .image) && !t.conforms(to: .rawImage)
     }
 }
 
-// MARK: - 레이어 줄 끌기
+// MARK: - Dragging layer rows
 
-/// 레이어 목록 한 줄의 공통 동작: 누르면 고르고(떼었을 때), 4pt 넘게 끌면 레이어를 끈다.
-/// (누를 때 바로 고르면 목록을 다시 그려 줄이 사라져 끌기를 시작할 수 없었다)
+/// Shared behavior of a layer list row: select on click (on mouse-up), drag the layer after moving more than 4 pt.
+/// (Selecting on mouse-down redrew the list and the row vanished, so dragging couldn't start)
 class DraggableLayerRow: NSView, NSDraggingSource {
     var onClick: (() -> Void)?
-    /// 끌 레이어 id. nil이면 배경 줄 (끌 수 없고, 놓을 곳으로만 쓴다)
+    /// Layer id to drag. nil for the background row (not draggable, only a drop target)
     var dragID: String?
-    /// 그룹 줄이면 가운데에 놓을 때 그룹 안으로 넣는다
+    /// For a group row, dropping in the middle puts it inside the group
     var isGroupRow = false
     private var downAt: NSPoint?
     private var dragging = false
@@ -80,16 +80,16 @@ class DraggableLayerRow: NSView, NSDraggingSource {
     }
 }
 
-/// 레이어를 놓을 자리
+/// Where to drop the layer
 enum LayerDropPlace: Equatable {
     case above, below, into
 }
 
-/// 레이어 목록 (대량 보정 레이어 탭·심화 보정 레이어 패널 공통): 끌어 온 레이어와 Finder 그림을 받는다.
+/// Layer list (shared by the batch-edit layers tab and the layer-edit layers panel): accepts dragged layers and Finder images.
 class LayerDropList: FlippedStackView {
-    /// 레이어 id를 대상 레이어(nil = 배경 줄) 위·아래·안에 놓는다
+    /// Places a layer id above, below, or inside the target layer (nil = background row)
     var onDropLayer: ((_ id: String, _ target: String?, _ place: LayerDropPlace) -> Void)?
-    /// Finder 그림들을 이미지 레이어로
+    /// Finder images as image layers
     var onDropFiles: (([URL]) -> Bool)?
 
     private let marker = NSView()
@@ -107,16 +107,16 @@ class LayerDropList: FlippedStackView {
 
     private func rows() -> [DraggableLayerRow] { arrangedSubviews.compactMap { $0 as? DraggableLayerRow } }
 
-    /// 끌기 위치 → (대상, 자리, 표시할 곳)
+    /// Drag location → (target, position, indicator rect)
     private func target(at p: NSPoint, dragged: String?) -> (String?, LayerDropPlace, DraggableLayerRow)? {
         let rs = rows()
         guard !rs.isEmpty else { return nil }
         let row = rs.first { $0.frame.minY <= p.y && p.y <= $0.frame.maxY }
             ?? (p.y < rs[0].frame.minY ? rs[0] : rs[rs.count - 1])
         if let d = dragged, row.dragID == d { return nil }
-        // 배경 줄: 맨 아래로만
+        // Background row: bottom only
         guard row.dragID != nil else { return (nil, .above, row) }
-        let t = (p.y - row.frame.minY) / max(row.frame.height, 1)   // 뒤집힌 좌표: 0 = 줄의 위
+        let t = (p.y - row.frame.minY) / max(row.frame.height, 1)   // Flipped coordinates: 0 = top of the row
         if row.isGroupRow, t > 0.28, t < 0.72 { return (row.dragID, .into, row) }
         return (row.dragID, t < 0.5 ? .above : .below, row)
     }
@@ -171,8 +171,8 @@ class LayerDropList: FlippedStackView {
 }
 
 extension LayerTree {
-    /// 끌어 놓기: from번 레이어(그룹이면 자손까지)를 target 레이어 위·아래 또는 그룹 target 안(맨 위 자식)으로.
-    /// target nil은 배경 바로 위(배열 맨 앞, 그룹 밖). 자기 자신·자기 자손 위에는 놓지 않는다.
+    /// Drag and drop: moves layer `from` (with descendants if a group) above/below `target`, or inside group `target` (as top child).
+    /// A nil target means right above the background (array front, outside groups). Never onto itself or its descendants.
     @discardableResult
     static func drop(_ layers: inout [AdjustLayer], from: Int, onto target: Int?, _ place: LayerDropPlace) -> Bool {
         let r = block(layers, from)
@@ -192,23 +192,23 @@ extension LayerTree {
         }
         let items = Array(layers[r])
         layers.removeSubrange(r)
-        // 지운 뒤 대상 위치를 다시 찾는다
+        // After removing, find the target position again
         guard let nt = layers.firstIndex(where: { $0.id == targetID }) else { return false }
         let at: Int
         switch place {
-        case .into: at = nt                               // 그룹 항목 바로 아래 = 맨 위 자식
-        case .above: at = nt + 1                          // 배열 뒤가 위
-        case .below: at = block(layers, nt).lowerBound    // 대상 덩어리 아래
+        case .into: at = nt                               // Right below the group item = top child
+        case .above: at = nt + 1                          // the end of the array is the top
+        case .below: at = block(layers, nt).lowerBound    // below the target block
         }
         layers.insert(contentsOf: items, at: at)
         return true
     }
 }
 
-// MARK: - 창에 연결
+// MARK: - Window wiring
 
 extension MainWindowController {
-    /// 레이어 목록에서 끌어 놓은 레이어를 옮긴다.
+    /// Moves a layer dropped in the layer list.
     func dropLayer(_ id: String, onto target: String?, _ place: LayerDropPlace) {
         guard var s = photo?.settings, let i = s.layers.firstIndex(where: { $0.id == id }) else { return }
         let t = target.flatMap { tid in s.layers.firstIndex { $0.id == tid } }
@@ -218,7 +218,7 @@ extension MainWindowController {
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    /// Finder에서 끌어 온 그림들을 이미지 레이어로 넣는다 (파일은 카탈로그 Assets에 복사).
+    /// Inserts images dragged from Finder as image layers (files copied into the catalog Assets).
     @discardableResult
     func dropImageLayers(_ urls: [URL]) -> Bool {
         guard photo != nil else { NSSound.beep(); return false }
@@ -236,7 +236,7 @@ extension MainWindowController {
         return added > 0
     }
 
-    /// 사진 목록에서 끌어 온 사진들을 앨범에 넣는다.
+    /// Adds photos dragged from the photo list to an album.
     func dropPhotos(_ paths: [String], toAlbum id: Int64) {
         let set = Set(paths)
         let ids = library.items.filter { set.contains($0.url.path) }.map(\.id).filter { $0 != 0 }
@@ -245,7 +245,7 @@ extension MainWindowController {
         reloadSources()
     }
 
-    /// 사진을 다른 사진 위에 놓으면: 끌어 온 사진의 조정을 그 사진에 붙인다 (조정 적용과 같은 갈래).
+    /// Dropping a photo onto another: pastes the dragged photo's adjustments onto it (same groups as Apply Adjustments).
     func dropAdjustments(from path: String, onto target: PhotoItem) {
         guard let source = library.items.first(where: { $0.url.path == path }), source !== target else { return }
         var dict: [String: Any]
@@ -255,7 +255,7 @@ extension MainWindowController {
                   let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             dict = saved
         } else {
-            NSSound.beep(); return   // 조정 없는 사진
+            NSSound.beep(); return   // photo without adjustments
         }
         let saved = Set((UserDefaults.standard.stringArray(forKey: "pasteGroups") ?? []).compactMap(AdjustGroup.init))
         let groups = saved.isEmpty ? Set(AdjustGroup.allCases.filter(\.defaultOn)) : saved
@@ -280,7 +280,7 @@ extension MainWindowController {
         refreshThumbnails([target])
     }
 
-    /// 끌어 놓기 연결 (setupModes 뒤에 한 번)
+    /// Drag-and-drop wiring (once, after setupModes)
     func installDragAndDrop() {
         for list in [layersTab.dropList, studioMode.layersPanel.dropList] {
             list.onDropLayer = { [weak self] id, t, p in self?.dropLayer(id, onto: t, p) }
@@ -294,7 +294,7 @@ extension MainWindowController {
         }
         canvas.onDropFiles = { [weak self] urls in
             guard let self else { return false }
-            // 그림은 이미지 레이어로, RAW·폴더는 창에 놓은 것처럼 연다
+            // Images become image layers; RAW and folders open as if dropped on the window
             let images = urls.filter(DragFiles.isLayerImage)
             if self.photo != nil, !images.isEmpty { return self.dropImageLayers(images) }
             guard let u = urls.first else { return false }

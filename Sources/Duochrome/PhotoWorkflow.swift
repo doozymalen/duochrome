@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import Accelerate
 import simd
 
-// MARK: - 불러오기 (복사·이동·제자리, 백업, 이름 규칙, 날짜 폴더, 스타일·키워드)
+// MARK: - Import (copy / move / in place, backup, naming, date folders, styles, keywords)
 
 enum PhotoImporter {
     struct Options {
@@ -14,9 +14,9 @@ enum PhotoImporter {
         var mode: Mode = .inPlace
         var destination: URL?
         var backup: URL?
-        /// 비었으면 원래 이름. {이름} {날짜} {시각} {번호} {카메라}
+        /// Empty keeps the original name. {이름} {날짜} {시각} {번호} {카메라}
         var namePattern = ""
-        /// 날짜별 하위 폴더 (yyyy-MM-dd)
+        /// Per-date subfolder (yyyy-MM-dd)
         var dateFolders = false
         var includeSubfolders = true
         var style: String?
@@ -73,7 +73,7 @@ enum PhotoImporter {
                 if fm.fileExists(atPath: dst.path) { r.skipped += 1; continue }
                 do {
                     if o.mode == .move { try fm.moveItem(at: src, to: dst) } else { try fm.copyItem(at: src, to: dst) }
-                    // 사이드카도 같이
+                    // sidecars too
                     let side = src.deletingPathExtension().appendingPathExtension("xmp")
                     if fm.fileExists(atPath: side.path) {
                         let sd = dst.deletingPathExtension().appendingPathExtension("xmp")
@@ -90,7 +90,7 @@ enum PhotoImporter {
             }
             r.imported.append(dst)
         }
-        // 카탈로그 등록 (한 번의 가져오기 묶음)
+        // Catalog registration (one import batch)
         let folders = Set(r.imported.map { $0.deletingLastPathComponent() })
         guard let batch = try? catalog.nextBatch() else { return r }
         let now = Date().timeIntervalSince1970
@@ -167,7 +167,7 @@ extension MainWindowController {
 
     func runImport(_ o: PhotoImporter.Options) {
         let res = PhotoImporter.run(o, catalog: library.catalog) { [weak self] s in self?.window?.subtitle = "불러오는 중 " + s }
-        // 불러오며 스타일·키워드·XMP
+        // Styles, keywords, XMP on import
         library.show(.recentImport)
         let items = library.items
         if let style = o.style, let data = try? Data(contentsOf: Self.stylesFolder.appendingPathComponent("\(style).json")),
@@ -181,7 +181,7 @@ extension MainWindowController {
         window?.subtitle = "\(res.imported.count)장 불러옴" + (res.skipped > 0 ? ", 이미 있어 건너뜀 \(res.skipped)" : "") + (res.errors.isEmpty ? "" : ", 오류 \(res.errors.count)")
     }
 
-    // MARK: - 여러 장 같이 보정
+    // MARK: - Multi-photo editing
 
     var multiEdit: Bool {
         get { UserDefaults.standard.bool(forKey: "multiEdit") }
@@ -193,7 +193,7 @@ extension MainWindowController {
         window?.subtitle = multiEdit ? "여러 장 같이 보정: 필름스트립에서 ⌘·⇧로 여러 장을 고르면 조정이 모두에 들어갑니다" : (photoItem?.name ?? "")
     }
 
-    /// 지금 사진에서 바뀐 값(사진마다 다른 것 빼고)을 같이 고른 다른 사진에도 적는다
+    /// Writes values changed on the current photo (excluding per-photo ones) to the other selected photos too
     func propagateMultiEdit(from before: DevelopSettings, to after: DevelopSettings) {
         guard multiEdit, let cur = photoItem else { return }
         let others = (mode == .library ? libraryMode.grid.selectedItems : browser.selectedItems).filter { $0 !== cur && !$0.offline }
@@ -215,9 +215,9 @@ extension MainWindowController {
         }
     }
 
-    // MARK: - 스타일 브러시 (스타일을 붓으로 칠하기)
+    // MARK: - Style brush (painting a style with a brush)
 
-    /// 스타일 값을 레이어 조정으로 옮긴 브러시 레이어를 만들고 마스크 붓을 든다
+    /// Makes a brush layer carrying the style values as layer adjustments and picks up the mask brush
     @objc func styleBrush(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
         let names = Self.styleNames()
@@ -243,7 +243,7 @@ extension MainWindowController {
         enterTool(.mask)
     }
 
-    /// 스타일(전역 조정 사전) → 레이어 조정. 색온도는 지금 값과의 차이를 레이어 단위(−100~100)로.
+    /// Style (global adjustment dictionary) → layer adjustments. Temperature as the difference from the current value, in layer units (−100–100).
     static func localAdjust(fromStyle d: [String: Any], current: DevelopSettings) -> LocalAdjust {
         var a = LocalAdjust()
         func f(_ k: String) -> Float? { (d[k] as? NSNumber)?.floatValue }
@@ -261,7 +261,7 @@ extension MainWindowController {
         return a
     }
 
-    // MARK: - 룩 맞추기 (기준 사진의 색감에 맞추기) — Reinhard 색 옮기기(Lab 평균·표준편차)
+    // MARK: - Match look (to a reference photo's colors) — Reinhard color transfer (Lab mean and standard deviation)
 
     static func labStats(_ img: CIImage) -> [Float] {
         let small = img.transformed(by: .init(scaleX: 256 / max(img.extent.width, 1), y: 256 / max(img.extent.width, 1)))
@@ -281,7 +281,7 @@ extension MainWindowController {
         return [mean.x, mean.y, mean.z, sd.x, sd.y, sd.z]
     }
 
-    /// 기준 통계(ref)에 맞추는 색 함수 (sRGB → sRGB). 강도 0~1.
+    /// Color function matching the reference statistics (ref) (sRGB → sRGB). Strength 0–1.
     static func lookTransfer(from src: [Float], to ref: [Float], strength: Float = 1) -> PSDAdjust.Fn {
         { v in
             let lab = PSDAdjust.toLab(v)
@@ -307,7 +307,7 @@ extension MainWindowController {
             let a = NSAlert(); a.messageText = "먼저 기준 사진을 정하세요"; a.informativeText = "기준으로 삼을 사진을 열고 사진 → 룩 맞추기 기준으로 삼기."; a.runModal(); return
         }
         var s = doc.settings
-        // 레이어 없이 본 지금 사진의 색
+        // colors of the current photo viewed without layers
         var bare = s; bare.layers = []
         doc.settings = bare
         let src = Self.labStats(doc.image(scale: 1.0 / 8))
@@ -321,7 +321,7 @@ extension MainWindowController {
         layersTab.select(l.id)
     }
 
-    // MARK: - 노멀라이즈 (특정 색을 기준색으로)
+    // MARK: - Normalize (a specific color to a reference color)
 
     @objc func pickNormalizeReference(_ sender: Any?) {
         colorPickPurpose = 20
@@ -336,13 +336,13 @@ extension MainWindowController {
         window?.subtitle = "노멀라이즈: 기준색으로 맞출 곳을 누르세요"
     }
 
-    /// 스포이트가 집은 색 (화면 값)
+    /// Color picked by the eyedropper (display values)
     func normalizePicked(_ c: SIMD3<Float>) {
         if colorPickPurpose == 20 {
             UserDefaults.standard.set([c.x, c.y, c.z], forKey: "normalize.reference")
             window?.subtitle = String(format: "노멀라이즈 기준색 R %.0f G %.0f B %.0f", c.x * 255, c.y * 255, c.z * 255)
         } else if let r = UserDefaults.standard.array(forKey: "normalize.reference") as? [Float], r.count == 3, var s = photo?.settings {
-            // 선형 값의 비로 채널마다 곱한다 (채널 혼합 대각)
+            // Multiply each channel by the ratio of linear values (channel mixer diagonal)
             func lin(_ x: Float) -> Float { pow(max(x, 1e-4), 2.2) }
             let g = (0 ..< 3).map { min(max(lin(r[$0]) / lin(c[$0]), 0.2), 5) }
             var l = AdjustLayer(name: "노멀라이즈")
@@ -356,14 +356,14 @@ extension MainWindowController {
     }
 }
 
-// MARK: - 교정쇄 프로파일 (프린터·CMYK 등 아무 ICC)
+// MARK: - Proof profile (any ICC: printer, CMYK, etc.)
 
 enum ProofProfile {
     static var current: URL? {
         get { UserDefaults.standard.string(forKey: "proof.profile").map { URL(fileURLWithPath: $0) } }
         set { UserDefaults.standard.set(newValue?.path, forKey: "proof.profile"); cached = nil }
     }
-    private static var cached: (Data, Data)?   // (교정 LUT, 색역 밖 표시 LUT)
+    private static var cached: (Data, Data)?   // (proof LUT, out-of-gamut indicator LUT)
 
     static func available() -> [URL] {
         var out: [URL] = []
@@ -377,7 +377,7 @@ enum ProofProfile {
         return out.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    /// sRGB → 프로파일 → sRGB 왕복 LUT (17³). 색역 밖이면 두 번째 LUT가 1.
+    /// sRGB → profile → sRGB round-trip LUT (17³). The second LUT is 1 where out of gamut.
     static func luts(_ url: URL, n: Int = 17) -> (Data, Data)? {
         if let c = cached { return c }
         guard let icc = try? Data(contentsOf: url), let space = CGColorSpace(iccData: icc as CFData) else { return nil }
@@ -450,7 +450,7 @@ extension MainWindowController {
     }
 }
 
-// MARK: - 인쇄
+// MARK: - Printing
 
 final class PrintImageView: NSView {
     let image: CGImage

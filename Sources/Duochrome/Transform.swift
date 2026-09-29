@@ -1,12 +1,12 @@
 import AppKit
 
-/// 자유 변형 틀 (⌘T): 이미지 레이어의 자리·크기·회전을 사진 위에서 바꾼다.
-/// 모서리: 비율 지키며 크기 (⇧ 비율 자유) · 변 가운데: 한쪽만 · 안: 옮기기 · 바깥: 돌리기 (⇧ 15°) · 리턴 확정 · esc 취소.
-/// 계산은 모두 원본 좌표에서 한다 (형태 보정이 있어도 사진에 붙어 움직인다).
+/// Free transform frame (⌘T): changes an image layer's position, size, and rotation over the photo.
+/// Corners: scale keeping aspect (⇧ free aspect) · edge midpoints: one side · inside: move · outside: rotate (⇧ 15°) · Return confirms · esc cancels.
+/// All math is in source coordinates (sticks to the photo even with geometry corrections).
 final class TransformOverlayView: NSView {
     weak var canvas: CanvasView?
     var image: LayerImage? { didSet { needsDisplay = true } }
-    /// 그림 원래 비율 (세로/가로)
+    /// Image's original aspect (height/width)
     var aspect: Double = 1
     var toView: ((CGPoint) -> CGPoint)?
     var fromView: ((CGPoint) -> CGPoint)?
@@ -24,7 +24,7 @@ final class TransformOverlayView: NSView {
 
     private func height(_ im: LayerImage) -> Double { im.height ?? im.width * aspect }
 
-    /// 원본 좌표의 네 모서리 (왼아래, 오른아래, 오른위, 왼위)와 변 가운데 넷
+    /// Four corners in source coordinates (bottom-left, bottom-right, top-right, top-left) and four edge midpoints
     private func points(_ im: LayerImage) -> (corners: [CGPoint], edges: [CGPoint]) {
         let a = im.rotation * .pi / 180
         let hw = im.width / 2, hh = height(im) / 2
@@ -83,7 +83,7 @@ final class TransformOverlayView: NSView {
         let q = fromView(convert(event.locationInWindow, from: nil))
         var im = s0
         let a = s0.rotation * .pi / 180
-        // 원본 좌표 → 틀 안쪽 좌표 (돌림을 푼다)
+        // source coordinates → frame-local coordinates (undo rotation)
         func local(_ p: CGPoint) -> CGPoint {
             let dx = p.x - s0.cx, dy = p.y - s0.cy
             return CGPoint(x: dx * cos(a) + dy * sin(a), y: -dx * sin(a) + dy * cos(a))
@@ -104,13 +104,13 @@ final class TransformOverlayView: NSView {
             while deg <= -180 { deg += 360 }
             im.rotation = deg
         case .corner(let i):
-            // 맞은편 모서리를 고정한다
+            // pin the opposite corner
             let sx: Double = [-1, 1, 1, -1][i], sy: Double = [-1, -1, 1, 1][i]
             let opp = CGPoint(x: -sx * hw, y: -sy * hh)
             let l = local(q)
             var w = max(abs(l.x - opp.x), 4), h = max(abs(l.y - opp.y), 4)
             if !event.modifierFlags.contains(.shift) {
-                // 비율 유지: 대각선에 투영한 길이로
+                // Keep aspect: by length projected onto the diagonal
                 let diag = CGPoint(x: sx * 2 * hw, y: sy * 2 * hh)
                 let len2 = diag.x * diag.x + diag.y * diag.y
                 let k = max(((l.x - opp.x) * diag.x + (l.y - opp.y) * diag.y) / len2, 0.01)
@@ -125,7 +125,7 @@ final class TransformOverlayView: NSView {
             var w = 2 * hw, h = 2 * hh
             var shift = CGPoint.zero
             switch i {
-            case 0: h = max(hh - l.y, 4); shift = CGPoint(x: 0, y: hh - h / 2)      // 아래 변: 위 변 고정
+            case 0: h = max(hh - l.y, 4); shift = CGPoint(x: 0, y: hh - h / 2)      // bottom edge: top edge fixed
             case 2: h = max(l.y + hh, 4); shift = CGPoint(x: 0, y: -hh + h / 2)
             case 1: w = max(l.x + hw, 4); shift = CGPoint(x: -hw + w / 2, y: 0)
             default: w = max(hw - l.x, 4); shift = CGPoint(x: hw - w / 2, y: 0)
@@ -141,7 +141,7 @@ final class TransformOverlayView: NSView {
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 36, 76: onCommit?()     // 리턴
+        case 36, 76: onCommit?()     // Return
         case 53: onCancel?()         // esc
         default: super.keyDown(with: event)
         }
@@ -149,7 +149,7 @@ final class TransformOverlayView: NSView {
 }
 
 extension MainWindowController {
-    /// 자유 변형 (⌘T): 고른 이미지 레이어에 틀을 띄운다.
+    /// Free transform (⌘T): shows the frame on the selected image layer.
     @objc func freeTransform(_ sender: Any?) {
         guard let doc = photo, let id = layersTab.selectedID,
               let layer = doc.settings.layers.first(where: { $0.id == id }), let im = layer.image,
@@ -171,7 +171,7 @@ extension MainWindowController {
         o.onChange = { [weak self] newImage, dragging in
             guard let self, var s = self.photo?.settings, let i = s.layers.firstIndex(where: { $0.id == id }) else { return }
             s.layers[i].image = newImage
-            // 끄는 동안은 가볍게, 손을 떼면 기록 없이 적용 (확정할 때 한 번만 기록)
+            // Light while dragging; on release apply without recording (recorded once on confirm)
             self.photo?.draft = dragging
             self.photo?.settings = s
             self.canvas.needsDisplay = true
@@ -180,7 +180,7 @@ extension MainWindowController {
             guard let self, let doc = self.photo else { return }
             var s = doc.settings
             if !keep { s = before }
-            doc.settings = before          // 기록이 "변형 전 → 후"가 되게
+            doc.settings = before          // so the history entry is "before transform → after"
             self.enterTool(previousTool == .transform ? .pan : previousTool)
             if keep {
                 self.replaceSettings(s, recordUndo: true, label: "자유 변형")

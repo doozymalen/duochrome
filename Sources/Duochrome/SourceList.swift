@@ -1,7 +1,7 @@
 import AppKit
 
-/// 카탈로그의 사진 묶음 목록.
-/// 카탈로그 · 폴더 · 앨범 세 갈래. 라이브러리 모드 왼쪽과 편집 모드의 라이브러리 탭에서 같이 쓴다.
+/// Catalog collection list.
+/// Three sections: catalog, folders, albums. Shared by library mode's left side and edit mode's library tab.
 final class SourceListController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate {
     final class Node {
         let title: String
@@ -18,14 +18,14 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
 
     var catalog: Catalog!
     var onSelect: ((Catalog.Source, String) -> Void)?
-    /// 사진을 앨범에 끌어 놓았을 때 (사진 경로들, 앨범 번호)
+    /// When photos are dropped on an album (photo paths, album id)
     var onDropPhotos: (([String], Int64) -> Void)?
-    /// 앨범 메뉴 (새 앨범·이름 바꾸기·삭제)
+    /// Album menu (new album, rename, delete)
     var onAlbumsChanged: (() -> Void)?
 
     private let outline = NSOutlineView()
     private var roots: [Node] = []
-    /// 코드로 고르는 중. 이때 알리면 "고름 → 다시 채움 → 고름"이 끝없이 돈다.
+    /// Selecting from code. Notifying now would loop forever: "select → refill → select".
     private var programmatic = false
 
     override func loadView() {
@@ -34,7 +34,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
         outline.outlineTableColumn = col
         outline.headerView = nil
         outline.style = .sourceList
-        // sourceList 스타일은 자기 사이드바 바탕을 칠해 유리 패널을 가린다 (라이브러리 탭만 유리가 안 보였다)
+        // The sourceList style paints its own sidebar background and hides the glass panel (only the library tab lacked glass)
         outline.backgroundColor = .clear
         outline.rowSizeStyle = .default
         outline.dataSource = self
@@ -84,7 +84,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
             }
         }
         albums.children = build(nil)
-        // 키워드 (계층)
+        // keywords (hierarchy)
         let kw = Node("키워드", "", nil)
         let kws = catalog.allKeywords()
         func kbuild(_ parent: Int64?) -> [Node] {
@@ -119,7 +119,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
         if row >= 0 { outline.selectRowIndexes([row], byExtendingSelection: false); outline.scrollRowToVisible(row) }
     }
 
-    // MARK: - 개요 보기
+    // MARK: - Outline view
 
     func outlineView(_ o: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
         (item as? Node)?.children.count ?? roots.count
@@ -165,7 +165,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
         return cell
     }
 
-    // 사진을 앨범 위에 놓으면 그 앨범에 넣는다
+    // Dropping photos on an album adds them to it
     func outlineView(_ o: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
         guard info.draggingPasteboard.string(forType: .duochromePhotos) != nil,
               let node = item as? Node, case .album = node.source else { return [] }
@@ -186,7 +186,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
         onSelect?(s, node.title)
     }
 
-    // MARK: - 앨범 메뉴
+    // MARK: - Album menu
 
     private func albumMenu() -> NSMenu {
         let m = NSMenu()
@@ -218,7 +218,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
         return a.runModal() == .alertFirstButtonReturn && !field.stringValue.isEmpty ? field.stringValue : nil
     }
 
-    /// 고른 곳이 그룹이면 그 안에, 앨범이면 같은 그룹에 만든다.
+    /// If a group is selected, create inside it; if an album, in the same group.
     private var parentForNew: Int64? {
         guard let node = clickedAlbum, let id = node.albumID,
               let a = (try? catalog.albums())?.first(where: { $0.id == id }) else { return nil }
@@ -282,7 +282,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
     }
 }
 
-/// 스마트 앨범 조건 고르기 (알림 창 하나에 칸들)
+/// Smart album criteria picker (fields in a single alert)
 enum SmartRuleEditor {
     static func run(name: String, rule: Catalog.SmartRule) -> (String, Catalog.SmartRule)? {
         let a = NSAlert()

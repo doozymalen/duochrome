@@ -1,14 +1,14 @@
 import AppKit
 import CoreImage
 
-// MARK: - AI 2·3단계: 보이지 않는 AI 엔진으로 — 제거·스마트 지우기, 생성형 채우기·확장, 노이즈 제거, 2배 확대
-// 사진 전체가 아니라 필요한 부분만 잘라 보내고, 결과는 새 레이어로 (원본은 그대로, 되돌리기 가능).
+// MARK: - AI stages 2–3: via the invisible AI engine — remove/smart erase, generative fill/expand, denoise, 2× upscale
+// Send only the needed crop, not the whole photo; results go to a new layer (original untouched, undoable).
 
 enum AIWorkflows {
     static let checkpoint = "RealVisXL_V5.0_fp16.safetensors"
     static let negative = "blurry, lowres, text, watermark, logo, signature, deformed, cartoon, painting, frame, border"
 
-    /// 지우기 (칠한 곳을 둘레로 자연스럽게)
+    /// Erase (fill painted area naturally from its surroundings)
     static func remove(image: String, mask: String) -> [String: Any] {
         [
             "1": ["class_type": "LoadImage", "inputs": ["image": image]],
@@ -19,7 +19,7 @@ enum AIWorkflows {
         ]
     }
 
-    /// 생성형 채우기 (사진풍 모델 + 빠른 8단계 + 채우기 보조)
+    /// Generative fill (photoreal model + fast 8 steps + inpaint helper)
     static func fill(image: String, mask: String, prompt: String, seed: Int, steps: Int = 8) -> [String: Any] {
         [
             "1": ["class_type": "CheckpointLoaderSimple", "inputs": ["ckpt_name": checkpoint]],
@@ -40,7 +40,7 @@ enum AIWorkflows {
         ]
     }
 
-    /// 플럭스 필 채우기 (코랩): 공개 모델 중 채우기·확장 품질이 가장 좋다. L4·T4는 8비트로 실어 메모리 안에
+    /// FLUX Fill (Colab): best fill/expand quality among open models. Loaded in 8-bit on L4/T4 to fit memory
     static func fluxFill(image: String, mask: String, prompt: String, seed: Int, steps: Int = 24, fp8: Bool) -> [String: Any] {
         [
             "1": ["class_type": "UNETLoader", "inputs": ["unet_name": "flux1-fill-dev.safetensors", "weight_dtype": fp8 ? "fp8_e4m3fn" : "default"]],
@@ -61,7 +61,7 @@ enum AIWorkflows {
         ]
     }
 
-    /// 반사 제거 (DSIT, Duochrome 전용 부품)
+    /// Reflection removal (DSIT, Duochrome custom node)
     static func reflection(image: String) -> [String: Any] {
         [
             "1": ["class_type": "LoadImage", "inputs": ["image": image]],
@@ -70,7 +70,7 @@ enum AIWorkflows {
         ]
     }
 
-    /// 모델 하나로 그림 처리 (노이즈 제거 1배, 확대 2배). 엔진이 조각으로 나눠 처리한다
+    /// Image processing with a single model (denoise 1×, upscale 2×). The engine tiles the work
     static func imageModel(image: String, model: String) -> [String: Any] {
         [
             "1": ["class_type": "LoadImage", "inputs": ["image": image]],
@@ -84,7 +84,7 @@ enum AIWorkflows {
 enum AIRegion {
     static let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
 
-    /// 흑백 마스크(원본 좌표)에서 흰 곳을 감싼 상자
+    /// Bounding box of the white area in a grayscale mask (source coordinates)
     static func bounds(of mask: CIImage) -> CGRect? {
         let e = mask.extent
         let k = min(1, 512 / max(e.width, e.height))
@@ -99,12 +99,12 @@ enum AIRegion {
             minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
         } }
         guard maxX >= 0 else { return nil }
-        // 메모리 0행이 위쪽 → 아래가 0인 좌표로
+        // Memory row 0 is the top → coordinates with bottom at 0
         return CGRect(x: CGFloat(minX) / k + e.minX, y: CGFloat(h - 1 - maxY) / k + e.minY,
                       width: CGFloat(maxX - minX + 1) / k, height: CGFloat(maxY - minY + 1) / k)
     }
 
-    /// 붓질 점과 붓 크기로 감싼 상자 (그리지 않고)
+    /// Bounding box of brush points and brush size (without rendering)
     static func strokeBounds(_ strokes: [MaskStroke]) -> CGRect? {
         var r: CGRect?
         for s in strokes {
@@ -117,8 +117,8 @@ enum AIRegion {
         return r
     }
 
-    /// 원본 좌표 흑백 마스크(어디든 일부만 있어도 됨, 없는 곳은 검정)를 1/4 크기 그림으로 레이어 그림 폴더에 저장.
-    /// 이미지 마스크는 불러올 때 원본 크기로 늘어나므로 원본 크기로 저장할 까닭이 없다 (8K 사진에서 수 초 → 수십 ms)
+    /// Saves a source-coordinate grayscale mask (may cover only part; missing areas are black) at quarter size into the layer image folder.
+    /// Image masks are upscaled to source size on load, so there's no reason to store full size (8K photo: seconds → tens of ms)
     static func storeMask(_ m: CIImage, native n: CGSize) -> String? {
         let k: CGFloat = 0.25
         let size = CGRect(x: 0, y: 0, width: (n.width * k).rounded(), height: (n.height * k).rounded())
@@ -128,14 +128,14 @@ enum AIRegion {
         return try? LayerImageStore.importData(png, ext: "png")
     }
 
-    /// 막지 않는 안내: 작업 진행 창에 몇 초 보인다
+    /// Non-blocking notice: shown in the jobs panel for a few seconds
     static func notice(_ title: String, _ detail: String) {
         let key = "notice-\(UUID().uuidString)"
         JobCenter.shared.begin(key, title: title, detail: detail)
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { JobCenter.shared.end(key) }
     }
 
-    /// 아주 높은 품질 JPEG (코랩으로 원본 전체를 보낼 때)
+    /// Very high quality JPEG (when sending the whole source to Colab)
     static func jpeg(_ img: CIImage) -> Data? {
         Render.context.jpegRepresentation(of: img, colorSpace: srgb, options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.97])
     }
@@ -146,7 +146,7 @@ enum AIRegion {
                     : Render.context.pngRepresentation(of: img.cropped(to: r), format: .RGBA8, colorSpace: srgb)
     }
 
-    /// 조각을 원점으로 옮기고 긴 변을 최대 `limit`로 (8의 배수)
+    /// Moves a crop to the origin and limits the long side to `limit` (multiple of 8)
     static func prepare(_ img: CIImage, region r: CGRect, limit: CGFloat) -> (CIImage, CGFloat) {
         var k = min(1, limit / max(r.width, r.height))
         let w = max(8, (r.width * k / 8).rounded() * 8), h = max(8, (r.height * k / 8).rounded() * 8)
@@ -158,18 +158,18 @@ enum AIRegion {
 }
 
 extension MainWindowController {
-    // MARK: 공통: 엔진 일을 뒤에서 하고 결과를 레이어로
+    // MARK: Shared: run engine work in the background and turn results into layers
 
-    /// 무거운 생성 일: 설정에 따라 코랩(기본 L4) 또는 이 맥 엔진으로. inputs: (이름, 자료), 작업 흐름은 그 이름을 입력으로 쓴다
+    /// Heavy generative work: Colab (L4 by default) or the local engine per settings. inputs: (name, data); the workflow references those names
     static func heavyAI(_ title: String, inputs: [(String, Data)], jpeg: Bool = false,
                         remote: (_ fp8: Bool) -> [String: Any], local: (_ names: [String]) -> [String: Any]) throws -> Data {
         if AIRemote.current != .local, ColabEngine.shared.usable {
             let c = ColabEngine.shared
             do {
-                // 카드는 켜 봐야 알므로 8비트 여부는 원하는 카드로 (A100만 원래 정밀도)
+                // The GPU is only known after starting, so 8-bit follows the requested GPU (only A100 at full precision)
                 return try c.run(remote(AIRemote.current != .colabA100 || c.gpu == "T4"), inputs: inputs, title: title, jpeg: jpeg)
             } catch {
-                // 기본은 코랩, 예비는 이 맥: 코랩이 안 되면 이 맥 엔진으로 이어서 한다
+                // Colab by default, local as fallback: if Colab fails, continue on the local engine
                 c.markUnavailable(error.localizedDescription)
                 AIRegion.notice("코랩 연결 안 됨 → 이 맥에서 \(title)", error.localizedDescription)
                 JobCenter.shared.detail("ai-\(title)", "이 맥에서 처리 중 (코랩 안 됨)")
@@ -183,17 +183,17 @@ extension MainWindowController {
         return out
     }
 
-    /// AI가 볼 사진 층의 끝: 첫 글자·도형 레이어 아래까지 (글자·도형은 화면 좌표에 따로 그려져,
-    /// 결과 그림에 굳혀 넣으면 어긋나 겹쳐 보였다. 그 위 레이어는 결과 위에 그대로 남는다)
+    /// End of the photo stack the AI sees: up to below the first text/shape layer (text and shapes draw in view coordinates separately,
+    /// so baking them into the result misaligned them. Layers above stay on top of the result)
     var aiLayerCut: Int {
         let ls = photo?.settings.layers ?? []
         return ls.firstIndex { $0.kind == "text" || $0.kind == "shape" } ?? ls.count
     }
 
-    /// 원본 좌표 원본 크기 합성 그림 (사진 층 레이어까지, 형태 보정 없이)
+    /// Full-size composite in source coordinates (up to the photo-stack layers, no geometry corrections)
     func nativeComposite() -> CIImage? { rasterize(Array((photo?.settings.layers ?? []).prefix(aiLayerCut)), withPhoto: true) }
 
-    /// 결과 조각(원본 좌표 r 자리)을 이미지 레이어로 넣고, 마스크(원본 좌표 흑백)가 있으면 그 모양만 보이게
+    /// Inserts the result crop (at r in source coordinates) as an image layer, showing only the mask shape if a mask (source grayscale) is given
     func placeAIResult(_ result: CIImage, region r: CGRect, name: String, mask: String?) {
         guard var s = photo?.settings else { return }
         let fitted = result.transformed(by: .init(scaleX: r.width / result.extent.width, y: r.height / result.extent.height))
@@ -204,14 +204,14 @@ extension MainWindowController {
         l.kind = "image"
         l.image = LayerImage(file: file, cx: Double(r.midX), cy: Double(r.midY), width: Double(r.width))
         if let mask { l.mask.kind = .image; l.mask.maskFile = mask }
-        // 사진 층 바로 위 (글자·도형 레이어 아래)
+        // Right above the photo stack (below text/shape layers)
         s.layers.insert(l, at: min(aiLayerCut, s.layers.count))
         replaceSettings(s, recordUndo: true, label: name)
         layersTab.select(l.id)
         if mode == .studio { studioMode.layersPanel.reload() }
     }
 
-    /// 엔진 일을 뒤에서 (진행 창에 표시), 실패하면 알림
+    /// Runs engine work in the background (shown in the jobs panel), alerts on failure
     func runAI(_ title: String, _ work: @escaping () throws -> Void) {
         JobCenter.shared.begin("ai-\(title)", title: title)
         DispatchQueue.global(qos: .userInitiated).async {
@@ -221,7 +221,7 @@ extension MainWindowController {
                     print("AI 시험 실패: \(title): \(error.localizedDescription)")
                     ColabEngine.shared.stop("시험 실패")
                     AIEngine.shared.stop()
-                    // 시험이 더한 레이어를 되돌린다 (남으면 다음 시험이 무거운 레이어를 이고 돌았다)
+                    // Revert layers the test added (left behind, the next test ran with heavy layers)
                     DispatchQueue.main.sync { MainWindowController.fieldTestAbort?() }
                     exit(1)
                 }
@@ -232,20 +232,20 @@ extension MainWindowController {
         }
     }
 
-    // MARK: 제거 (칠한 곳 지우기) · 스마트 지우기
+    // MARK: Remove (erase painted area) · Smart erase
 
-    /// 원본 좌표 붓질로 칠한 곳을 지운다. smart면 칠한 곳과 색이 비슷한 둘레까지 넓힌다
-    /// 빠르게: 칠한 둘레만 계산하고, 그리기·저장·엔진 일은 모두 뒤에서 (주 스레드는 그림 설계만)
+    /// Erases the area painted with source-coordinate strokes. With smart, expands to similar-colored surroundings
+    /// Fast: compute only the painted bounds; rendering, saving, and engine work all happen in the background (main thread only plans)
     func aiRemove(strokes: [MaskStroke], smart: Bool) {
         guard let doc = photo, !strokes.isEmpty, let composite = nativeComposite() else { NSSound.beep(); return }
         let n = doc.nativeSize
         let full = CGRect(origin: .zero, size: n)
         let brush = Layers.brushMask(strokes, scale: 1, native: n)
-        // 칠한 곳 상자: 점과 붓 크기로 바로 (그림을 그려 찾지 않는다)
+        // Painted box: directly from points and brush size (no rendering to find it)
         guard var box = AIRegion.strokeBounds(strokes)?.intersection(full), !box.isEmpty else { NSSound.beep(); return }
         let grow: CGFloat = smart ? 40 : 0
         box = box.insetBy(dx: -grow, dy: -grow).intersection(full)
-        // 둘레를 넉넉히 (지우기는 주변을 보고 채운다)
+        // Generous margin (erase fills by looking at the surroundings)
         let pad = max(64, max(box.width, box.height) * 0.6)
         let r = box.insetBy(dx: -pad, dy: -pad).intersection(full).integral
         let title = smart ? "스마트 지우기" : "지우기"
@@ -254,7 +254,7 @@ extension MainWindowController {
             let (img, _) = AIRegion.prepare(composite, region: r, limit: 1536)
             let (m, _) = AIRegion.prepare(mask, region: r, limit: 1536)
             guard let imgPNG = AIRegion.png(img), let maskPNG = AIRegion.png(m, gray: true) else { throw AIEngine.Failure(message: "그림을 만들지 못함") }
-            // 레이어 마스크: 칠한 곳을 조금 넓혀 부드럽게, 1/4 크기로 저장 (불러올 때 원본 크기로 늘어난다)
+            // Layer mask: painted area slightly grown and feathered, saved at quarter size (upscaled to source size on load)
             let soft = mask.cropped(to: r).clampedToExtent().applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: 6]).blurred(4).cropped(to: r)
             let maskFile = AIRegion.storeMask(soft, native: n)
             let e = AIEngine.shared
@@ -265,12 +265,12 @@ extension MainWindowController {
         }
     }
 
-    /// 스마트 지우기: 칠한 곳의 평균 색과 비슷한, 칠한 곳 둘레 40px 안의 화소까지. 계산은 work 상자 안에서만
+    /// Smart erase: pixels similar to the painted area's mean color within 40 px around it. Computed only inside the work box
     static func smartExpand(_ mask: CIImage, image: CIImage, work: CGRect) -> CIImage {
         let e = work
         let m = mask.cropped(to: e)
         let ring = m.clampedToExtent().applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: 40]).cropped(to: e)
-        // 칠한 곳의 평균 색 (가중 평균: 마스크 곱의 평균 / 마스크 평균). 긴 변 512로 줄여 잰다
+        // Mean color of the painted area (weighted: mean of mask product / mask mean). Measured at 512 on the long side
         let k = min(1, 512 / max(e.width, e.height))
         func avg(_ i: CIImage) -> [Float] {
             var p = [Float](repeating: 0, count: 4)
@@ -297,9 +297,9 @@ extension MainWindowController {
     }
     """)
 
-    // MARK: 생성형 채우기
+    // MARK: Generative fill
 
-    /// 고른 레이어의 마스크(선택) 안을 글 설명대로 채운다
+    /// Fills inside the selected layer's mask (selection) according to the text prompt
     func aiGenerativeFill(prompt: String) {
         guard let doc = photo, let id = layersTab.selectedID, let l = doc.settings.layers.first(where: { $0.id == id }), l.mask.kind != .full || l.mask.vector != nil,
               let composite = nativeComposite() else {
@@ -309,7 +309,7 @@ extension MainWindowController {
         let full = CGRect(origin: .zero, size: n)
         let mask = Layers.maskImage(l.mask, scale: 1, native: n, shape: { i, _ in i }, base: CIImage(color: .gray).cropped(to: full)).cropped(to: full)
         guard let box = AIRegion.bounds(of: mask) else { NSSound.beep(); return }
-        // 둘레를 보고 이어 그리도록 상자의 절반만큼 넓힌다. 생성 모델이 잘 그리는 크기(긴 변 1024)로
+        // Grow the box by half so it continues from the surroundings. At the size the model draws best (1024 long side)
         let pad = max(96, max(box.width, box.height) * 0.5)
         let r = box.insetBy(dx: -pad, dy: -pad).intersection(full).integral
         let seed = Int.random(in: 0..<Int(Int32.max))
@@ -328,7 +328,7 @@ extension MainWindowController {
     }
 
     @objc func generativeFillFromMenu(_ sender: Any?) {
-        startAIEngine()   // 도구를 고르면 켠다 (설명을 적는 동안 준비)
+        startAIEngine()   // Start when the tool is picked (warm up while the prompt is typed)
         let a = NSAlert()
         a.messageText = "생성형 채우기"
         a.informativeText = "선택한 곳을 무엇으로 채울지 적으세요 (영어가 더 잘 듣습니다). 비워 두면 둘레에 맞춰 자연스럽게 채웁니다."
@@ -340,9 +340,9 @@ extension MainWindowController {
         aiGenerativeFill(prompt: f.stringValue)
     }
 
-    // MARK: 생성형 확장 (새 사진으로)
+    // MARK: Generative expand (as a new photo)
 
-    /// 사방을 늘려 새 사진을 만든다: 늘린 곳만 생성하고 가운데는 원본 그대로. 결과는 TIFF로 저장해 연다
+    /// Extends all sides into a new photo: generates only the extension, keeps the center original. Saved and opened as TIFF
     func aiGenerativeExpand(percent: Double, prompt: String) {
         guard let doc = photo else { NSSound.beep(); return }
         let img = doc.withFullResolution { doc.image(scale: 1) }
@@ -351,7 +351,7 @@ extension MainWindowController {
         let big = CGRect(x: 0, y: 0, width: e.width + dx * 2, height: e.height + dy * 2)
         let placed = img.transformed(by: .init(translationX: dx - e.minX, y: dy - e.minY))
         let canvas = placed.composited(over: CIImage(color: .gray).cropped(to: big))
-        // 늘린 곳 = 흰색 (안쪽으로 조금 겹쳐 이음매를 숨긴다)
+        // Extension = white (overlaps inward a little to hide the seam)
         let inner = CGRect(x: dx + 12, y: dy + 12, width: e.width - 24, height: e.height - 24)
         let mask = CIImage(color: .black).cropped(to: inner).composited(over: CIImage(color: .white).cropped(to: big))
         let limit: CGFloat = AIRemote.current == .local ? 1024 : 1344
@@ -366,7 +366,7 @@ extension MainWindowController {
                                        remote: { AIWorkflows.fluxFill(image: "in.png", mask: "mask.png", prompt: prompt, seed: seed, fp8: $0) },
                                        local: { AIWorkflows.fill(image: $0[0], mask: $0[1], prompt: prompt, seed: seed) })
             guard let res = CIImage(data: out) else { throw AIEngine.Failure(message: "결과 그림이 없음") }
-            // 생성한 바깥을 원래 크기로 늘리고, 가운데는 원본 화소를 그대로 (부드럽게 이어서)
+            // Scale the generated border back to full size and keep original pixels in the center (blended)
             let up = res.transformed(by: .init(scaleX: big.width / res.extent.width, y: big.height / res.extent.height)).cropped(to: big)
             let blend = CIImage(color: .white).cropped(to: inner).composited(over: CIImage(color: .black).cropped(to: big)).blurred(10).cropped(to: big)
             let final = placed.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: up, kCIInputMaskImageKey: blend]).cropped(to: big)
@@ -397,16 +397,16 @@ extension MainWindowController {
         aiGenerativeExpand(percent: [10.0, 20, 35, 50][pop.indexOfSelectedItem], prompt: f.stringValue)
     }
 
-    // MARK: 노이즈 제거 · 2배 확대
+    // MARK: Denoise · 2× upscale
 
-    /// AI 노이즈 제거: 원본 크기 합성 그림을 엔진에 보내 조각으로 처리하고, 결과를 사진 전체 레이어로
+    /// AI denoise: sends the full-size composite to the engine for tiled processing, result as a full-photo layer
     @objc func aiDenoise(_ sender: Any?) {
         guard let doc = photo, let composite = nativeComposite() else { NSSound.beep(); return }
         let n = doc.nativeSize
         let r = CGRect(origin: .zero, size: n)
         let remote = AIRemote.current != .local
         runAI("AI 노이즈 제거") { [weak self] in
-            // 원본 전체라 코랩으로는 아주 높은 품질 JPEG로 오간다 (PNG의 약 1/5, 차이는 눈에 안 보임)
+            // Whole source, so Colab round-trips as a very high quality JPEG (~1/5 of PNG, no visible difference)
             guard let input = remote ? AIRegion.jpeg(composite.cropped(to: r)) : AIRegion.png(composite.cropped(to: r)) else { throw AIEngine.Failure(message: "그림을 만들지 못함") }
             let name = remote ? "in.jpg" : "in.png"
             let out = try Self.heavyAI("AI 노이즈 제거", inputs: [(name, input)], jpeg: true,
@@ -417,7 +417,7 @@ extension MainWindowController {
         }
     }
 
-    /// 2배 확대: 지금 모습(원본 크기)을 두 배로 늘린 TIFF를 내보내기 폴더에 만든다
+    /// 2× upscale: writes a TIFF of the current look (source size) doubled, into the export folder
     @objc func aiUpscale2x(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
         let img = doc.withFullResolution { doc.image(scale: 1) }
@@ -440,10 +440,10 @@ extension MainWindowController {
         }
     }
 
-    // MARK: 반사 제거 (유리창)
+    // MARK: Reflection removal (glass)
 
-    /// 유리창 반사를 뺀 사진 전체 레이어를 만든다. 반사는 넓게 번지는 밝기라, 줄인 사진에서 빼고
-    /// 그 차이만 원본 크기로 늘려 더한다 (원본의 세밀한 결은 그대로). 코랩은 긴 변 1536, 이 맥은 1024로
+    /// Creates a full-photo layer with window reflections removed. Reflections are broad luminance, so subtract on a downscaled image
+    /// and add only the difference upscaled to full size (fine source texture intact). Colab long side 1536, this Mac 1024
     @objc func aiRemoveReflection(_ sender: Any?) {
         guard let doc = photo, let composite = nativeComposite() else { NSSound.beep(); return }
         startAIEngine()
@@ -463,7 +463,7 @@ extension MainWindowController {
                     .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: n.width / e.width, kCIInputAspectRatioKey: (n.height / e.height) / (n.width / e.width)])
                     .clampedToExtent().cropped(to: r)
             }
-            // 보낸 그림도 되읽어 빼므로 8비트·색 공간 왕복 차이는 서로 지워진다
+            // The sent image is read back and subtracted too, so 8-bit and color-space round-trip errors cancel out
             guard let final = k.apply(extent: r, arguments: [composite.cropped(to: r), up(res), up(sent)]) else { throw AIEngine.Failure(message: "합치지 못함") }
             DispatchQueue.main.async { self?.placeAIResult(final, region: r, name: "반사 제거", mask: nil) }
         }

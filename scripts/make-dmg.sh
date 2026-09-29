@@ -1,6 +1,6 @@
 #!/bin/bash
-# 릴리스용 DMG: 열면 Duochrome.app과 응용 프로그램 폴더 바로가기가 나란히 있어 끌어 놓으면 설치된다.
-# 보정표는 빼고(DUOCHROME_PUBLIC=1) 새로 빌드한다. 결과: build/Duochrome.dmg
+# Release DMG: opens with Duochrome.app next to an Applications shortcut, so drag-and-drop installs it.
+# Rebuilds without the look tables (DUOCHROME_PUBLIC=1). Output: build/Duochrome.dmg
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$ROOT/build"; APP="$BUILD/Duochrome.app"
@@ -15,13 +15,13 @@ mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/Duochrome.app"
 ln -s /Applications "$STAGE/Applications"
 
-# 같은 이름의 볼륨이 붙어 있으면 창 배치가 엉뚱한 곳에 걸린다
+# If a volume with the same name is mounted, the window layout lands on the wrong one
 [ -d "/Volumes/$VOL" ] && hdiutil detach "/Volumes/$VOL" -quiet || true
 
 hdiutil create -volname "$VOL" -srcfolder "$STAGE" -ov -format UDRW "$RW" -quiet
 DEV="$(hdiutil attach -readwrite -noverify -noautoopen "$RW" | awk '/Apple_HFS|Apple_APFS/ {print $1; exit}')"
 
-# 창 모양: 아이콘 보기, 앱은 왼쪽·응용 프로그램은 오른쪽. Finder 권한이 없으면 건너뛴다 (끌어 놓기는 그대로 된다)
+# Window style: icon view, app on the left, Applications on the right. Skipped without Finder permission (drag-and-drop still works)
 osascript <<EOF || echo "창 배치를 건너뜀 (시스템 설정 → 개인정보 보호 → 자동화에서 터미널의 Finder 제어를 허용하면 적용)"
 tell application "Finder"
   tell disk "$VOL"

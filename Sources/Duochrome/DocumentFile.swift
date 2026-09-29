@@ -1,10 +1,10 @@
 import AppKit
 import CoreImage
 
-/// `.duochrome` 문서: 원본 RAW 경로 + 모든 조정(리터칭 점·레이어 포함) + 미리보기를 한 패키지(폴더)에 담는다.
-/// RAW 파일 자체는 넣지 않는다 (용량 때문). 원본이 옮겨졌으면 열 때 찾아 달라고 묻는다.
+/// `.duochrome` document: source RAW path + all adjustments (including retouch spots and layers) + preview in one package (folder).
+/// The RAW itself isn't included (size). If the source moved, asks to locate it on open.
 ///
-/// 구조: `이름.duochrome/document.json`, `이름.duochrome/preview.jpg`
+/// Layout: `name.duochrome/document.json`, `name.duochrome/preview.jpg`
 enum DuochromeDocument {
     static let ext = "duochrome"
     static let version = 1
@@ -31,7 +31,7 @@ enum DuochromeDocument {
         ]
         try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
             .write(to: url.appendingPathComponent("document.json"))
-        // 이미지 레이어 그림도 같이 담는다 (images/파일이름).
+        // Image layer pictures are included too (images/filename).
         let files = Set(doc.settings.layers.compactMap { $0.image?.file })
         if !files.isEmpty {
             let dir = url.appendingPathComponent("images", isDirectory: true)
@@ -40,7 +40,7 @@ enum DuochromeDocument {
                 try fm.copyItem(at: LayerImageStore.url(f), to: dir.appendingPathComponent(f))
             }
         }
-        // 미리보기: 긴 변 1600px JPEG
+        // Preview: 1600 px long side JPEG
         let img = doc.image(scale: 1.0 / 4)
         let k = min(1, 1600 / max(img.extent.width, img.extent.height))
         let small = img.transformed(by: .init(scaleX: k, y: k))
@@ -56,7 +56,7 @@ enum DuochromeDocument {
               let settings = json["settings"] as? [String: Any] else {
             throw Exporter.Failure(message: "\(url.lastPathComponent)은 Duochrome 문서가 아닙니다")
         }
-        // 담긴 레이어 그림을 그림 폴더로 되돌린다 (이미 있으면 그대로).
+        // Restore bundled layer images to the image folder (keep existing ones).
         let dir = url.appendingPathComponent("images", isDirectory: true)
         for f in (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         where !FileManager.default.fileExists(atPath: LayerImageStore.url(f).path) {
@@ -81,7 +81,7 @@ extension MainWindowController {
         }
     }
 
-    /// 문서를 연다: 원본을 카탈로그에 등록하고, 문서의 조정을 그 사진에 적고, 편집 모드로 연다.
+    /// Opens a document: registers the source in the catalog, writes the document's adjustments to it, and opens edit mode.
     func openDuochromeDocument(_ url: URL) {
         guard let window else { return }
         do {
@@ -110,7 +110,7 @@ extension MainWindowController {
             }
             photoItem = nil
             openFileOrFolder(c.source)
-            // 이미 보던 폴더면 목록을 다시 읽지 않으니, 조정 표시를 직접 고친다.
+            // If the folder is already shown the list isn't reloaded, so fix the adjusted badge directly.
             if let item = library.items.first(where: { $0.url.standardizedFileURL == c.source.standardizedFileURL }) {
                 item.edited = library.hasSettings(for: c.source)
                 item.thumbnail = nil

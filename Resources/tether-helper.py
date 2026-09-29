@@ -1,26 +1,26 @@
-# Duochrome 테더링 도우미: 공개 라이브러리 libgphoto2(python-gphoto2)로 USB에 연결한 카메라를 다룬다.
-# Duochrome과는 표준 입출력으로 JSON 한 줄씩 주고받는다. 유선(USB) 전용.
-#  받는 명령: {"cmd":"connect"} {"cmd":"set","name":"iso","value":"400"} {"cmd":"capture"}
+# Duochrome tether helper: controls a USB-connected camera through libgphoto2 (python-gphoto2).
+# Talks to Duochrome over stdin/stdout, one JSON object per line. Wired (USB) only.
+#  Commands in: {"cmd":"connect"} {"cmd":"set","name":"iso","value":"400"} {"cmd":"capture"}
 #            {"cmd":"live","on":true} {"cmd":"af"} {"cmd":"focus","step":-1} {"cmd":"zoom","value":"5"}
 #            {"cmd":"folder","path":"..."} {"cmd":"quit"}
-#  보내는 소식: connected / config(+caps) / frame(JPEG base64) / file / status / error / disconnected
-#  초점·확대 설정 이름은 회사마다 달라서, 연결할 때 있는 것을 찾아 쓰고 caps로 알린다.
-#  focus step은 음수가 가까이, 양수가 멀리 (1 = 조금, 3 = 크게).
+#  Events out: connected / config(+caps) / frame(JPEG base64) / file / status / error / disconnected
+#  Focus/zoom config names differ by vendor; find the available ones on connect and report them in caps.
+#  focus step: negative is nearer, positive is farther (1 = small, 3 = large).
 import sys, os, json, time, base64, threading, queue, subprocess
 
 try:
     import gphoto2 as gp
-except Exception as e:  # 설치 전
+except Exception as e:  # before install
     print(json.dumps({"ev": "error", "msg": "gphoto2 없음: %s" % e}), flush=True)
     sys.exit(2)
 
 WANTED = ["aperture", "shutterspeed", "iso", "whitebalance", "colortemperature", "exposurecompensation",
           "imageformat", "drivemode", "focusmode", "capturetarget", "batterylevel"]
 
-# 회사마다 다른 설정 이름 (앞에 있는 것부터 찾는다)
-AF_NAMES = ["autofocusdrive", "autofocus"]                        # 캐논·니콘 / 소니
-FOCUS_NAMES = ["manualfocusdrive", "manualfocus"]                 # 캐논(Near/Far 단계)·니콘(범위) / 소니(범위)
-ZOOM_NAMES = ["eoszoom", "liveviewzoomratio", "liveviewzoom"]     # 캐논 / 니콘 등 (고를 수 있는 값일 때만)
+# Vendor-specific config names (first match wins)
+AF_NAMES = ["autofocusdrive", "autofocus"]                        # Canon/Nikon / Sony
+FOCUS_NAMES = ["manualfocusdrive", "manualfocus"]                 # Canon (Near/Far steps), Nikon (range) / Sony (range)
+ZOOM_NAMES = ["eoszoom", "liveviewzoomratio", "liveviewzoom"]     # Canon / Nikon etc. (only when it is a choice)
 CHOICE_TYPES = (gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU)
 
 out_lock = threading.Lock()
@@ -56,7 +56,7 @@ class Tether:
         self.auto = False
         self.last_try = 0.0
 
-    # macOS의 사진 가져오기 데몬(ptpcamerad)이 카메라를 먼저 잡으면 USB를 열 수 없다 → 잠시 끄고 연다
+    # If macOS's photo import daemon (ptpcamerad) grabs the camera first, USB can't be opened → stop it briefly, then open
     def _free_usb(self):
         subprocess.run(["killall", "-9", "ptpcamerad"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -165,7 +165,7 @@ class Tether:
             raise ValueError("이 카메라는 원격 수동 초점을 지원하지 않습니다")
         n = min(abs(step), 3)
         if w.get_type() in CHOICE_TYPES:
-            # 캐논: "Near 1"~"Near 3", "Far 1"~"Far 3", 멈춤 "None"
+            # Canon: "Near 1"–"Near 3", "Far 1"–"Far 3", stop is "None"
             ch = self._choices(w)
             word = "Near" if step < 0 else "Far"
             opts = sorted(c for c in ch if c.startswith(word))
@@ -175,9 +175,9 @@ class Tether:
         else:
             lo, hi, _ = w.get_range()
             if hi <= 10:
-                v = n                           # 소니: 1~7이 한 번 움직이는 크기
+                v = n                           # Sony: 1–7 is the size of one move
             else:
-                v = 30 if n == 1 else 300       # 니콘: 모터 걸음 수
+                v = 30 if n == 1 else 300       # Nikon: motor steps
             v = max(lo, min(hi, -v if step < 0 else v))
             self._press(w, cfg, float(v), 0.0 if lo <= 0 <= hi else float(v))
 
@@ -225,7 +225,7 @@ class Tether:
             emit("status", msg="촬영 중…")
             path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
             self.download(path)
-            # RAW+JPEG 등 함께 생긴 파일은 소식으로 뒤따라 온다
+            # Companion files (RAW+JPEG etc.) arrive as follow-up events
             t0 = time.time()
             while time.time() - t0 < 1.5:
                 ev, data = self.camera.wait_for_event(200)
@@ -249,7 +249,7 @@ class Tether:
             emit("live", on=False)
 
     def poll_events(self):
-        # 카메라 셔터로 직접 찍은 사진도 받는다
+        # Also receive shots taken with the camera's own shutter
         try:
             ev, data = self.camera.wait_for_event(150)
         except gp.GPhoto2Error:
@@ -269,7 +269,7 @@ class Tether:
             self.folder = c.get("path", self.folder)
             return True
         if cmd == "connect":
-            self.auto = True   # 이후로는 카메라를 꽂으면 알아서 붙는다
+            self.auto = True   # From now on, plugging in the camera reconnects automatically
             self.connect()
             return True
         if cmd == "quit":
@@ -322,7 +322,7 @@ class Tether:
                 continue
             if self.live:
                 now = time.time()
-                if now - self.last_frame >= 1 / 20:   # 초당 최대 20장
+                if now - self.last_frame >= 1 / 20:   # at most 20 fps
                     self.last_frame = now
                     self.frame()
             else:
@@ -374,7 +374,7 @@ class FakeTether(Tether):
         emit("file", path=dst)
 
     def frame(self):
-        # 원본에 들어 있는 미리보기 JPEG를 라이브 뷰처럼 보낸다
+        # Send the preview JPEG embedded in the file as a live view
         if not hasattr(self, "jpeg"):
             data = open(self.sample, "rb").read()
             i = data.find(b"\xff\xd8\xff", 1000)

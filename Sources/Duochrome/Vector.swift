@@ -1,10 +1,10 @@
 import AppKit
 import CoreImage
 
-// MARK: - 벡터 패스: 펜 도구·모양 레이어·벡터 마스크·패스 패널이 함께 쓴다.
-// 좌표는 모두 원본 픽셀(아래가 0)이라 사진과 같이 형태 보정을 따라간다.
+// MARK: - Vector paths: shared by the pen tool, shape layers, vector masks, and the Paths panel.
+// All coordinates are source pixels (bottom is 0), so they follow geometry corrections with the photo.
 
-/// 기준점 하나: 자리와 들어오는·나가는 조절점 (없으면 자리와 같음 = 모난 점)
+/// One anchor point: position with in/out control points (equal to the position if absent = corner point)
 struct PathAnchor: Equatable, Codable {
     var x: Double, y: Double
     var inX: Double, inY: Double
@@ -20,12 +20,12 @@ struct PathAnchor: Equatable, Codable {
     var outHandle: CGPoint { CGPoint(x: outX, y: outY) }
     var isCorner: Bool { inX == x && inY == y && outX == x && outY == y }
 
-    /// 조절점과 함께 옮긴다
+    /// Moves along with its control points
     mutating func move(to p: CGPoint) {
         let dx = Double(p.x) - x, dy = Double(p.y) - y
         x += dx; y += dy; inX += dx; inY += dy; outX += dx; outY += dy
     }
-    /// 매끄러운 점: 나가는 조절점을 정하면 들어오는 조절점은 반대쪽 같은 거리
+    /// Smooth point: setting the out handle puts the in handle opposite at the same distance
     mutating func setSmooth(out o: CGPoint) {
         outX = Double(o.x); outY = Double(o.y)
         inX = 2 * x - outX; inY = 2 * y - outY
@@ -33,7 +33,7 @@ struct PathAnchor: Equatable, Codable {
     mutating func makeCorner() { inX = x; inY = y; outX = x; outY = y }
 }
 
-/// 패스 하나 (열린 선 또는 닫힌 모양)
+/// One path (open line or closed shape)
 struct VectorPath: Equatable, Codable {
     var id = UUID().uuidString
     var name = "패스"
@@ -42,7 +42,7 @@ struct VectorPath: Equatable, Codable {
 
     var isEmpty: Bool { anchors.count < 2 }
 
-    /// 원본 좌표 × scale 의 CGPath
+    /// CGPath in source coordinates × scale
     func cgPath(scale k: CGFloat = 1) -> CGPath {
         let p = CGMutablePath()
         guard let first = anchors.first else { return p }
@@ -62,7 +62,7 @@ struct VectorPath: Equatable, Codable {
         return p
     }
 
-    /// 짧은 선분으로 펼친 점들 (선택으로 바꾸기·패스 위 글자·획)
+    /// Points flattened into short segments (make selection, text on path, stroke)
     func flattened(step: Double = 4) -> [CGPoint] {
         guard let first = anchors.first else { return [] }
         var out = [first.point]
@@ -85,24 +85,24 @@ struct VectorPath: Equatable, Codable {
 
     var bounds: CGRect { cgPath().boundingBoxOfPath }
 
-    /// 방향을 뒤집은 패스 (패스 위 글자를 반대쪽으로)
+    /// Path with direction reversed (text on the opposite side of a path)
     var reversed: VectorPath {
         var r = self
         r.anchors = anchors.reversed().map { a in PathAnchor(a.point, inH: a.outHandle, outH: a.inHandle) }
         return r
     }
 
-    // MARK: 모양 미리 만들기 (모양 도구)
+    // MARK: Preset shapes (shape tool)
 
     enum Preset: Int, CaseIterable {
         case rect, roundRect, ellipse, polygon, line, star, arrow
         var title: String { ["사각형", "둥근 사각형", "타원", "다각형", "선", "별", "화살표"][rawValue] }
     }
 
-    /// 상자 안에 모양 (원본 좌표). sides: 다각형·별 꼭짓점 수, radius: 둥근 모서리, inner: 별 안쪽 비율, weight: 선 두께
+    /// Shape inside a box (source coordinates). sides: polygon/star vertex count, radius: rounded corners, inner: star inner ratio, weight: line thickness
     static func preset(_ kind: Preset, in r: CGRect, sides: Int = 6, radius: Double = 40, inner: Double = 0.45, weight: Double = 8) -> VectorPath {
         var v = VectorPath(name: kind.title)
-        let k = 0.5523   // 원을 베지어 넷으로
+        let k = 0.5523   // circle as four Béziers
         switch kind {
         case .rect:
             v.anchors = [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.maxX, y: r.maxY), CGPoint(x: r.minX, y: r.maxY)].map { PathAnchor($0) }
@@ -122,7 +122,7 @@ struct VectorPath: Equatable, Codable {
             v.closed = true
         case .ellipse:
             let cx = r.midX, cy = r.midY, rx = r.width / 2, ry = r.height / 2, kx = rx * CGFloat(k), ky = ry * CGFloat(k)
-            // 시계 방향 (왼쪽에서 시작해 위로): 패스 위 글자가 원 위쪽에서 바로 선다
+            // Clockwise (starting at left, going up): text on path stands upright on top of the circle
             v.anchors = [
                 PathAnchor(CGPoint(x: cx - rx, y: cy), inH: CGPoint(x: cx - rx, y: cy - ky), outH: CGPoint(x: cx - rx, y: cy + ky)),
                 PathAnchor(CGPoint(x: cx, y: cy + ry), inH: CGPoint(x: cx - kx, y: cy + ry), outH: CGPoint(x: cx + kx, y: cy + ry)),
@@ -140,7 +140,7 @@ struct VectorPath: Equatable, Codable {
             }
             v.closed = true
         case .line:
-            // 두께 있는 선: 시작(왼아래)→끝(오른위) 방향의 얇은 사각형
+            // Thick line: a thin rectangle from start (bottom-left) → end (top-right)
             let a = CGPoint(x: r.minX, y: r.minY), b = CGPoint(x: r.maxX, y: r.maxY)
             let len = max(hypot(b.x - a.x, b.y - a.y), 1), w = CGFloat(weight) / 2
             let nx = -(b.y - a.y) / len * w, ny = (b.x - a.x) / len * w
@@ -157,7 +157,7 @@ struct VectorPath: Equatable, Codable {
         return v
     }
 
-    /// 곡률 펜: 누른 점들을 지나는 매끄러운 곡선 (캣멀롬 → 베지어)
+    /// Curvature pen: smooth curve through the clicked points (Catmull–Rom → Bézier)
     static func curvature(_ pts: [CGPoint], closed: Bool) -> [PathAnchor] {
         let n = pts.count
         guard n >= 3 else { return pts.map { PathAnchor($0) } }
@@ -171,7 +171,7 @@ struct VectorPath: Equatable, Codable {
         }
     }
 
-    /// 자유 펜: 끌어 그린 점들을 줄여(더글러스-포이커) 매끄러운 기준점으로
+    /// Freeform pen: reduces dragged points (Douglas–Peucker) into smooth anchor points
     static func freeform(_ pts: [CGPoint], tolerance: CGFloat) -> [PathAnchor] {
         guard pts.count > 2 else { return pts.map { PathAnchor($0) } }
         func simplify(_ a: Int, _ b: Int, _ keep: inout [Bool]) {
@@ -193,18 +193,18 @@ struct VectorPath: Equatable, Codable {
     }
 }
 
-/// 모양 레이어 (kind "shape"): 패스 + 채우기 + 획
+/// Shape layer (kind "shape"): path + fill + stroke
 struct VectorShape: Equatable, Codable {
     var path: VectorPath
-    /// 채우기 색 (화면 값 RGB, nil이면 채우지 않음)
+    /// Fill color (display RGB; nil means no fill)
     var fill: [Float]? = [0.9, 0.9, 0.9]
-    /// 획 색 (nil이면 획 없음)
+    /// Stroke color (nil means no stroke)
     var stroke: [Float]? = nil
-    /// 획 두께 (원본 픽셀)
+    /// Stroke width (source pixels)
     var strokeWidth: Double = 6
-    /// 획 자리: 0 가운데, 1 안쪽, 2 바깥쪽
+    /// Stroke position: 0 center, 1 inside, 2 outside
     var strokeAlign: Int = 0
-    /// 점선: [선, 빈칸] (원본 픽셀), 비면 실선
+    /// Dashes: [dash, gap] (source pixels); empty for solid
     var dash: [Double] = []
 }
 
@@ -216,7 +216,7 @@ enum VectorRender {
         "\(tag)|\(v)|\(scale)|\(rect)".hashValue.description
     }
 
-    /// 모양 레이어를 원본 좌표 × scale 그림으로 (투명 바탕)
+    /// Shape layer as an image at source coordinates × scale (transparent background)
     static func shapeImage(_ s: VectorShape, scale k: CGFloat, nativeRect: CGRect) -> CIImage {
         let cacheKey = key("s", s, k, nativeRect)
         lock.lock(); if let hit = cache[cacheKey] { lock.unlock(); return hit }; lock.unlock()
@@ -243,9 +243,9 @@ enum VectorRender {
             if !s.dash.isEmpty { ctx.setLineDash(phase: 0, lengths: s.dash.map { CGFloat($0) * k }) }
             ctx.setLineJoin(.round); ctx.setLineCap(.round)
             switch s.strokeAlign {
-            case 1 where s.path.closed:   // 안쪽: 모양으로 자르고 두 배 두께
+            case 1 where s.path.closed:   // inside: clip to the shape at double width
                 ctx.addPath(path); ctx.clip(); ctx.setLineWidth(sw * 2); ctx.addPath(path); ctx.strokePath()
-            case 2 where s.path.closed:   // 바깥쪽: 모양 밖만 남긴다
+            case 2 where s.path.closed:   // outside: keep only outside the shape
                 ctx.addRect(bb); ctx.addPath(path); ctx.clip(using: .evenOdd)
                 ctx.setLineWidth(sw * 2); ctx.addPath(path); ctx.strokePath()
             default:
@@ -259,11 +259,11 @@ enum VectorRender {
         return img
     }
 
-    /// 벡터 마스크: 패스 안이 흰색 (원본 좌표 × scale, nativeRect 전체)
+    /// Vector mask: white inside the path (source coordinates × scale, whole nativeRect)
     static func mask(_ v: VectorPath, scale k: CGFloat, nativeRect: CGRect) -> CIImage {
         let cacheKey = key("m", v, k, nativeRect)
         lock.lock(); if let hit = cache[cacheKey] { lock.unlock(); return hit }; lock.unlock()
-        // 마스크는 원본 크기가 크므로 긴 변 4096 이하로 그려 늘린다
+        // The source size of masks is large, so render at up to 4096 long side and upscale
         let down = min(1, 4096 / max(nativeRect.width, nativeRect.height))
         let w = Int(ceil(nativeRect.width * down)), h = Int(ceil(nativeRect.height * down))
         guard w > 0, h > 0, let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
@@ -285,7 +285,7 @@ enum VectorRender {
 }
 
 extension Layers {
-    /// 모양 레이어: 원본 좌표에 그리고 사진과 같은 형태 보정을 거친다
+    /// Shape layer: drawn in source coordinates and passed through the photo's geometry corrections
     static func placedShape(_ s: VectorShape, scale: CGFloat, native: CGSize, shape: (CIImage, CGFloat) -> CIImage, frame: CGRect) -> CIImage? {
         let nativeRect = CGRect(x: 0, y: 0, width: native.width * scale, height: native.height * scale).integral
         let img = VectorRender.shapeImage(s, scale: scale, nativeRect: nativeRect)
@@ -294,25 +294,25 @@ extension Layers {
     }
 }
 
-// MARK: - 캔버스 위 패스 편집 층 (펜·자유 펜·곡률 펜·직접 선택·모양 끌기·글자 상자)
+// MARK: - Path editing layer on the canvas (pen, freeform pen, curvature pen, direct selection, shape drag, text box)
 
 final class PathOverlayView: NSView {
     enum Mode { case pen, freePen, curvature, direct, shapeDrag, textBox }
     var mode: Mode = .pen { didSet { needsDisplay = true; curvaturePoints = [] } }
-    /// 지금 편집하는 패스 (원본 좌표)
+    /// Path being edited (source coordinates)
     var path = VectorPath() { didSet { needsDisplay = true } }
-    /// 다른 패스 (흐리게, 참고용)
+    /// Other paths (dimmed, for reference)
     var others: [VectorPath] = [] { didSet { needsDisplay = true } }
     var toView: ((CGPoint) -> CGPoint)?
     var fromView: ((CGPoint) -> CGPoint)?
-    /// 패스가 바뀜 (끄는 중인지)
+    /// Path changed (dragging)
     var onChange: ((VectorPath, Bool) -> Void)?
-    /// 모양·글자 상자를 끌어 정함 (원본 좌표 상자, 그냥 누르기면 너비·높이 0)
+    /// Shape/text box set by dragging (source-coordinate box; a plain click gives width/height 0)
     var onBox: ((CGRect) -> Void)?
-    /// 엔터·닫기: 패스를 끝냄
+    /// Enter / close: finishes the path
     var onFinish: (() -> Void)?
 
-    private var drag: (kind: Int, index: Int)?   // 0 기준점, 1 들어오는 조절점, 2 나가는 조절점
+    private var drag: (kind: Int, index: Int)?   // 0 anchor, 1 in handle, 2 out handle
     private var freePoints: [CGPoint] = []
     private var curvaturePoints: [CGPoint] = []
     private var boxStart: CGPoint?
@@ -335,7 +335,7 @@ final class PathOverlayView: NSView {
     private func v(_ p: CGPoint) -> CGPoint { toView?(p) ?? p }
     private func n(_ p: CGPoint) -> CGPoint { fromView?(p) ?? p }
 
-    /// 원본 좌표 패스를 뷰 좌표 NSBezierPath로
+    /// Source-coordinate path → view-coordinate NSBezierPath
     private func bezier(_ path: VectorPath) -> NSBezierPath {
         let b = NSBezierPath()
         guard let first = path.anchors.first else { return b }
@@ -354,13 +354,13 @@ final class PathOverlayView: NSView {
             let b = bezier(o); b.lineWidth = 1
             NSColor.white.withAlphaComponent(0.35).setStroke(); b.stroke()
         }
-        // 편집 중인 패스
+        // path being edited
         let b = bezier(path)
         b.lineWidth = 1.5
         NSColor.black.withAlphaComponent(0.5).setStroke(); b.stroke()
         b.lineWidth = 1
         NSColor.controlAccentColor.setStroke(); b.stroke()
-        // 다음 점 미리 보기 (펜)
+        // next point preview (pen)
         if mode == .pen, !path.closed, let last = path.anchors.last, let m = mouse, drag == nil {
             let r = NSBezierPath(); r.move(to: v(last.point))
             r.curve(to: m, controlPoint1: v(last.outHandle), controlPoint2: m)
@@ -379,7 +379,7 @@ final class PathOverlayView: NSView {
             let box = NSBezierPath(rect: r); box.setLineDash([4, 3], count: 2, phase: 0)
             NSColor.white.setStroke(); box.stroke()
         }
-        // 기준점과 조절점
+        // anchors and handles
         for (i, a) in path.anchors.enumerated() {
             if !a.isCorner {
                 for h in [a.inHandle, a.outHandle] where h != a.point {
@@ -401,7 +401,7 @@ final class PathOverlayView: NSView {
         NSColor.controlAccentColor.setStroke(); o.stroke()
     }
 
-    /// 뷰 점에서 가까운 기준점·조절점
+    /// Anchor or handle near a view point
     private func hit(_ p: CGPoint) -> (kind: Int, index: Int)? {
         for (i, a) in path.anchors.enumerated().reversed() {
             if hypot(v(a.outHandle).x - p.x, v(a.outHandle).y - p.y) < 6, !a.isCorner { return (2, i) }
@@ -434,7 +434,7 @@ final class PathOverlayView: NSView {
         case .direct:
             drag = hit(p)
             if let d = drag, event.modifierFlags.contains(.option), d.kind == 0 {
-                // ⌥누르기: 모난 점 ↔ 매끄러운 점
+                // ⌥-click: corner point ↔ smooth point
                 if path.anchors[d.index].isCorner {
                     let a = path.anchors[d.index]
                     let prev = path.anchors[(d.index - 1 + path.anchors.count) % path.anchors.count].point
@@ -457,7 +457,7 @@ final class PathOverlayView: NSView {
                     return
                 }
                 if event.modifierFlags.contains(.option) || h.index == path.anchors.count - 1 {
-                    // 마지막 점 ⌥누르기: 나가는 조절점 없애기 (모난 점으로 이어 가기)
+                    // ⌥-click on the last point: remove the out handle (continue as a corner point)
                     path.anchors[h.index].outX = path.anchors[h.index].x
                     path.anchors[h.index].outY = path.anchors[h.index].y
                     onChange?(path, false)
@@ -479,7 +479,7 @@ final class PathOverlayView: NSView {
         case .shapeDrag, .textBox:
             var e = np
             if event.modifierFlags.contains(.shift), let s = boxStart {
-                // ⇧: 정사각·정원
+                // ⇧: square / circle
                 let d = max(abs(e.x - s.x), abs(e.y - s.y))
                 e = CGPoint(x: s.x + (e.x >= s.x ? d : -d), y: s.y + (e.y >= s.y ? d : -d))
             }
@@ -487,7 +487,7 @@ final class PathOverlayView: NSView {
         case .freePen:
             freePoints.append(np); needsDisplay = true
         case .pen where newAnchor != nil:
-            // 새 점을 누른 채 끌면 매끄러운 점 (조절점을 끌어낸다)
+            // Dragging while placing a new point makes it smooth (pulls out handles)
             path.anchors[newAnchor!].setSmooth(out: np)
             onChange?(path, true)
         default:
@@ -496,7 +496,7 @@ final class PathOverlayView: NSView {
             case 0: path.anchors[d.index].move(to: np)
             case 1:
                 path.anchors[d.index].inX = Double(np.x); path.anchors[d.index].inY = Double(np.y)
-                if !event.modifierFlags.contains(.option) {   // 반대쪽도 같이 (⌥이면 따로)
+                if !event.modifierFlags.contains(.option) {   // the opposite handle too (separately with ⌥)
                     let a = path.anchors[d.index]
                     path.anchors[d.index].outX = 2 * a.x - a.inX; path.anchors[d.index].outY = 2 * a.y - a.inY
                 }
@@ -524,7 +524,7 @@ final class PathOverlayView: NSView {
             boxStart = nil; boxNow = nil
         case .freePen:
             if freePoints.count > 2 {
-                // 허용 오차는 화면 3픽셀
+                // tolerance is 3 screen pixels
                 let tol = abs(n(CGPoint(x: 3, y: 0)).x - n(.zero).x)
                 path = VectorPath(name: path.name, anchors: VectorPath.freeform(freePoints, tolerance: max(tol, 0.5)), closed: false)
                 onFinish?()
@@ -548,13 +548,13 @@ final class PathOverlayView: NSView {
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 36, 76:   // 엔터: 끝내기
+        case 36, 76:   // Enter: finish
             curvaturePoints = []
             onFinish?()
         case 53:       // esc
             curvaturePoints = []
             onFinish?()
-        case 51, 117:  // ⌫: 마지막 점 지우기 (펜·곡률 펜)
+        case 51, 117:  // ⌫: delete the last point (pen, curvature pen)
             if mode == .curvature, !curvaturePoints.isEmpty {
                 curvaturePoints.removeLast()
                 path.anchors = VectorPath.curvature(curvaturePoints, closed: false)

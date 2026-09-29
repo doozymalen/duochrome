@@ -1,23 +1,23 @@
 import AppKit
 
-/// 앱 설정 (UserDefaults). 설정 창에서 바꾸고, 기능들이 여기서 읽는다.
+/// App settings (UserDefaults). Changed in the Settings window, read by features here.
 enum AppSettings {
     private static var d: UserDefaults { .standard }
 
-    // 일반
-    /// 시작 모드: -1 마지막 모드, 그 밖은 AppMode 번호
+    // General
+    /// Startup mode: -1 last mode, otherwise an AppMode number
     static var startMode: Int { get { d.object(forKey: "set.startMode") as? Int ?? -1 } set { d.set(newValue, forKey: "set.startMode") } }
-    /// 새 사진 기본 모습: 1 카메라 맞춤, 0 Apple 기본
+    /// Default look for new photos: 1 camera-fitted, 0 Apple default
     static var defaultLook: Int { get { d.object(forKey: "set.defaultLook") as? Int ?? 0 } set { d.set(newValue, forKey: "set.defaultLook") } }
     static var snapEnabled: Bool { get { d.object(forKey: "set.snap") as? Bool ?? true } set { d.set(newValue, forKey: "set.snap") } }
-    /// 달라붙는 거리 (범위의 %)
+    /// Snap distance (% of range)
     static var snapPercent: Double { get { d.object(forKey: "set.snapPercent") as? Double ?? 1.5 } set { d.set(newValue, forKey: "set.snapPercent") } }
     static var haptics: Bool { get { d.object(forKey: "set.haptics") as? Bool ?? true } set { d.set(newValue, forKey: "set.haptics") } }
 
-    // 카탈로그
+    // Catalog
     static var catalogPath: String? { get { d.string(forKey: "set.catalogPath") } set { d.set(newValue, forKey: "set.catalogPath") } }
     static var recentCatalogs: [String] { get { d.stringArray(forKey: "set.recentCatalogs") ?? [] } set { d.set(newValue, forKey: "set.recentCatalogs") } }
-    /// 백업 주기: 0 끄기, 1 끌 때 묻기, 2 끌 때마다, 3 매일, 4 매주, 5 매달
+    /// Backup interval: 0 off, 1 ask on quit, 2 every quit, 3 daily, 4 weekly, 5 monthly
     static var backupInterval: Int { get { d.object(forKey: "set.backupInterval") as? Int ?? 1 } set { d.set(newValue, forKey: "set.backupInterval") } }
     static var backupFolder: String {
         get { d.string(forKey: "set.backupFolder") ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/Duochrome/Backups").path }
@@ -27,22 +27,22 @@ enum AppSettings {
     static var backupPreviews: Bool { get { d.bool(forKey: "set.backupPreviews") } set { d.set(newValue, forKey: "set.backupPreviews") } }
     static var lastBackup: Date? { get { d.object(forKey: "set.lastBackup") as? Date } set { d.set(newValue, forKey: "set.lastBackup") } }
 
-    // 미리보기와 캐시
+    // Previews and cache
     static var previewSize: Int { get { d.object(forKey: "set.previewSize") as? Int ?? 2560 } set { d.set(newValue, forKey: "set.previewSize") } }
-    /// 0 16비트 선형 TIFF (기본, 한 장 약 40MB, 여는 데 약 130ms), 1 10비트 HEIF (한 장 약 0.4MB지만 풀기가 느려 약 750ms)
+    /// 0 16-bit linear TIFF (default, ~40 MB each, ~130 ms to open), 1 10-bit HEIF (~0.4 MB each but slow to decode, ~750 ms)
     static var previewQuality: Int { get { d.object(forKey: "set.previewQuality") as? Int ?? 0 } set { d.set(newValue, forKey: "set.previewQuality") } }
-    /// 0 가져올 때 모두, 1 볼 때만
+    /// 0 all on import, 1 only when viewed
     static var previewWhen: Int { get { d.object(forKey: "set.previewWhen") as? Int ?? 0 } set { d.set(newValue, forKey: "set.previewWhen") } }
     static var previewWorkers: Int { get { d.object(forKey: "set.previewWorkers") as? Int ?? 2 } set { d.set(newValue, forKey: "set.previewWorkers") } }
     static var previewLimitGB: Int { get { d.object(forKey: "set.previewLimitGB") as? Int ?? 5 } set { d.set(newValue, forKey: "set.previewLimitGB") } }
 
-    // 테더링
+    // Tethering
     static var tetherFolder: String? { get { d.string(forKey: "set.tetherFolder") } set { d.set(newValue, forKey: "set.tetherFolder") } }
-    /// 파일 이름 규칙: {날짜} {시각} {순번} {원래이름}
+    /// File naming rule: {날짜} {시각} {순번} {원래이름}
     static var tetherNaming: String { get { d.string(forKey: "set.tetherNaming") ?? "{원래이름}" } set { d.set(newValue, forKey: "set.tetherNaming") } }
 }
 
-/// 설정 창 (⌘,). macOS 표준처럼 위쪽 아이콘 탭으로 나눈다.
+/// Settings window (⌘,). Split by icon tabs at the top, like standard macOS.
 final class SettingsWindowController: NSWindowController {
     static let shared = SettingsWindowController()
     weak var host: MainWindowController?
@@ -82,7 +82,7 @@ final class SettingsWindowController: NSWindowController {
     }
 }
 
-/// 설정 탭 내용. 줄마다 이름(오른쪽 맞춤) + 조절 부품 (macOS 설정 창 모양).
+/// Settings tab content. Each row: label (right-aligned) + control (macOS Settings window style).
 enum SettingsPane {
     final class Pane: NSViewController {
         let grid = NSGridView()
@@ -175,7 +175,7 @@ enum SettingsPane {
         let modes = ["마지막으로 쓴 모드", "대량 보정", "심화 보정", "테더링"]
         let modeValues = [-1, AppMode.edit.rawValue, AppMode.studio.rawValue, AppMode.tether.rawValue]
         p.row("시작할 때", p.popup(modes, selected: modeValues.firstIndex(of: AppSettings.startMode) ?? 0) { AppSettings.startMode = modeValues[$0] })
-        // 보정표가 하나도 없으면 고를 것이 없다 (Apple 기본만)
+        // With no look tables at all there's nothing to choose (Apple default only)
         if Look.anyAvailable {
             p.row("새 사진 기본 모습", p.popup(["Apple 기본", "카메라 맞춤"], selected: AppSettings.defaultLook) { AppSettings.defaultLook = $0 },
                   note: "카메라 맞춤은 Looks 폴더에 보정표가 있는 카메라에만 걸리고, 없는 카메라는 Apple 기본으로 현상합니다. 이미 조정한 사진은 그대로입니다.")
@@ -333,7 +333,7 @@ final class SettingsAction: NSObject {
     @objc func fire() { body() }
 }
 
-/// 단축키 탭: 동작마다 대량 보정·심화 보정 키. 칸을 누르고 키를 누르면 바뀐다 (⌫ 지우기, esc 취소).
+/// Shortcuts tab: batch-edit and layer-edit keys per action. Click a cell and press a key to change (⌫ clears, esc cancels).
 final class ShortcutSettingsController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     private let table = NSTableView()
     private let warning = NSTextField(wrappingLabelWithString: "")
@@ -411,8 +411,8 @@ final class ShortcutSettingsController: NSViewController, NSTableViewDataSource,
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self, let rec = self.recording, e.window === self.view.window else { return e }
             let a = self.rows[rec.row]
-            if e.keyCode == 53 {            // esc: 취소
-            } else if e.keyCode == 51 {     // ⌫: 지우기
+            if e.keyCode == 53 {            // esc: cancel
+            } else if e.keyCode == 51 {     // ⌫: clear
                 KeyMap.set(a, rec.scope, [])
             } else if let c = KeyCombo(event: e) {
                 KeyMap.set(a, rec.scope, [KeyMap.spec(c)])
@@ -442,7 +442,7 @@ final class ShortcutSettingsController: NSViewController, NSTableViewDataSource,
     @objc private func resetStudio() { for a in rows { KeyMap.set(a, .studio, nil) }; stopRecording() }
 }
 
-/// 단축키 목록 (설정 창에 보여 주는 용도). 단축키 단계에서 바꾸기·저장을 붙인다.
+/// Shortcut list (for display in the Settings window). Changing and saving attach at the shortcut stage.
 enum ShortcutCatalog {
     static func describe() -> String {
         var lines = ["심화 보정 (도구 단축키)"]

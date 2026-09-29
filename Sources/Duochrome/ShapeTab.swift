@@ -1,15 +1,15 @@
 import AppKit
 
 extension DevelopSettings {
-    /// 조정 탭이 다루지 않는 값(형태·리터칭·레이어)을 `other`에서 가져온다.
-    /// 조정 탭은 자기 값을 따로 들고 있어서, 이걸 안 하면 슬라이더 하나 움직일 때 리터칭 점과 레이어가 옛 값으로 돌아간다.
+    /// Takes values the Adjust tab doesn't handle (geometry, retouching, layers) from `other`.
+    /// The Adjust tab keeps its own copy of values; without this, moving one slider would revert retouch spots and layers to old values.
     mutating func adoptNonAdjust(from other: DevelopSettings) {
         adoptGeometry(from: other)
         spots = other.spots
         layers = other.layers
     }
 
-    /// 형태 탭이 다루는 값만 `other`에서 가져온다. 두 패널이 서로 값을 덮어쓰지 않게 할 때 쓴다.
+    /// Takes only the values the Geometry tab handles from `other`. Keeps the two panels from overwriting each other.
     mutating func adoptGeometry(from other: DevelopSettings) {
         quarterTurns = other.quarterTurns; flipH = other.flipH; flipV = other.flipV
         rotation = other.rotation; keystoneV = other.keystoneV; keystoneH = other.keystoneH
@@ -17,9 +17,9 @@ extension DevelopSettings {
     }
 }
 
-/// "형태" 탭: 회전·뒤집기, 크롭 비율, 키스톤. 크롭과 수평 맞추기는 커서 도구로 캔버스에서 한다.
+/// "Geometry" tab: rotate/flip, crop aspect, keystone. Crop and straighten are done on the canvas with cursor tools.
 final class ShapeTabController: NSViewController {
-    /// 지금 사진의 값 (한 곳에서만 들고 있게 문서에서 읽는다).
+    /// Current photo's values (read from the document so they live in one place).
     var current: (() -> DevelopSettings?)?
     var onChange: ((DevelopSettings, Bool) -> Void)?
     var nativeSize: CGSize = .zero
@@ -30,7 +30,7 @@ final class ShapeTabController: NSViewController {
     private let kA = SliderRow(label: "비율", min: -100, max: 100, format: "%+.0f")
     private let aspect = NSPopUpButton()
     private let keyMode = NSPopUpButton()
-    /// 선 긋기 방식이 바뀜 / 자동 키스톤 누름
+    /// Line-drawing mode changed / auto keystone pressed
     var onKeystoneMode: ((Geometry.KeystoneMode) -> Void)?
     var onAutoKeystone: ((Geometry.KeystoneMode) -> Void)?
     var keystoneMode: Geometry.KeystoneMode { Geometry.KeystoneMode(rawValue: keyMode.indexOfSelectedItem) ?? .vertical }
@@ -147,7 +147,7 @@ final class ShapeTabController: NSViewController {
         return b
     }
 
-    /// 값 하나를 바꿔 알린다.
+    /// Changes one value and notifies.
     private func change(_ dragging: Bool, _ edit: (inout DevelopSettings) -> Void) {
         guard var s = current?() else { return }
         edit(&s)
@@ -187,7 +187,7 @@ final class ShapeTabController: NSViewController {
         }
     }
 
-    /// 지금 크롭 안에 들어가는 가장 큰 비율 고정 사각형 (가운데 기준).
+    /// Largest fixed-aspect rectangle fitting inside the current crop (centered).
     static func fit(_ c: CropRect, aspect: CGFloat, frame: CGSize) -> CropRect {
         let r = c.cg
         let wPx = r.width * frame.width, hPx = r.height * frame.height
@@ -198,9 +198,9 @@ final class ShapeTabController: NSViewController {
     }
 }
 
-// MARK: - 캔버스 위 크롭·수평 도구
+// MARK: - Crop / straighten tools on the canvas
 
-/// 캔버스 위에 겹치는 투명한 뷰. 크롭 영역과 손잡이, 수평선을 그리고 끌기를 받는다.
+/// Transparent view overlaid on the canvas. Draws the crop area, handles, and level line, and receives drags.
 final class CropOverlayView: NSView {
     enum Mode { case crop, straighten, keystone }
     var mode: Mode = .crop { didSet { needsDisplay = true } }
@@ -208,11 +208,11 @@ final class CropOverlayView: NSView {
     var crop = CropRect() { didSet { needsDisplay = true } }
     var aspect: CGFloat = 0
     var onCrop: ((CropRect, Bool) -> Void)?
-    /// 그은 선이 수평(또는 수직)이 되려면 더 돌려야 할 각도(°, 시계 방향이 양수).
+    /// Angle still needed for the drawn line to be level (or plumb) (°, clockwise positive).
     var onStraighten: ((Float) -> Void)?
-    /// 선 긋기 키스톤: 세로여야 할 선, 가로여야 할 선 (뷰 좌표).
+    /// Line-drawn keystone: lines that should be vertical, lines that should be horizontal (view coordinates).
     var onKeystoneLines: (([(CGPoint, CGPoint)], [(CGPoint, CGPoint)]) -> Void)?
-    /// 세로 둘, 가로 둘, 또는 세로 둘 + 가로 둘.
+    /// Two vertical, two horizontal, or two vertical + two horizontal.
     var keystoneMode: Geometry.KeystoneMode = .vertical { didSet { keystoneLines = []; needsDisplay = true } }
     private var keystoneLines: [(CGPoint, CGPoint)] = []
 
@@ -227,7 +227,7 @@ final class CropOverlayView: NSView {
 
     private var frameSize: CGSize { canvas?.document?.frameSize ?? .zero }
 
-    /// 크롭 영역을 뷰 좌표로.
+    /// Crop area in view coordinates.
     private var cropViewRect: CGRect {
         guard let c = canvas else { return .zero }
         let f = frameSize
@@ -236,7 +236,7 @@ final class CropOverlayView: NSView {
         return CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
     }
 
-    /// 손잡이 여덟 개: 0 왼아래, 1 아래, 2 오른아래, 3 오른쪽, 4 오른위, 5 위, 6 왼위, 7 왼쪽.
+    /// Eight handles: 0 bottom-left, 1 bottom, 2 bottom-right, 3 right, 4 top-right, 5 top, 6 top-left, 7 left.
     private func handles(_ r: CGRect) -> [CGPoint] {
         [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.midX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
          CGPoint(x: r.maxX, y: r.midY), CGPoint(x: r.maxX, y: r.maxY), CGPoint(x: r.midX, y: r.maxY),
@@ -274,13 +274,13 @@ final class CropOverlayView: NSView {
             return
         }
         let r = cropViewRect
-        // 크롭 밖을 어둡게.
+        // Darken outside the crop.
         let outside = NSBezierPath(rect: bounds)
         outside.append(NSBezierPath(rect: r))
         outside.windingRule = .evenOdd
         NSColor.black.withAlphaComponent(0.55).setFill()
         outside.fill()
-        // 삼분할 선.
+        // rule-of-thirds lines
         NSColor.white.withAlphaComponent(0.35).setStroke()
         for i in 1...2 {
             let t = CGFloat(i) / 3
@@ -318,7 +318,7 @@ final class CropOverlayView: NSView {
         if mode == .straighten || mode == .keystone { lineEnd = p; needsDisplay = true; return }
         guard let grab, let c = canvas else { return }
         let f = frameSize
-        // 끈 거리를 틀 기준 0~1로.
+        // Drag distance relative to the frame, 0–1.
         let dx = (p.x - startPoint.x) / c.zoom / f.width, dy = (p.y - startPoint.y) / c.zoom / f.height
         var r = startCrop.cg
         switch grab {
@@ -338,15 +338,15 @@ final class CropOverlayView: NSView {
         onCrop?(crop, true)
     }
 
-    /// 비율을 지키며 손잡이 반대편을 고정한다. 틀을 넘으면 줄인다.
+    /// Keeps the aspect and pins the side opposite the handle. Shrinks if it exceeds the frame.
     private func constrain(_ r: CGRect, handle i: Int, frame f: CGSize) -> CGRect {
-        let a = aspect * f.height / f.width   // 0~1 좌표에서의 가로/세로
+        let a = aspect * f.height / f.width   // width/height in 0–1 coordinates
         var w = r.width, h = r.height
         if [1, 5].contains(i) { w = h * a } else { h = w / a }
         let s0 = startCrop.cg
         var x = [0, 6, 7].contains(i) ? s0.maxX - w : ([1, 5].contains(i) ? s0.midX - w / 2 : s0.minX)
         var y = [0, 1, 2].contains(i) ? s0.maxY - h : ([3, 7].contains(i) ? s0.midY - h / 2 : s0.minY)
-        // 틀 밖으로 나가면 비율을 지킨 채 줄인다.
+        // If it goes outside the frame, shrink while keeping the aspect.
         let over = max(0, -x) + max(0, x + w - 1)
         if over > 0 { let k = (w - over) / w; w *= k; h *= k; x = max(x, 0); x = min(x, 1 - w) }
         let overY = max(0, -y) + max(0, y + h - 1)
@@ -373,7 +373,7 @@ final class CropOverlayView: NSView {
             defer { lineEnd = nil; needsDisplay = true }
             guard let end = lineEnd, hypot(end.x - startPoint.x, end.y - startPoint.y) > 20 else { return }
             var deg = atan2(end.y - startPoint.y, end.x - startPoint.x) * 180 / .pi
-            // 가장 가까운 수평·수직까지의 차이만 쓴다.
+            // Use only the difference to the nearest horizontal/vertical.
             while deg > 45 { deg -= 90 }
             while deg < -45 { deg += 90 }
             onStraighten?(Float(deg))

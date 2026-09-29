@@ -1,6 +1,6 @@
 import AppKit
 
-/// 키 조합 표기: @ ⌘, $ ⇧, ~ ⌥, ^ ⌃, 나머지가 키 ("@r" = ⌘R, "$@c" = ⇧⌘C).
+/// Key combo notation: @ ⌘, $ ⇧, ~ ⌥, ^ ⌃, the rest is the key ("@r" = ⌘R, "$@c" = ⇧⌘C).
 struct KeyCombo: Hashable, Codable {
     var key: String
     var mods: UInt     // 1 ⌘, 2 ⇧, 4 ⌥, 8 ⌃
@@ -18,7 +18,7 @@ struct KeyCombo: Hashable, Codable {
         mods = m
     }
 
-    /// "+"는 "="로 (미국 배열에서 ⇧=), 대문자는 소문자로
+    /// "+" becomes "=" (⇧= on US layout), uppercase becomes lowercase
     static func normalize(_ k: String) -> String {
         if k == "+" { return "=" }
         return k.count == 1 ? k.lowercased() : k
@@ -33,24 +33,24 @@ struct KeyCombo: Hashable, Codable {
         if f.contains(.option) { m |= 4 }
         if f.contains(.control) { m |= 8 }
         var k = Self.normalize(ch)
-        // 한글 입력 상태에서는 글자가 한글(ㅋ 등)로 온다 — 키 자리로 영문 글자를 찾는다
+        // With Korean input active, characters arrive as Hangul (ㅋ etc.) — look up the Latin letter by key position
         if k.unicodeScalars.contains(where: { $0.value >= 0x1100 && $0.value < 0xFFFF && !(0xF700...0xF8FF).contains($0.value) }),
            let latin = Self.latinByKeyCode[e.keyCode] { k = latin }
-        // ⇧+숫자·기호는 charactersIgnoringModifiers가 기호를 준다 (⇧= → +) — 기호 쪽으로 맞춘다
+        // For ⇧+digits/symbols charactersIgnoringModifiers gives the symbol (⇧= → +) — match on the symbol
         if k == "+" { k = "=" }
-        // ⇧] · ⇧[ 는 } · { 로 온다 — 괄호 쪽으로 맞춘다
+        // ⇧] · ⇧[ arrive as } · { — match on the braces
         if k == "}" { k = "]" } else if k == "{" { k = "[" }
         key = k
         mods = m
     }
 
-    /// 미국 배열 키 자리 → 글자 (한글 입력 상태 대비)
+    /// US layout key position → character (for Korean input mode)
     static let latinByKeyCode: [UInt16: String] = [
         0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g", 6: "z", 7: "x", 8: "c", 9: "v", 11: "b", 12: "q", 13: "w", 14: "e",
         15: "r", 16: "y", 17: "t", 31: "o", 32: "u", 34: "i", 35: "p", 37: "l", 38: "j", 40: "k", 45: "n", 46: "m",
     ]
 
-    /// 화면 표시: ⌃⌥⇧⌘ 순서
+    /// Display order: ⌃⌥⇧⌘
     var display: String {
         var s = ""
         if mods & 8 != 0 { s += "⌃" }
@@ -62,7 +62,7 @@ struct KeyCombo: Hashable, Codable {
         return s + (names[key] ?? key.uppercased())
     }
 
-    /// 메뉴 항목에 넣을 때
+    /// For menu items
     var menuKey: String { key }
     var menuMods: NSEvent.ModifierFlags {
         var f: NSEvent.ModifierFlags = []
@@ -74,12 +74,12 @@ struct KeyCombo: Hashable, Codable {
     }
 }
 
-/// 단축키 동작 하나. 대량 보정과 심화 보정의 기본 키를 따로 가진다.
+/// One shortcut action. Has separate default keys for batch edit and layer edit.
 struct KeyAction {
     let id: String
     let title: String
     let group: String
-    /// 메뉴에 이 동작이 있으면 그 선택자 (메뉴 표시를 모드에 맞춰 바꾼다)
+    /// The menu selector if this action is in a menu (menu display follows the mode)
     let selector: Selector?
     let run: (MainWindowController) -> Void
     let bulk: [String]
@@ -100,7 +100,7 @@ enum KeyMap {
             KeyAction(id: id, title: title, group: group, selector: nil, run: run, bulk: bulk, studio: studio)
         }
         var a: [KeyAction] = [
-            // 도구 (대량 보정 커서 도구)
+            // Tools (batch edit cursor tools)
             act("tool.pan", "이동 / 손", "도구", bulk: ["h", "v"], studio: ["h"]) { $0.keyTool(.pan, studio: "hand") },
             act("tool.zoom", "확대", "도구", bulk: ["z"], studio: ["z"]) { $0.keyTool(.zoom, studio: "zoom") },
             act("tool.crop", "크롭 / 자르기", "도구", bulk: ["c"], studio: ["c"]) { $0.keyTool(.crop, studio: "crop") },
@@ -114,7 +114,7 @@ enum KeyMap {
             act("tool.linear", "선형 그라디언트", "도구", bulk: ["l"], studio: []) { $0.keyGradient(.linear) },
             act("tool.radial", "원형 그라디언트", "도구", bulk: ["t"], studio: []) { $0.keyGradient(.radial) },
             act("tool.picker", "색상 피커", "도구", bulk: ["d"], studio: ["i"]) { $0.keyTool(.colorPick, studio: "picker") },
-            // 심화 보정 전용 도구
+            // Layer-edit-only tools
             act("tool.arrange", "배치 (이동)", "도구", bulk: [], studio: ["v"]) { $0.studioMode.selectTool("arrange") },
             act("tool.marquee", "선택 윤곽", "도구", bulk: [], studio: ["m"]) { $0.studioMode.selectTool("selRect") },
             act("tool.lasso", "올가미", "도구", bulk: [], studio: ["l"]) { $0.studioMode.selectTool("selFree") },
@@ -132,7 +132,7 @@ enum KeyMap {
             act("tool.shape", "도형", "도구", bulk: [], studio: ["u"]) { $0.studioMode.selectTool("shape") },
             act("tool.brushSmaller", "브러시 작게", "도구", bulk: ["["], studio: ["["]) { $0.brushSmaller(nil) },
             act("tool.brushLarger", "브러시 크게", "도구", bulk: ["]"], studio: ["]"]) { $0.brushLarger(nil) },
-            // 보기
+            // View
             sel("view.fit", "화면에 맞추기", "보기", #selector(W.zoomToFit(_:)), bulk: [",", "@0"], studio: ["@0"]),
             sel("view.actual", "100%", "보기", #selector(W.zoomToActual(_:)), bulk: [".", "@1"], studio: ["@1", "~@0"]),
             sel("view.zoomIn", "확대", "보기", #selector(W.zoomIn(_:)), bulk: ["@="], studio: ["@="]),
@@ -148,7 +148,7 @@ enum KeyMap {
             act("view.fullscreen", "전체 화면", "보기", bulk: ["f"], studio: ["f"]) { $0.window?.toggleFullScreen(nil) },
             act("view.leftPanel", "왼쪽 패널 보이기·가리기", "보기", bulk: ["@t"], studio: ["\t"]) { $0.keyTogglePanels(left: true) },
             act("view.rightPanel", "오른쪽 패널 보이기·가리기", "보기", bulk: ["@b"], studio: []) { $0.keyTogglePanels(left: false) },
-            // 조정
+            // Adjust
             sel("adj.copy", "조정 복사", "조정", #selector(W.copyAdjustments(_:)), bulk: ["$@c"], studio: []),
             sel("adj.paste", "조정 적용", "조정", #selector(W.pasteAdjustments(_:)), bulk: ["$@v"], studio: []),
             sel("adj.reset", "조정 초기화", "조정", #selector(W.resetAdjustments(_:)), bulk: ["@r"], studio: []),
@@ -167,7 +167,7 @@ enum KeyMap {
             act("adj.hueSat", "색조/채도 (컬러 에디터)", "조정", bulk: [], studio: ["@u"]) { $0.keyRevealCard("editor") },
             act("adj.invert", "반전 레이어", "조정", bulk: [], studio: ["@i"]) { $0.keyAdjustLayer("반전") { $0.invert = 1 } },
             act("adj.desaturate", "채도 빼기 레이어", "조정", bulk: [], studio: ["$@u"]) { $0.keyAdjustLayer("채도 빼기") { $0.saturation = -100 } },
-            // 레이어
+            // Layers
             sel("layer.duplicate", "복제 (레이어 / 배경)", "레이어", #selector(W.duplicateLayerOrBackground(_:)), bulk: [], studio: ["@j"]),
             sel("layer.transform", "자유 변형", "레이어", #selector(W.freeTransform(_:)), bulk: [], studio: ["@t"]),
             sel("layer.group", "그룹으로 묶기", "레이어", #selector(W.groupLayer(_:)), bulk: [], studio: ["@g"]),
@@ -189,7 +189,7 @@ enum KeyMap {
             sel("view.rulers", "눈금자", "보기", #selector(W.toggleRulers(_:)), bulk: [], studio: ["@r"]),
             sel("view.guides", "안내선 보기", "보기", #selector(W.toggleGuides(_:)), bulk: ["@;"], studio: ["@;"]),
             sel("view.snap", "스냅", "보기", #selector(W.toggleSnap(_:)), bulk: ["$@;"], studio: ["$@;"]),
-            // 사진·파일
+            // Photo · File
             sel("file.export", "내보내기", "파일", #selector(W.exportPhotos(_:)), bulk: ["$@d"], studio: ["~$@w"]),
             act("photo.rotateLeft", "왼쪽으로 90°", "사진", bulk: ["~@l"], studio: []) { $0.keyRotate(-1) },
             act("photo.rotateRight", "오른쪽으로 90°", "사진", bulk: ["~@r"], studio: []) { $0.keyRotate(1) },
@@ -197,7 +197,7 @@ enum KeyMap {
             act("photo.tagYellow", "색 태그 노랑", "사진", bulk: ["*"], studio: []) { $0.tagColor(3) },
             act("photo.tagGreen", "색 태그 초록", "사진", bulk: ["="], studio: []) { $0.tagColor(4) },
         ]
-        // 별점 (대량 보정) · 불투명도 (심화 보정, 5 = 50%, 0 = 100%)
+        // Rating (batch edit) · opacity (layer edit, 5 = 50%, 0 = 100%)
         for n in 0...5 {
             a.append(act("photo.rate\(n)", "별점 \(n)", "사진", bulk: ["\(n)"], studio: []) { $0.rate(n) })
         }
@@ -209,7 +209,7 @@ enum KeyMap {
         return a
     }()
 
-    /// 사용자가 바꾼 값이 있으면 그것, 없으면 기본값
+    /// The user's value if changed, else the default
     static func combos(_ a: KeyAction, _ s: Scope) -> [KeyCombo] {
         if let saved = UserDefaults.standard.stringArray(forKey: "keys.\(s.rawValue).\(a.id)") { return saved.map(KeyCombo.init) }
         return (s == .bulk ? a.bulk : a.studio).map(KeyCombo.init)
@@ -240,7 +240,7 @@ enum KeyMap {
         return t
     }
 
-    /// 같은 키를 두 동작이 쓰면 알려 준다
+    /// Reports when two actions use the same key
     static func conflicts(_ s: Scope) -> [(KeyCombo, [String])] {
         var byCombo: [KeyCombo: [String]] = [:]
         for a in actions { for c in combos(a, s) { byCombo[c, default: []].append(a.title) } }
@@ -248,10 +248,10 @@ enum KeyMap {
     }
 }
 
-// MARK: - 단축키로 부르는 동작
+// MARK: - Actions invoked by shortcut
 
 extension MainWindowController {
-    /// 모든 모드의 단축키를 받는다. 입력칸에 쓰는 중이면 건드리지 않는다. 메뉴보다 먼저 가로챈다.
+    /// Receives shortcuts for all modes. Leaves typing in text fields alone. Intercepts before menus.
     func installKeyMap() {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             if ProcessInfo.processInfo.environment["DUOCHROME_KEYLOG"] != nil {
@@ -260,7 +260,7 @@ extension MainWindowController {
             guard let self, e.window === self.window, !(self.window?.firstResponder is NSTextView),
                   self.window?.attachedSheet == nil, let combo = KeyCombo(event: e) else { return e }
             guard let action = KeyMap.table(KeyMap.scope(self.mode))[combo] else {
-                // 한글 입력 상태의 ⌘ 조합: 영문 글자로 바꿔 메뉴에 넘긴다 (⌘Z 등)
+                // ⌘ combos with Korean input: convert to Latin letters and pass to the menu (⌘Z etc.)
                 if e.modifierFlags.contains(.command), combo.key != KeyCombo.normalize(e.charactersIgnoringModifiers ?? ""),
                    let latin = NSEvent.keyEvent(with: .keyDown, location: e.locationInWindow, modifierFlags: e.modifierFlags,
                                                 timestamp: e.timestamp, windowNumber: e.windowNumber, context: nil,
@@ -269,7 +269,7 @@ extension MainWindowController {
                    NSApp.mainMenu?.performKeyEquivalent(with: latin) == true { return nil }
                 return e
             }
-            // 레이어 단축키는 레이어 목록이 보일 때만, 사진 목록에 초점이 있으면 사진 목록이 받는다
+            // Layer shortcuts only when the layer list is visible; if the photo list has focus, it gets them
             if action.id.hasPrefix("layer."), !self.layerKeysActive { return e }
             action.run(self)
             return nil
@@ -277,7 +277,7 @@ extension MainWindowController {
         syncMenuKeys()
     }
 
-    /// 메뉴에 보이는 단축키를 지금 모드의 것으로 (선택자가 있는 동작만)
+    /// Shows the current mode's shortcuts in menus (only for actions with selectors)
     func syncMenuKeys() {
         guard let main = NSApp.mainMenu else { return }
         let scope = KeyMap.scope(mode)
@@ -312,7 +312,7 @@ extension MainWindowController {
         enterTool(.retouch)
     }
 
-    /// L·T: 고른 레이어가 그 종류면 그대로 마스크 도구, 아니면 그 종류의 레이어를 더한다
+    /// L·T: if the selected layer is that kind, switch to its mask tool; otherwise add a layer of that kind
     func keyGradient(_ kind: LayerMask.Kind) {
         guard let doc = photo else { return }
         if let id = layersTab.selectedID, doc.settings.layers.first(where: { $0.id == id })?.mask.kind == kind {} else {
@@ -351,14 +351,14 @@ extension MainWindowController {
         layersTab.sync(s)
     }
 
-    /// 레이어 단축키를 받을 때인가: 심화 보정이거나 대량 보정 레이어 탭이 보일 때, 사진 목록에 초점이 없을 때
+    /// Whether layer shortcuts apply: in layer edit or with the batch-edit layers tab visible, and the photo list unfocused
     var layerKeysActive: Bool {
         if window?.firstResponder is NSCollectionView { return false }
         if mode == .studio { return true }
         return mode == .edit && layersTab.isViewLoaded && layersTab.view.window != nil && !layersTab.view.isHiddenOrHasHiddenAncestor
     }
 
-    /// 레이어를 바꾸는 단축키: 바꾼 뒤 두 레이어 목록을 다시 그린다
+    /// Shortcuts that change layers: redraw both layer lists afterwards
     func keyLayerEdit(_ f: (MainWindowController) -> Void) {
         f(self)
         if mode == .studio { studioMode.layersPanel.reload() }

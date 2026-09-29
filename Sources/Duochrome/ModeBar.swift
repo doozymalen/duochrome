@@ -1,14 +1,14 @@
 import AppKit
 
-/// 모드별 막대. 창 막대 밑, 캔버스 위에 떠 있는 둥근 막대.
-/// 창 막대(맨 위)는 세 모드가 똑같고, 그 모드에서만 쓰는 도구·동작은 여기에 둔다.
-/// 심화 보정의 도구 막대(StudioToolStrip)와 같은 모양·같은 높이·같은 자리.
+/// Per-mode bar. A rounded bar floating below the toolbar, over the canvas.
+/// The toolbar (top) is the same in all three modes; tools and actions used only in one mode go here.
+/// Same look, height, and position as the layer-edit tool strip (StudioToolStrip).
 final class ModeBar: NSView {
-    /// 패널·막대 위는 보통 화살표 (아래 사진 화면의 편집 포인터가 비치지 않게)
+    /// Plain arrow over panels and bars (so the photo view's edit cursor doesn't show through)
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
     static let height: CGFloat = 44
-    /// 막대와 위아래 여백을 합친 높이. 캔버스는 이만큼 아래에서 시작한다.
+    /// Height of the bar plus top/bottom margins. The canvas starts this far down.
     static let slot: CGFloat = 8 + height + 8
 
     private let stack = NSStackView()
@@ -31,14 +31,14 @@ final class ModeBar: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// 무리 사이 빈칸 (심화 보정 도구 막대의 무리 사이와 같은 12pt)
+    /// Gap between groups (12 pt, same as between groups in the layer-edit tool strip)
     static func gap(_ width: CGFloat = 12) -> NSView {
         let v = NSView()
         v.widthAnchor.constraint(equalToConstant: width).isActive = true
         return v
     }
 
-    /// 막대를 slot 가운데에 띄운다 (좁으면 양옆 8pt 안으로 줄어든다).
+    /// Centers the bar in its slot (shrinks within 8 pt side margins when narrow).
     static func place(_ bar: NSView, in slot: NSView) {
         bar.translatesAutoresizingMaskIntoConstraints = false
         slot.addSubview(bar)
@@ -53,15 +53,15 @@ final class ModeBar: NSView {
     }
 }
 
-/// 유리 막대 위 도구 단추 (모드별 막대·심화 보정 도구 막대 공통).
-/// 고른 도구: 막대 안에 여백을 두고 앉은 30pt 원(맑은 흰색, 옅은 그림자)이 살짝 커지며 나타나고 아이콘은 검게.
-/// 올려 두면 옅은 원. (예전의 막대 높이를 꽉 채우던 흰 알약은 보기 싫었다)
+/// Tool button on a glass bar (shared by per-mode bars and the layer-edit tool strip).
+/// Selected tool: a 30 pt circle (clear white, faint shadow) inset within the bar grows in slightly and the icon turns black.
+/// Hover shows a faint circle. (The old white pill filling the bar height looked bad)
 class BarToolButton: NSButton {
     static let size: CGFloat = 34
     static let dot: CGFloat = 30
 
     var isOn = false { didSet { if isOn != oldValue { restyle(animated: true) } } }
-    /// 준비 중 도구처럼 흐리게 (누를 수는 있다)
+    /// Dimmed like a work-in-progress tool (still clickable)
     var dimmed = false { didSet { restyle(animated: false) } }
     private let dotLayer = CALayer()
     private var hovering = false
@@ -126,7 +126,7 @@ class BarToolButton: NSButton {
     }
 }
 
-/// 모드별 막대의 둥근 단추.
+/// Round button in a per-mode bar.
 final class ModeBarButton: BarToolButton {
     init(_ symbol: String, _ tip: String, target: AnyObject?, action: Selector) {
         let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
@@ -140,9 +140,9 @@ final class ModeBarButton: BarToolButton {
     required init?(coder: NSCoder) { fatalError() }
 }
 
-/// 모드별 막대 안의 검색칸 (알약 모양, 막대 높이에 맞춘 작은 크기).
+/// Search field inside a per-mode bar (pill shape, small size matched to the bar height).
 final class ModeBarSearchField: NSSearchField {
-    /// 창이 처음 뜰 때 검색칸이 초점을 가져가지 않게, 눌렀을 때만 초점을 받는다 (ClickFocusSearchField와 같다).
+    /// Takes focus only on click, so it doesn't grab focus when the window first appears (same as ClickFocusSearchField).
     override var acceptsFirstResponder: Bool {
         let t = NSApp.currentEvent?.type
         return t == .leftMouseDown || t == .keyDown && window?.firstResponder === currentEditor()
@@ -159,10 +159,10 @@ final class ModeBarSearchField: NSSearchField {
     }
 }
 
-// MARK: - 대량 보정 모드별 막대와 공통 창 막대 동작
+// MARK: - Batch-edit mode bar and shared toolbar actions
 
 extension MainWindowController {
-    /// 대량 보정 막대: [커서 도구 8개] [자동 조정 · 노출 경고 · 조정 복사 · 조정 적용] (사진 검색은 오른쪽 사진 패널 위로 옮겼다)
+    /// Batch-edit bar: [8 cursor tools] [auto adjust · exposure warning · copy adjustments · apply adjustments] (photo search moved above the right photo panel)
     func makeBulkBar() -> ModeBar {
         let straighten = NSImage(systemSymbolName: "level", accessibilityDescription: nil) != nil ? "level" : "ruler"
         let keystone = NSImage(systemSymbolName: "perspective", accessibilityDescription: nil) != nil ? "perspective" : "trapezoid.and.line.vertical"
@@ -189,10 +189,10 @@ extension MainWindowController {
         ])
     }
 
-    /// 지금 모드에서 보이는 캔버스 (창 막대의 확대 조절이 이걸 움직인다)
+    /// Canvas visible in the current mode (moved by the toolbar zoom control)
     var activeCanvas: CanvasView { mode == .tether ? tetherMode.viewer.canvas : viewer.canvas }
 
-    /// 공통 창 막대의 왼쪽·오른쪽 패널 단추. 모드마다 그 모드의 패널을 접고 편다.
+    /// Left/right panel buttons of the shared toolbar. Collapse/expand that mode's panels.
     @objc func toggleLeftPanel(_ sender: Any?) { togglePanel(left: true) }
     @objc func toggleRightPanel(_ sender: Any?) { togglePanel(left: false) }
 

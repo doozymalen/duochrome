@@ -3,10 +3,10 @@ import CoreImage
 import ImageIO
 import AVFoundation
 
-/// 렌즈 흐림의 깊이 맵: 사진에 든 깊이 자료(아이폰 인물 사진 HEIC 등), AI 피사체 분리, 레이어 마스크에서 만든다.
-/// 깊이 맵은 0 가까움 ~ 1 멂 흑백 그림이고, 지금 형태 보정·크롭을 거친 화면 좌표로 저장한다.
+/// Depth map for lens blur: from depth data in the photo (iPhone portrait HEIC etc.), AI subject separation, or a layer mask.
+/// The depth map is grayscale, 0 near – 1 far, stored in view coordinates after current geometry and crop.
 enum LensDepth {
-    /// 사진 파일에 든 깊이(또는 시차) 자료 → 원본 좌표 흑백 (0 가까움 ~ 1 멂)
+    /// Depth (or disparity) data in the photo file → source-coordinate grayscale (0 near – 1 far)
     static func auxiliary(_ url: URL) -> CIImage? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         for type in [kCGImageAuxiliaryDataTypeDisparity, kCGImageAuxiliaryDataTypeDepth] {
@@ -14,7 +14,7 @@ enum LensDepth {
                   var depth = try? AVDepthData(fromDictionaryRepresentation: info) else { continue }
             depth = depth.converting(toDepthDataType: kCVPixelFormatType_DisparityFloat32)
             var img = CIImage(cvPixelBuffer: depth.depthDataMap)
-            // 시차는 가까울수록 크다 → 거꾸로, 0~1로
+            // Disparity is larger when near → invert, to 0–1
             let e = img.extent
             var mm = [Float](repeating: 0, count: 4)
             let minmax = img.applyingFilter("CIAreaMinMaxRed", parameters: [kCIInputExtentKey: CIVector(cgRect: e)])
@@ -32,7 +32,7 @@ enum LensDepth {
 }
 
 extension MainWindowController {
-    /// 원본 좌표 흑백 그림 → 화면 좌표(형태 보정·크롭)로 옮겨 저장하고, 고른 레이어의 렌즈 흐림에 깊이 맵으로 건다
+    /// Source-coordinate grayscale → mapped to view coordinates (geometry, crop), saved, and set as the depth map on the selected layer's lens blur
     func setLensDepth(_ nativeDepth: CIImage) {
         guard let doc = photo, var s = photo?.settings, let id = layersTab.selectedID ?? s.layers.last?.id,
               let i = s.layers.firstIndex(where: { $0.id == id }) else {
@@ -65,7 +65,7 @@ extension MainWindowController {
         layersTab.sync(s)
     }
 
-    /// AI 피사체 분리: 피사체는 가깝게(0), 배경은 멀게(1), 경계는 부드럽게
+    /// AI subject separation: subject near (0), background far (1), soft boundary
     @objc func lensDepthFromAI(_ sender: Any?) {
         guard let doc = photo else { NSSound.beep(); return }
         window?.subtitle = "깊이 맵 만드는 중…"
@@ -79,7 +79,7 @@ extension MainWindowController {
         }
     }
 
-    /// 사진에 든 깊이 자료 (아이폰 인물 사진 등)
+    /// Depth data in the photo (iPhone portrait etc.)
     @objc func lensDepthFromPhoto(_ sender: Any?) {
         guard let doc = photo, let d = LensDepth.auxiliary(URL(fileURLWithPath: doc.url.path)) else {
             let a = NSAlert(); a.messageText = "이 사진에는 깊이 자료가 없습니다"; a.informativeText = "아이폰 인물 사진(HEIC) 등에만 있습니다. AI 피사체 분리나 레이어 마스크를 쓰세요."; a.runModal(); return
@@ -87,7 +87,7 @@ extension MainWindowController {
         setLensDepth(d)
     }
 
-    /// 고른 레이어의 마스크 (흰 곳이 멀다)
+    /// Mask of the selected layer (white is far)
     @objc func lensDepthFromMask(_ sender: Any?) {
         guard let doc = photo, let id = layersTab.selectedID, let l = doc.settings.layers.first(where: { $0.id == id }), l.mask.kind != .full else { NSSound.beep(); return }
         let n = doc.nativeSize

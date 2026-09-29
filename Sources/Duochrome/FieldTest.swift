@@ -1,10 +1,10 @@
 import AppKit
 import CoreImage
 
-/// 실사용 실전 시험 (DUOCHROME_FIELDTEST=1): 사람이 하는 순서대로 한 세션을 돌리며 걸린 시간·메모리를 잰다.
-/// 시험 카탈로그(DUOCHROME_CATALOG)로만 돌린다. 느린 곳은 "느림"으로 표시한다.
+/// Real-use field test (DUOCHROME_FIELDTEST=1): runs a session in the order a person would, measuring time and memory.
+/// Runs only with a test catalog (DUOCHROME_CATALOG). Slow spots are marked "느림".
 extension MainWindowController {
-    /// 지금 메모리 사용량 (MB, 물리 사용량)
+    /// Current memory use (MB, physical footprint)
     static func memoryMB() -> Double {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
@@ -12,7 +12,7 @@ extension MainWindowController {
         return kr == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
     }
 
-    /// 그림 한 조각을 실제로 그려 걸린 시간 (ms)
+    /// Time to actually render one tile (ms)
     private func renderMS(_ img: CIImage, rect: CGRect? = nil) -> Double {
         let r = (rect ?? img.extent).intersection(img.extent).integral
         let t0 = CACurrentMediaTime()
@@ -20,14 +20,14 @@ extension MainWindowController {
         return (CACurrentMediaTime() - t0) * 1000
     }
 
-    /// 주 스레드를 돌려 뒤 작업(썸네일 등)이 흐르게 한다
+    /// Spins the main run loop so background work (thumbnails etc.) flows
     private func pump(_ seconds: Double) { RunLoop.current.run(until: Date(timeIntervalSinceNow: seconds)) }
 
     static var fieldTestStarted = false
-    /// 시험이 도중에 끝날 때 할 일 (시험 전 보정값으로 되돌리기)
+    /// What to do if the test ends early (restore the pre-test adjustments)
     static var fieldTestAbort: (() -> Void)?
 
-    /// 보정 기능을 하나씩 켜며 맞춤 보기(1/4) 첫 그리기 시간을 잰다 (새 문서로 매번 — 캐시 없이)
+    /// Enables develop features one by one, timing the first fit-view (1/4) draw (a fresh document each time — no cache)
     func profileFeatures(_ doc0: RawDocument) {
         let url = doc0.url
         func time(_ name: String, _ f: (inout DevelopSettings) -> Void) {
@@ -54,7 +54,7 @@ extension MainWindowController {
         time("전부") { $0.exposure = 0.5; $0.contrast = 20; $0.clarity = 20; $0.highlight = 40; $0.shadow = 30; $0.dehaze = 15; $0.color.editor[5].dSat = 30; $0.levelInWhite = 0.9 }
     }
 
-    /// 사진 12장을 차례로 열고 맞춤 보기까지 (평균 ms, 늘어난 메모리 MB)
+    /// Opens 12 photos in turn until fit view (mean ms, memory growth MB)
     @discardableResult
     func browseTest(fitScale: CGFloat) -> (Double, Double) {
         setMode(.edit)
@@ -73,7 +73,7 @@ extension MainWindowController {
             if let d = photo { tDraw = renderMS(d.image(scale: fitScale)) }
             opens.append((CACurrentMediaTime() - t0) * 1000)
             print(String(format: "  열기 %@: 문서 %.0f ms, 그리기 %.0f ms, 메모리 %.0f MB", item.name, tShow, tDraw, Self.memoryMB()))
-            // 사람이 사진을 보는 동안 (1.5초) — 그사이 다음 사진을 미리 준비한다
+            // While a person looks at the photo (1.5 s) — the next photo is prepared meanwhile
             pump(1.5)
         }
         pump(1.0)
@@ -88,7 +88,7 @@ extension MainWindowController {
     }
 
     func runFieldTest() {
-        // 사진을 열 때마다 개발 고리가 다시 불린다 → 한 번만
+        // The develop hook runs again on every open → once only
         guard !Self.fieldTestStarted else { return }
         Self.fieldTestStarted = true
         var lines: [String] = []
@@ -103,7 +103,7 @@ extension MainWindowController {
         }
         guard let doc = photo else { print("실전 시험: 사진이 없음"); exit(1) }
         let mem0 = Self.memoryMB()
-        // 이 사진은 시험 전 상태로 끝에 되돌린다 (레이어가 남아 다음 시험마다 쌓였다)
+        // Restore this photo to its pre-test state at the end (leftover layers piled up with each test)
         let docSaved = doc.settings
         Self.fieldTestAbort = { [weak self] in self?.replaceSettings(docSaved, recordUndo: false) }
         log(String(format: "실전 시험 시작: %@ %.0f×%.0f, 메모리 %.0f MB, 목록 %d장", doc.url.lastPathComponent, doc.nativeSize.width, doc.nativeSize.height, mem0, library.items.count))
@@ -117,11 +117,11 @@ extension MainWindowController {
         if ProcessInfo.processInfo.environment["DUOCHROME_FIELDTEST"] == "thumbs" { thumbBench(doc); return }
         if ProcessInfo.processInfo.environment["DUOCHROME_FIELDTEST"] == "psd" { psdBench(doc); return }
 
-        // 1. 처음 화면: 맞춤 보기와 100% 한 조각
+        // 1. First view: fit view and one 100% tile
         _ = timed("처음 맞춤 보기 그리기", limit: 1500) { _ = renderMS(doc.image(scale: fitScale)) }
         _ = timed("100% 한 조각 (1600×1000)", limit: 2500) { _ = renderMS(doc.image(scale: 1), rect: CGRect(x: 3000, y: 2000, width: 1600, height: 1000)) }
 
-        // 2. 보정: 슬라이더를 끄는 것처럼 값 바꾸고 다시 그리기 (끄는 중 미리보기 단계)
+        // 2. Adjust: change values like dragging a slider and redraw (draft stage while dragging)
         var st = doc.settings
         var drags: [Double] = []
         for i in 0..<12 {
@@ -135,7 +135,7 @@ extension MainWindowController {
         }
         apply(st, dragging: false)
         let dragAvg = drags.dropFirst().reduce(0, +) / Double(max(drags.count - 1, 1))
-        // 노출만 끌기 (RAW 해독을 다시 하는지 보는 값)
+        // Drag exposure only (checks whether the RAW is decoded again)
         var expo: [Double] = []
         for i in 0..<10 {
             st.exposure = 0.5 + Float(i) * 0.03
@@ -158,7 +158,7 @@ extension MainWindowController {
         _ = timed("보정 뒤 맞춤 보기 그리기", limit: 900) { _ = renderMS(doc.image(scale: fitScale)) }
         _ = timed("보정 뒤 100% 한 조각", limit: 2500) { _ = renderMS(doc.image(scale: 1), rect: CGRect(x: 3000, y: 2000, width: 1600, height: 1000)) }
 
-        // 3. 여러 장: 20장에 조정 붙이기 + 별점·채택·키워드, 썸네일 다시 만들기
+        // 3. Many photos: paste adjustments to 20 + ratings/picks/keywords, rebuild thumbnails
         if library.items.count < 21 { library.show(.all); browser.reload() }
         let batch = Array(library.items.filter { $0 !== photoItem && !$0.offline }.prefix(20))
         let raws = batch.map { library.rawSettings(for: $0.url) }
@@ -189,7 +189,7 @@ extension MainWindowController {
         }
         _ = timed("검색 (이름 일부)", limit: 400) { library.query = "DZY68"; library.query = "" }
 
-        // 4. 심화 보정: 레이어 쌓기 (글자·모양·칠하기·그라디언트 마스크·선택·효과·스타일)
+        // 4. Layer editing: stack layers (text, shape, paint, gradient mask, selection, effects, styles)
         setMode(.studio)
         let n = doc.nativeSize
         _ = timed("레이어 여섯 개 쌓기", limit: 800) {
@@ -230,13 +230,13 @@ extension MainWindowController {
         }
         if !thumbsReady { slow.append("레이어 썸네일이 10초 안에 다 안 됨") }
 
-        // 5. 되돌리기·다시 하기 스무 번
+        // 5. Undo/redo twenty times
         _ = timed("되돌리기·다시 하기 20번", limit: 1500) {
             for _ in 0..<10 { undoAdjust(nil) }
             for _ in 0..<10 { redoAdjust(nil) }
         }
 
-        // 6. 내보내기: JPEG·TIFF 16비트 원본 크기, PSD(레이어), PSD 다시 읽기
+        // 6. Export: JPEG, TIFF 16-bit at full size, PSD (layers), PSD read back
         let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-field-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         var r = ExportRecipe(); r.folder = dir.path; r.keepMetadata = true
@@ -252,12 +252,12 @@ extension MainWindowController {
         log("       파일: JPEG \(size(jpeg)), TIFF \(size(tiff)), PSD \(size(psdOK ? psdURL : nil)) (레이어 \(psdLayers))")
         if jpeg == nil || tiff == nil || !psdOK || psdLayers < 6 { slow.append("내보내기 실패: JPEG \(jpeg != nil) TIFF \(tiff != nil) PSD \(psdOK) 레이어 \(psdLayers)") }
 
-        // 7. 사진 넘기기
+        // 7. Stepping through photos
         let (openAvg, grow) = browseTest(fitScale: fitScale)
         if openAvg > 1500 { slow.append("사진 열기 평균 \(Int(openAvg))ms") }
         if grow > 1500 { slow.append(String(format: "사진 12장 넘긴 뒤 메모리 %.0f MB 늘어남", grow)) }
 
-        // 되돌림: 이 사진과 20장 보정·별점 원래대로 (시험 카탈로그라도 다음 시험을 위해)
+        // Revert: this photo and the 20 photos' adjustments/ratings (even in a test catalog, for the next test)
         replaceSettings(docSaved, recordUndo: false)
         for (item, raw) in zip(batch, raws) {
             if let raw, let dict = try? JSONSerialization.jsonObject(with: raw) as? [String: Any] { library.saveRawSettings(dict, for: item.url) } else { library.removeSettings(for: item.url) }
@@ -273,7 +273,7 @@ extension MainWindowController {
     }
 }
 
-// MARK: - AI 실전 시험 (DUOCHROME_FIELDTEST=ai): 엔진을 켜고 지우기·채우기·노이즈 제거·확대·확장을 실제로 돌린다
+// MARK: - AI field test (DUOCHROME_FIELDTEST=ai): starts the engine and actually runs erase, fill, denoise, upscale, expand
 extension MainWindowController {
     func aiFieldTest(_ doc: RawDocument) {
         let out = ProcessInfo.processInfo.environment["DUOCHROME_AITEST_DIR"].map { URL(fileURLWithPath: $0) }
@@ -299,7 +299,7 @@ extension MainWindowController {
         }
         let r = Double(max(n.width, n.height)) * 0.02
         let cx = Double(n.width) * 0.5, cy = Double(n.height) * 0.5
-        // 도구를 고를 때처럼 엔진을 미리 켠다 (켜는 시간을 따로 잰다)
+        // Warm the engine up like when picking a tool (start time measured separately)
         steps.append(("엔진 켜기", { AIEngine.shared.warmUp() }, { AIEngine.shared.isAlive() }))
         if !skip.contains("remove") {
             layerStep("지우기") { [weak self] in
@@ -372,8 +372,8 @@ extension MainWindowController {
 }
 
 
-// MARK: - 테더링 실전 시험 (DUOCHROME_FIELDTEST=tether, DUOCHROME_TETHER_FAKE=원본 RAW 경로 → 가짜 카메라)
-// 테더링 모드로 가서 연결·설정 바꾸기·라이브 뷰·구도 격자·촬영·이름 규칙·목록 등록까지 확인하고 창을 PNG로 남긴다
+// MARK: - Tether field test (DUOCHROME_FIELDTEST=tether, DUOCHROME_TETHER_FAKE=source RAW path → fake camera)
+// Goes to tether mode and checks connect, setting changes, live view, grid, capture, naming, catalog registration; saves the window as PNG
 extension MainWindowController {
     func tetherFieldTest() {
         let out = ProcessInfo.processInfo.environment["DUOCHROME_AITEST_DIR"].map { URL(fileURLWithPath: $0) }
@@ -443,8 +443,8 @@ extension MainWindowController {
 }
 
 
-// MARK: - 실사용 흐름 시험 (DUOCHROME_FIELDTEST=flow, DUOCHROME_FLOW_PHOTOS=사진 폴더)
-// 사진 가져오기 → 고르기·별점·채택 → 보정·회전 → 조정 레이어 → 심화 보정 오가기 → 다섯 형식 내보내기 → 웹용 내보내기
+// MARK: - Real-use flow test (DUOCHROME_FIELDTEST=flow, DUOCHROME_FLOW_PHOTOS=photo folder)
+// import → select/rate/pick → adjust/rotate → adjustment layer → back and forth with layer edit → export five formats → web export
 extension MainWindowController {
     func flowFieldTest() {
         guard let photos = ProcessInfo.processInfo.environment["DUOCHROME_FLOW_PHOTOS"].map({ URL(fileURLWithPath: $0) }) else {
@@ -479,7 +479,7 @@ extension MainWindowController {
                 s.exposure = 0.4; s.contrast = 12; s.rotation = 2
                 self.replaceSettings(s, recordUndo: true, label: "흐름 보정")
                 check("보정·회전", doc.settings.exposure == 0.4 && doc.settings.rotation == 2)
-                // 썸네일 먼저 그리기: 한 장면은 썸네일로, 곧바로 진짜 그림으로 다시 그린다
+                // Thumbnail-first drawing: one frame from the thumbnail, then immediately the real image
                 let pf0 = self.canvas.placeholderFrames
                 let gray = NSImage(size: NSSize(width: 320, height: 213), flipped: false) { r in NSColor.gray.setFill(); r.fill(); return true }
                 self.canvas.placeholder = gray.cgImage(forProposedRect: nil, context: nil, hints: nil)
@@ -501,14 +501,14 @@ extension MainWindowController {
                     let size = url.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int } ?? 0
                     check("내보내기 \(f.title)", size > 100_000, String(format: "%.1f MB, %.1f초", Double(size) / 1e6, CACurrentMediaTime() - t))
                 }
-                // 웹용 내보내기 (창 없이 같은 인코더로)
+                // Web export (same encoder, no window)
                 let small = doc.image(scale: 0.25)
                 if let cg = Render.context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) {
                     let d = WebExportWindow.encode(cg, type: .jpeg, quality: 0.8)
                     check("웹용 내보내기 (JPEG 80%)", (d?.count ?? 0) > 10_000, "\((d?.count ?? 0) / 1000) KB")
                 } else { check("웹용 내보내기", false) }
                 try? FileManager.default.removeItem(at: dir)
-                // 되돌리기로 시험 전으로
+                // Undo back to the pre-test state
                 for _ in 0..<3 { self.undoAdjust(nil) }
                 self.rate(0); self.flag(0)
                 self.flowFinish(results)
@@ -526,7 +526,7 @@ extension MainWindowController {
 }
 
 
-// MARK: - 썸네일 속도 (DUOCHROME_FIELDTEST=thumbs): 보정한 사진 12장을 실제 경로로 새로 만든다
+// MARK: - Thumbnail speed (DUOCHROME_FIELDTEST=thumbs): rebuilds 12 adjusted photos through the real path
 extension MainWindowController {
     func thumbBench(_ doc: RawDocument) {
         if library.items.count < 13 { library.show(.all) }
@@ -558,13 +558,13 @@ extension MainWindowController {
 }
 
 
-// MARK: - PSD 쓰기 속도 (DUOCHROME_FIELDTEST=psd): 실전 시험과 같은 레이어 여섯 개
+// MARK: - PSD write speed (DUOCHROME_FIELDTEST=psd): the same six layers as the field test
 extension MainWindowController {
     func psdBench(_ doc: RawDocument) {
         let saved = doc.settings
         let n = doc.nativeSize
         var s = doc.settings
-        s.layers = []   // 같은 조건으로 재도록
+        s.layers = []   // so it's measured under the same conditions
         var t = AdjustLayer(name: "제목"); t.kind = "text"
         t.text = LayerText(string: "오후의 빛", font: "AppleSDGothicNeo-Bold", size: Double(n.height) / 12, color: [1, 1, 1], x: Double(n.width) * 0.08, y: Double(n.height) * 0.12)
         var styles = LayerStyles(); styles.dropShadow.enabled = true
@@ -590,7 +590,7 @@ extension MainWindowController {
             let t0 = CACurrentMediaTime()
             let ok = (try? PSDExport.write(doc, to: url)) != nil
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-            // 저장만의 메모리를 잴 때는 다시 읽기를 건너뛴다 (740MB 파일을 통째로 읽어 최대치가 올라간다)
+            // When measuring write-only memory, skip reading back (reading a 740 MB file whole raises the peak)
             let back = ProcessInfo.processInfo.environment["DUOCHROME_PSD_NOREAD"] != nil ? -1 : ((try? PSD.read(url))?.layers.count ?? -1)
             print(String(format: "PSD 쓰기 %@ %.1f초, %.0f MB, 다시 읽은 레이어 %d", ok ? "성공" : "실패", CACurrentMediaTime() - t0, Double(size) / 1e6, back))
             try? FileManager.default.removeItem(at: url)

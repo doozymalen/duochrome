@@ -1,13 +1,13 @@
 import AppKit
 
-/// 새로 찍을 리터칭 점의 설정. 사진마다가 아니라 도구 설정이라 앱 전체에 한 벌이다.
+/// Settings for the next retouch spot. A tool setting, not per photo, so one set for the whole app.
 struct RetouchBrush {
     var kind: RetouchSpot.Kind = .heal
-    /// 원본 픽셀 기준 반지름.
+    /// Radius in source pixels.
     var radius: Double = 40
     var feather: Double = 0.5
     var opacity: Double = 1
-    /// 패치 도구: 끌면 올가미가 된다.
+    /// Patch tool: dragging makes a lasso.
     var patch = false
 
     static var saved: RetouchBrush {
@@ -33,13 +33,13 @@ struct RetouchBrush {
     }
 }
 
-/// 리터칭 탭: 복구 브러시·복제 도장, 크기·부드러움·불투명도, 점 목록.
+/// Retouch tab: healing brush / clone stamp, size, feather, opacity, spot list.
 final class RetouchTabController: NSViewController {
     var brush = RetouchBrush.saved {
         didSet {
             brush.save()
             onBrushChange?(brush)
-            if isViewLoaded { syncBrush() }   // 코드에서 바꿔도 패널이 따라오게
+            if isViewLoaded { syncBrush() }   // so the panel follows changes made in code
         }
     }
     var onBrushChange: ((RetouchBrush) -> Void)?
@@ -134,24 +134,24 @@ final class RetouchTabController: NSViewController {
     @objc private func removeSelected() { onRemoveSelected?() }
 }
 
-/// 캔버스 위 리터칭 층. 점마다 대상(흰 원)과 원본(초록 점선 원)을 잇는다.
+/// Retouch layer over the canvas. Connects each spot's target (white circle) and source (green dashed circle).
 final class RetouchOverlayView: NSView {
     weak var canvas: CanvasView?
     var spots: [RetouchSpot] = [] { didSet { needsDisplay = true } }
     var selected: Int? { didSet { needsDisplay = true } }
     var brushRadius: Double = 40
-    /// 원본 좌표 ↔ 뷰 좌표.
+    /// Source coordinates ↔ view coordinates.
     var toView: ((CGPoint) -> CGPoint)?
     var fromView: ((CGPoint) -> CGPoint)?
-    /// 빈 곳을 눌렀을 때 (원본 좌표).
+    /// Click on empty space (source coordinates).
     var onAdd: ((CGPoint) -> Void)?
-    /// 빈 곳에서 끌었을 때: 붓질 (원본 좌표 점들).
+    /// Drag from empty space: a stroke (source coordinate points).
     var onAddStroke: (([CGPoint]) -> Void)?
-    /// 패치 도구면 끈 자리가 올가미가 된다.
+    /// With the patch tool, the dragged path becomes a lasso.
     var patchMode = false
     var onAddPatch: (([CGPoint]) -> Void)?
-    private var drawing: [CGPoint] = []   // 뷰 좌표
-    /// 점을 옮겼을 때 (몇 번째, 새 값, 끄는 중인지).
+    private var drawing: [CGPoint] = []   // view coordinates
+    /// When a spot moves (index, new value, dragging).
     var onEdit: ((Int, RetouchSpot, Bool) -> Void)?
     var onDelete: ((Int) -> Void)?
 
@@ -173,7 +173,7 @@ final class RetouchOverlayView: NSView {
                                        owner: self))
     }
 
-    /// 원본 반지름을 뷰 길이로 (형태 보정의 배율까지 반영하려고 실제로 옮겨서 잰다).
+    /// Source radius → view length (measured by actually mapping, to include geometry scale).
     private func viewRadius(_ s: RetouchSpot) -> CGFloat {
         guard let toView else { return 0 }
         let a = toView(s.target), b = toView(CGPoint(x: s.targetX + s.radius, y: s.targetY))
@@ -190,7 +190,7 @@ final class RetouchOverlayView: NSView {
         return p
     }
 
-    /// 뷰 좌표 점에서 획까지 거리.
+    /// Distance from a view-coordinate point to the stroke.
     private func distance(_ p: CGPoint, _ pts: [CGPoint]) -> CGFloat {
         guard pts.count > 1 else { return hypot(p.x - pts[0].x, p.y - pts[0].y) }
         var best = CGFloat.greatestFiniteMagnitude
@@ -265,7 +265,7 @@ final class RetouchOverlayView: NSView {
             (i == selected ? NSColor.controlAccentColor : NSColor.white).setStroke()
             to.stroke()
         }
-        // 브러시 미리보기.
+        // brush preview
         if let h = hover, grab == nil, !patchMode, let fromView {
             let p = fromView(h)
             let probe = RetouchSpot(targetX: p.x, targetY: p.y, sourceX: p.x, sourceY: p.y, radius: brushRadius)
@@ -288,7 +288,7 @@ final class RetouchOverlayView: NSView {
         window?.makeFirstResponder(self)
         let p = convert(event.locationInWindow, from: nil)
         guard let toView, let fromView else { return }
-        // 위에 그린 점부터 (나중 점이 위).
+        // Topmost drawn spots first (later spots are on top).
         for (i, s) in spots.enumerated().reversed() {
             let r = max(viewRadius(s), 6)
             if s.isPatch {
@@ -326,14 +326,14 @@ final class RetouchOverlayView: NSView {
     override func mouseDragged(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         if grab == nil, !drawing.isEmpty {
-            // 반지름의 1/3 간격으로만 점을 남긴다 (올가미는 3pt마다).
+            // Keep points only every 1/3 radius (every 3 pt for lassos).
             let step = patchMode ? 3 : max(CGFloat(brushRadius) * (canvas?.zoom ?? 1) / 3, 2)
             if let last = drawing.last, hypot(p.x - last.x, p.y - last.y) >= step { drawing.append(p); needsDisplay = true }
             return
         }
         guard let grab, let fromView else { return }
         if spots.indices.contains(grab.index), spots[grab.index].isStroke {
-            // 획은 끈 거리만큼 통째로 옮긴다 (원본 자리를 끌면 원본만).
+            // Strokes move whole by the drag distance (dragging the source moves only the source).
             let q = fromView(p)
             guard let last = lastDrag else { return }
             let d = CGPoint(x: q.x - last.x, y: q.y - last.y)
@@ -350,7 +350,7 @@ final class RetouchOverlayView: NSView {
         let q = fromView(CGPoint(x: p.x + grabOffset.x, y: p.y + grabOffset.y))
         switch grab {
         case .target(let i):
-            // 대상과 원본을 함께 옮긴다 (거리를 지킨다).
+            // Move target and source together (keeping the offset).
             var s = spots[i]
             let dx = q.x - s.targetX, dy = q.y - s.targetY
             s.targetX += dx; s.targetY += dy; s.sourceX += dx; s.sourceY += dy
@@ -369,7 +369,7 @@ final class RetouchOverlayView: NSView {
             let pts = drawing
             drawing = []
             needsDisplay = true
-            // 거의 안 끌었으면 점 하나.
+            // Barely dragged: a single spot.
             let len = zip(pts, pts.dropFirst()).reduce(0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
             if patchMode {
                 if len >= 20, pts.count >= 3 { onAddPatch?(pts.map(fromView)) }
@@ -384,7 +384,7 @@ final class RetouchOverlayView: NSView {
         grab = nil
     }
 
-    /// 점이 다각형 안인지 (짝홀 규칙).
+    /// Whether a point is inside a polygon (even-odd rule).
     static func inside(_ p: CGPoint, _ poly: [CGPoint]) -> Bool {
         guard poly.count >= 3 else { return false }
         var c = false
@@ -398,7 +398,7 @@ final class RetouchOverlayView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        // Delete(51), 앞으로 지우기(117)
+        // Delete (51), forward delete (117)
         if [51, 117].contains(event.keyCode), let i = selected {
             selected = nil
             onDelete?(i)

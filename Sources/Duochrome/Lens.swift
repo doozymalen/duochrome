@@ -1,10 +1,10 @@
 import CoreImage
 import Metal
 
-/// 손 렌즈 보정: 왜곡, 색수차, 주변부 광량, 주변부 선명도.
+/// Manual lens correction: distortion, chromatic aberration, vignetting, edge sharpness.
 ///
-/// RAW 디코딩 바로 뒤, 리터칭보다 앞(원본 좌표 단계)에서 건다. 그래서 뒤의 좌표 변환은 그대로다.
-/// 반경은 사진 대각선의 절반으로 나눈 값(모서리 = 1)이라 미리보기 배율과 상관없다.
+/// Applied right after RAW decoding, before retouching (source coordinate stage), so later coordinate mappings are unchanged.
+/// Radius is normalized by half the photo diagonal (corner = 1), so it's independent of the preview scale.
 enum Lens {
     static func isIdentity(_ s: DevelopSettings) -> Bool {
         s.lensDistortion == 0 && s.lensCA == 0 && s.lensCABlue == 0 && s.lensVignette == 0 && s.lensSharpFalloff == 0
@@ -15,16 +15,16 @@ enum Lens {
         var img = image
         let e = image.extent
         if s.lensDistortion != 0 || s.lensCA != 0 || s.lensCABlue != 0 {
-            // k > 0: 모서리를 안으로 당겨 술통형을 편다. 모서리가 모서리에 오게 (1 + k)로 나눠 검은 테가 없다.
-            // k < 0: 가운데 쪽을 읽어 실패형을 편다. 읽는 자리가 늘 안쪽이라 검은 테가 없다.
+            // k > 0: pulls corners inward to fix barrel distortion. Divided by (1 + k) so corners land on corners, no black border.
+            // k < 0: samples toward the center to fix pincushion. Samples are always inside, so no black border.
             let k = s.lensDistortion / 100 * 0.15
             let norm: Float = k > 0 ? 1 / (1 + k) : 1
-            // 색수차: 모서리에서 채널 크기를 최대 ±0.3% 바꾼다 (45MP 모서리에서 약 13px).
+            // CA: scales channels by up to ±0.3% at the corners (about 13 px at a 45 MP corner).
             let cr = s.lensCA / 100 * 0.003, cb = s.lensCABlue / 100 * 0.003
             img = warp(image, params: [Float(e.midX), Float(e.midY), Float(hypot(e.width, e.height) / 2), k, norm, cr, cb, 0])
         }
         if s.lensVignette > 0 {
-            // 모서리를 최대 1스톱 밝힌다. 가운데는 그대로 (r² 곡선이라 넓게 퍼진다).
+            // Brighten corners by up to 1 stop. Center unchanged (r² curve spreads wide).
             let gain = radial(e, center: 0, edge: 1).applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": CIVector(x: CGFloat(s.lensVignette / 100), y: 0, z: 0, w: 0),
                 "inputGVector": CIVector(x: 0, y: CGFloat(s.lensVignette / 100), z: 0, w: 0),
@@ -34,8 +34,8 @@ enum Lens {
             img = img.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: gain]).cropped(to: e)
         }
         if s.lensSharpFalloff > 0 {
-            // 가장자리만 더 선명하게: 언샤프 마스크 결과를 r² 마스크로 섞는다.
-            let radius = max(e.width, e.height) / 3000   // 45MP 원본에서 약 2.7px, 미리보기에서는 작아진다
+            // Sharpen only the edges: blend an unsharp mask result through an r² mask.
+            let radius = max(e.width, e.height) / 3000   // About 2.7 px on a 45 MP source, smaller in previews
             let sharp = img.clampedToExtent().applyingFilter("CIUnsharpMask", parameters: [
                 kCIInputRadiusKey: max(radius, 0.5), kCIInputIntensityKey: s.lensSharpFalloff / 100 * 1.5,
             ]).cropped(to: e)
@@ -46,10 +46,10 @@ enum Lens {
         return img
     }
 
-    /// 가운데 0 → 모서리 1인 r² 이미지 (회색).
+    /// r² image from center 0 → corner 1 (gray).
     static func radial(_ e: CGRect, center: CGFloat, edge: CGFloat) -> CIImage {
         let half = hypot(e.width, e.height) / 2
-        // CIRadialGradient는 반경에 선형이다. 제곱을 흉내 내려고 감마 2를 씌운다.
+        // CIRadialGradient is linear in radius. Apply gamma 2 to imitate a square.
         return CIFilter(name: "CIRadialGradient", parameters: [
             "inputCenter": CIVector(x: e.midX, y: e.midY), "inputRadius0": 0, "inputRadius1": half,
             "inputColor0": CIColor(red: center, green: center, blue: center),
@@ -57,7 +57,7 @@ enum Lens {
         ])!.outputImage!.applyingFilter("CIGammaAdjust", parameters: ["inputPower": 2]).cropped(to: e)
     }
 
-    /// 읽는 자리를 옮기는 커널은 출력 한 칸에 입력 전체가 필요할 수 있어 입력 영역을 통째로 준다.
+    /// Kernels that move sample positions may need the whole input for one output cell, so the whole input region is given.
     static func warp(_ image: CIImage, params: [Float]) -> CIImage {
         do {
             return try WarpOp.apply(withExtent: image.extent, inputs: [image],
@@ -73,15 +73,15 @@ enum Lens {
     #include <metal_stdlib>
     using namespace metal;
 
-    // 텍스처 행 0은 영역의 위쪽(큰 y)이다.
+    // Texture row 0 is the top of the region (large y).
     inline float4 at(texture2d<half, access::sample> src, float2 w, float2 o) {
         constexpr sampler s(coord::pixel, filter::linear, address::clamp_to_edge);
         float2 t = w - o;
         return float4(src.sample(s, float2(t.x, float(src.get_height()) - t.y)));
     }
 
-    // 출력 자리 → 원래(왜곡된) 사진에서 읽을 자리. p[0..1] 중심, p[2] 반 대각선, p[3] k, p[4] 정규화, p[5] 빨강, p[6] 파랑
-    // q[0..1] 출력 영역 원점, q[2..3] 입력 영역 원점 (Core Image 좌표, y 위로)
+    // Output position → where to sample the original (distorted) photo. p[0..1] center, p[2] half diagonal, p[3] k, p[4] normalization, p[5] red, p[6] blue
+    // q[0..1] output region origin, q[2..3] input region origin (Core Image coordinates, y up)
     kernel void lens_warp(texture2d<half, access::sample> src [[texture(0)]],
                           texture2d<half, access::write> dst [[texture(1)]],
                           constant float *p [[buffer(0)]],

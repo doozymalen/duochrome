@@ -2,25 +2,25 @@ import AppKit
 import CoreImage
 import UniformTypeIdentifiers
 
-/// Duochrome 문서 → PSD·PSB. 레이어째 쓴다.
+/// Duochrome document → PSD/PSB, with layers.
 ///
-/// - 맨 아래 "배경": 현상한 사진 (형태 보정·크롭 반영)
-/// - 이미지·칠·글자 레이어 → 픽셀 레이어 (효과·스타일은 픽셀로 굽는다), 혼합 모드·불투명도·클리핑·마스크 그대로
-/// - 그룹 → 그룹 (통과 포함)
-/// - 조정 레이어: PSD에서 가져와 고치지 않은 것과 반전·포스터화·한계값은 PSD 조정 레이어로,
-///   나머지(노출·클래리티 같은 현상 조정)는 아래 레이어에 건 결과를 픽셀 레이어로 굽는다 (마스크·불투명도는 그대로)
-/// - 합친 그림은 우리가 그린 최종 결과
+/// - Bottom "Background": the developed photo (geometry and crop applied)
+/// - Image/fill/text layers → pixel layers (effects and styles baked into pixels), blend mode, opacity, clipping, and masks preserved
+/// - Groups → groups (including pass-through)
+/// - Adjustment layers: unedited ones imported from PSD plus invert/posterize/threshold become PSD adjustment layers;
+///   others (develop adjustments like exposure, clarity) are baked into pixel layers from the result applied to the layers below (mask and opacity kept)
+/// - The merged image is our own final render
 enum PSDExport {
     struct Options {
-        /// 8 또는 16
+        /// 8 or 16
         var depth = 8
-        /// nil이면 크기를 보고 고른다 (2GB·30000px을 넘으면 PSB)
+        /// nil picks by size (PSB above 2 GB or 30000 px)
         var psb: Bool?
     }
 
     private struct Out {
         var layer: PSD.Layer
-        /// 채널마다 (id, 압축된 자료: 압축 방식 2바이트 포함)
+        /// Per channel (id, compressed data including the 2-byte compression type)
         var data: [(Int16, Data)]
     }
 
@@ -31,7 +31,7 @@ enum PSDExport {
         try BackgroundGate.during { try doc.withFullResolution { try writeNow(doc, to: url, options: options, progress: report) } }
     }
 
-    /// 시간 재기 (DUOCHROME_PSDLOG): 그리기·압축 합계
+    /// Timing (DUOCHROME_PSDLOG): render and compression totals
     static var tRender = 0.0, tPack = 0.0
 
     private static func writeNow(_ doc: RawDocument, to url: URL, options: Options, progress: ((String) -> Void)?) throws {
@@ -60,7 +60,7 @@ enum PSDExport {
         let clear = CIImage(color: .clear).cropped(to: rect)
         let gamma = s.gammaBlend ?? false
 
-        /// 레이어 목록 앞부분만 켠 합성 결과 (사진 포함)
+        /// Composite with only the first part of the layer list enabled (including the photo)
         func composite(_ layers: [AdjustLayer]) -> CIImage {
             var t = saved
             t.layers = layers
@@ -69,7 +69,7 @@ enum PSDExport {
         }
 
         var outs: [Out] = []
-        // 배경
+        // background
         progress?("배경")
         var bgSettings = saved; bgSettings.layers = []
         doc.settings = bgSettings
@@ -90,7 +90,7 @@ enum PSDExport {
         var open: [String] = []
         for (i, layer) in saved.layers.enumerated() { autoreleasepool {
             progress?("레이어 \(i + 1)/\(saved.layers.count): \(layer.name)")
-            // 이 레이어가 들어갈 그룹을 연다 (그룹 끝 구분자)
+            // Open the group this layer belongs to (group end divider)
             let c = chain(layer)
             for g in c where !open.contains(g) {
                 var d = PSD.Layer()
@@ -106,10 +106,10 @@ enum PSDExport {
             rec.flags = layer.enabled ? 0x08 : 0x0A
             rec.clipping = layer.clipped ? 1 : 0
             rec.blocks = [("luni", unicodeData(layer.name))]
-            // 마스크 (모양이 있을 때만)
+            // mask (only when it has a shape)
             var maskData: (PSD.Mask, Data)?
             if layer.mask.kind != .full || layer.mask.combos != nil || layer.mask.invert || layer.mask.hasLumaRange {
-                // 아래 합성의 화소가 필요한 것은 밝기 범위·색 범위·가장자리 다듬기뿐 (나머지는 크기만 쓴다)
+                // Only luma range, color range, and refine edge need pixels of the composite below (the rest use size only)
                 let needsPixels = layer.mask.hasLumaRange || (layer.mask.colorRange?.count ?? 0) >= 4 || (layer.mask.refine ?? 0) >= 0.5
                 let base = needsPixels ? composite(Array(saved.layers.prefix(i))) : clear
                 let m = Layers.maskImage(layer.mask, scale: 1, native: doc.nativeSize, shape: shape, base: base)
@@ -129,7 +129,7 @@ enum PSDExport {
             rec.blend = PSD.psdBlend(layer.blend)
             if rec.blend == "pass" { rec.blend = "norm" }
             if let native = nativeAdjustment(layer) {
-                // PSD 조정 레이어
+                // PSD adjustment layer
                 rec.blocks.append(native)
                 var ch = emptyChannels()
                 if let (m, d) = maskData { rec.mask = m; ch.append((-2, d)) }
@@ -143,7 +143,7 @@ enum PSDExport {
                 solo.blendIf = nil
                 content = Layers.apply([solo], to: clear, guide: clear, scale: 1, guideScale: 1, native: doc.nativeSize, shape: shape, gamma: gamma)
             } else {
-                // 조정·복제 레이어: 아래까지 합친 것에 이 레이어를 온전히 건 결과를 굽는다
+                // Adjustment/duplicate layers: bake the result of fully applying this layer to the composite below
                 var solo = layer
                 solo.mask = LayerMask(); solo.opacity = 1; solo.enabled = true; solo.blendIf = nil
                 content = composite(Array(saved.layers.prefix(i)) + [solo])
@@ -158,7 +158,7 @@ enum PSDExport {
             if let (m, d) = maskData { rec.mask = m; data.append((-2, d)) }
             outs.append(Out(layer: rec, data: data))
         } }
-        // 닫히지 않은 그룹 (그룹 레이어가 빠진 경우): 이름 없는 그룹으로 닫는다
+        // Unclosed group (group layer missing): close it as an unnamed group
         for _ in open.reversed() {
             var g = PSD.Layer(); g.name = "그룹"; g.blend = "pass"
             var lsct = PSD.Writer(); lsct.u32(1); lsct.key("8BIM"); lsct.key("pass")
@@ -171,11 +171,11 @@ enum PSDExport {
         try assemble(outs, merged: merged.data, width: W, height: H, depth: depth, psb: psb, to: url)
     }
 
-    // MARK: - PSD 조정 레이어로 쓸 수 있는가
+    // MARK: - Can it be written as a PSD adjustment layer
 
     private static func nativeAdjustment(_ l: AdjustLayer) -> (key: String, data: Data)? {
         guard l.kind == "adjust" else { return nil }
-        // PSD에서 가져와 LUT 말고는 건드리지 않은 조정
+        // Adjustments imported from PSD and untouched except for the LUT
         if let raw = l.psdBlock, let colon = raw.firstIndex(of: ":") {
             var a = l.adjust; a.lut = ""; a.invert = 0
             if a == LocalAdjust(), let d = Data(base64Encoded: String(raw[raw.index(after: colon)...])) {
@@ -194,7 +194,7 @@ enum PSDExport {
         w.u16(UInt16(thr)); w.u16(0); return ("thrs", w.data)
     }
 
-    // MARK: - 채널
+    // MARK: - Channels
 
     private static func emptyChannels() -> [(Int16, Data)] {
         [(-1, Data([0, 0])), (0, Data([0, 0])), (1, Data([0, 0])), (2, Data([0, 0]))]
@@ -203,7 +203,7 @@ enum PSDExport {
     private static func u32Data(_ v: UInt32) -> Data { var w = PSD.Writer(); w.u32(v); return w.data }
     private static func unicodeData(_ s: String) -> Data { var w = PSD.Writer(); w.unicode(s); return w.data }
 
-    /// 그림을 sRGB 평면 채널로 (알파는 나눈 색). crop이면 알파가 있는 사각형만.
+    /// Image → sRGB planar channels (alpha unpremultiplied). With crop, only the rectangle that has alpha.
     private static func channels(_ img: CIImage, rect: CGRect, depth: Int, psb: Bool, alpha: Bool, crop: Bool = false,
                                  merged: Bool = false) -> (data: [(Int16, Data)], bounds: CGRect) {
         let W = Int(rect.width), H = Int(rect.height)
@@ -220,8 +220,8 @@ enum PSDExport {
         Render.exportContext.clearCaches()
         let tp = CACurrentMediaTime()
         defer { tPack += CACurrentMediaTime() - tp }
-        // 코어 이미지 결과는 알파를 곱한 색이다. PSD는 곱하지 않은 색을 쓴다.
-        // 알파 나누기·바이트 순서 바꾸기·그림 있는 범위 찾기를 줄 묶음으로 나눠 여러 코어에서 (예전엔 한 줄로 45MP를 세 번 훑었다)
+        // Core Image results are premultiplied. PSD uses unpremultiplied color.
+        // Unpremultiply, byte-swap, and bounds search are split into row bands across cores (it used to scan 45 MP three times in one pass)
         let lanes = max(1, min(16, ProcessInfo.processInfo.activeProcessorCount * 2))
         let rowsPer = (H + lanes - 1) / lanes
         var bounds = [(Int, Int, Int, Int)](repeating: (W, H, 0, 0), count: lanes)
@@ -251,7 +251,7 @@ enum PSDExport {
                                     if alpha, a > 0, a < 65535 {
                                         for c in 0 ..< 3 { h[i + c] = UInt16(min(65535, (Int(h[i + c]) * 65535 + a / 2) / a)) }
                                     }
-                                    // 16비트: 맥은 작은 엔디언, PSD는 큰 엔디언
+                                    // 16-bit: the Mac is little-endian, PSD is big-endian
                                     for c in 0 ..< 4 { h[i + c] = h[i + c].byteSwapped }
                                 }
                             }
@@ -271,7 +271,7 @@ enum PSDExport {
         let ids: [Int16] = alpha ? [-1, 0, 1, 2] : [0, 1, 2]
         var out: [(Int16, Data)] = []
         var rows: [[UInt8]] = []
-        // 채널(3~4개)을 동시에 압축한다
+        // compress the channels (3–4) concurrently
         var packed = [(rows: [UInt8], counts: [Int])](repeating: ([], []), count: ids.count)
         buf.withUnsafeBufferPointer { src in
             packed.withUnsafeMutableBufferPointer { pk in
@@ -298,7 +298,7 @@ enum PSDExport {
         }
         for (ci, id) in ids.enumerated() {
             let planeRows = packed[ci].rows, counts = packed[ci].counts
-            packed[ci] = ([], [])   // 옮기는 즉시 비운다 (네 채널을 두 벌씩 들고 있었다)
+            packed[ci] = ([], [])   // Free immediately after moving (it held two copies of all four channels)
             if merged {
                 rows.append(planeRows)
                 out.append((id, Data(counts.flatMap { psb ? be32($0) : be16($0) })))
@@ -310,13 +310,13 @@ enum PSDExport {
             out.append((id, d))
         }
         if merged {
-            // 합친 그림: 모든 채널의 줄 길이가 먼저, 그다음 자료
+            // Merged image: all channels' row lengths first, then the data
             var d = Data([0, 1])
             for (_, c) in out { d.append(c) }
             for r in rows { d.append(contentsOf: r) }
             return ([(0, d)], CGRect(x: x0, y: y0, width: w, height: h))
         }
-        // 비트맵은 위가 0이라 사각형도 위 기준
+        // Bitmaps have 0 at the top, so the rect is top-based too
         return (out, CGRect(x: x0, y: y0, width: w, height: h))
     }
 
@@ -333,7 +333,7 @@ enum PSDExport {
         }
         var d = Data([0, 1]), rowsData: [UInt8] = []
         var counts: [Int] = []
-        // 줄 묶음마다 따로 압축해 차례대로 잇는다 (여러 코어)
+        // Compress each row band separately and concatenate in order (multiple cores)
         let lanes = max(1, min(16, ProcessInfo.processInfo.activeProcessorCount * 2))
         let rowsPer = (H + lanes - 1) / lanes
         var parts = [(rows: [UInt8], counts: [Int])](repeating: ([], []), count: lanes)
@@ -366,11 +366,11 @@ enum PSDExport {
         return (mask, d)
     }
 
-    // MARK: - 파일 조립
+    // MARK: - Assembling the file
 
-    /// 파일로 차례대로 쓴다 (예전엔 레이어 자료 약 700MB를 메모리에서 세 번 이어 붙여 복사한 뒤 저장했다)
+    /// Writes to the file sequentially (it used to concatenate ~700 MB of layer data in memory three times before saving)
     private static func assemble(_ outs: [Out], merged: [(Int16, Data)], width W: Int, height H: Int, depth: Int, psb: Bool, to url: URL) throws {
-        // 레이어 기록 (작다)
+        // layer records (small)
         var rec = PSD.Writer()
         rec.i16(Int16(outs.count))
         for o in outs {
@@ -388,7 +388,7 @@ enum PSDExport {
             } else {
                 extra.u32(0)
             }
-            extra.u32(0)   // 혼합 범위
+            extra.u32(0)   // blending ranges
             extra.pascal(l.name, pad: 4)
             for (k, d) in l.blocks {
                 extra.key("8BIM"); extra.key(k)
@@ -405,18 +405,18 @@ enum PSDExport {
         let liLen = raw + pad
         var lmHead = PSD.Writer(), lmTail = PSD.Writer()
         if depth == 16 {
-            // 16비트 문서: 레이어는 Lr16 블록 안에
+            // 16-bit documents: layers inside the Lr16 block
             lmHead.len(0, psb); lmHead.u32(0)
             lmHead.key("8BIM"); lmHead.key("Lr16"); lmHead.len(liLen, psb)
         } else {
             lmHead.len(liLen, psb)
-            lmTail.u32(0)   // 전역 레이어 마스크
+            lmTail.u32(0)   // global layer mask
         }
         var head = PSD.Writer()
         head.key("8BPS"); head.u16(psb ? 2 : 1); head.bytes(Data(count: 6))
         head.u16(3); head.u32(UInt32(H)); head.u32(UInt32(W)); head.u16(UInt16(depth)); head.u16(3)
-        head.u32(0)   // 색 모드 자료
-        // 이미지 자원: ICC (sRGB)
+        head.u32(0)   // color mode data
+        // image resources: ICC (sRGB)
         var res = PSD.Writer()
         if let icc = CGColorSpace(name: CGColorSpace.sRGB)?.copyICCData() as Data? {
             res.key("8BIM"); res.u16(1039); res.u16(0)
@@ -425,7 +425,7 @@ enum PSDExport {
         }
         head.u32(UInt32(res.data.count)); head.bytes(res.data)
         head.len(lmHead.data.count + liLen + lmTail.data.count, psb)
-        // 같은 폴더 임시 파일에 쓰고 바꿔치기 (도중에 실패해도 예전 파일이 남게)
+        // Write to a temp file in the same folder and swap (the old file survives a failure midway)
         let tmp = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).tmp-\(UUID().uuidString)")
         FileManager.default.createFile(atPath: tmp.path, contents: nil)
         let h = try FileHandle(forWritingTo: tmp)
@@ -452,7 +452,7 @@ enum PSDExport {
 }
 
 extension MainWindowController {
-    /// 파일 → PSD로 내보내기 (PSD·PSB)
+    /// File → Export as PSD (PSD/PSB)
     @objc func exportPSD(_ sender: Any?) {
         guard let doc = photo, let window else { NSSound.beep(); return }
         let panel = NSSavePanel()

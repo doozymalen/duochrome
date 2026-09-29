@@ -1,17 +1,17 @@
 import Foundation
 import ImageIO
 
-/// 외부 카탈로그(.cocatalog) 가져오기. **읽기만 한다** — 카탈로그 파일을 임시 폴더에 복사해서 그 복사본을 연다.
+/// External catalog (.cocatalog) import. **Read-only** — copies the catalog file to a temp folder and opens the copy.
 ///
-/// 가져오는 것: 사진 목록, 앨범·그룹 구조, 별점, 색 태그, 썸네일 캐시, 조정값 일부.
-/// 경로에 파일이 없는 사진은 "오프라인"으로 표시만 한다. 다른 곳에서 찾아 다시 잇기(relink)는 하지 않는다.
+/// Imports: photo list, album/group structure, ratings, color tags, thumbnail cache, some adjustments.
+/// Photos whose files are missing are only marked "offline". No relinking from elsewhere.
 ///
-/// 저장 방식 (2026 카탈로그로 확인):
-/// - ZCOLLECTION.Z_ENT: 2 앨범, 7 그룹·프로젝트, 8 특수 그룹(최근 가져오기 등), 36 폴더
-/// - 최종 조정값은 ZVARIANT.ZCOMBINEDSETTINGS가 가리키는 ZVARIANTLAYER 행
-/// - 별점·색은 ZVARIANT.ZDEFAULTLAYER의 ZVARIANTMETADATA
-/// - 썸네일 캐시 Cache/Thumbnails/<변형 번호 8자리>.cot (사진 번호가 아니다 — 번호대가 겹쳐 엉뚱한 사진이 붙는다)
-/// - ZROTATION에 카메라 방향이 섞여 있다: EXIF 6이면 90, 8이면 270(또는 -90)
+/// Storage layout (verified with a 2026 catalog):
+/// - ZCOLLECTION.Z_ENT: 2 album, 7 group/project, 8 special group (recent imports etc.), 36 folder
+/// - Final adjustments are the ZVARIANTLAYER row pointed to by ZVARIANT.ZCOMBINEDSETTINGS
+/// - Ratings/colors are in ZVARIANTMETADATA of ZVARIANT.ZDEFAULTLAYER
+/// - Thumbnail cache Cache/Thumbnails/<8-digit variant id>.cot (not the photo id — the ranges overlap and attach the wrong photo)
+/// - ZROTATION includes camera orientation: EXIF 6 is 90, 8 is 270 (or -90)
 enum CatalogImport {
     struct Report {
         var images = 0, online = 0, offline = 0, trashedSkipped = 0
@@ -36,14 +36,14 @@ enum CatalogImport {
             throw SQLiteDB.Failure(message: "\(package.lastPathComponent) 안에 .cocatalogdb 파일이 없습니다")
         }
         let name = package.deletingPathExtension().lastPathComponent
-        // 복사본을 연다: 다른 앱이 열어 둔 상태여도 원본 잠금·저널을 건드리지 않는다.
+        // Open the copy: doesn't touch the original's locks/journal even if another app has it open.
         let copy = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-import-\(UUID().uuidString).db")
         try fm.copyItem(at: package.appendingPathComponent(dbFile), to: copy)
         defer { try? fm.removeItem(at: copy) }
         let srcDB = try SQLiteDB(path: copy.path, readOnly: true)
         progress?("카탈로그 읽는 중…")
 
-        // 경로
+        // paths
         var locations: [Int64: String] = [:]
         try srcDB.query("SELECT Z_PK, ZMACROOT, ZRELATIVEPATH FROM ZPATHLOCATION") { r in
             let root = r.text(1) ?? "", rel = r.text(2) ?? ""
@@ -52,7 +52,7 @@ enum CatalogImport {
             locations[r.int(0)] = path
         }
 
-        // 사진 + 대표 변형의 별점·색·조정값 행
+        // photo + primary variant's rating, color, adjustment rows
         struct SourceImage {
             let pk: Int64; let path: String; let date: Double?; let camera: String?; let lens: String?
             var rating = 0, color = 0, combined: Int64 = 0, variant: Int64 = 0
@@ -71,7 +71,7 @@ enum CatalogImport {
             LEFT JOIN ZVARIANTMETADATA m ON m.ZLAYER = v.ZDEFAULTLAYER
             ORDER BY v.ZINDEX DESC
             """) { r in
-            // 변형이 여럿이면 첫 변형(ZINDEX가 가장 작은 것)이 마지막에 덮어쓴다.
+            // With several variants, the first (lowest ZINDEX) overwrites last.
             guard var img = images[r.int(0)] else { return }
             img.combined = r.int(1)
             img.rating = Int(r.int(2))
@@ -80,7 +80,7 @@ enum CatalogImport {
             images[r.int(0)] = img
         }
 
-        // 카탈로그에 넣기
+        // Insert into the catalog
         progress?("사진 \(images.count)장 등록 중…")
         let thumbDir = package.appendingPathComponent("Cache/Thumbnails")
         let batch = try catalog.nextBatch()
@@ -100,7 +100,7 @@ enum CatalogImport {
                     """, [fid, (img.path as NSString).lastPathComponent, img.path, now, batch, img.date,
                           img.camera, img.lens, hasThumb ? thumb : nil, !exists, img.rating, img.color])
                 let id = try catalog.db.scalar("SELECT id FROM images WHERE path = ?", [img.path])
-                // 이미 있던 사진이면 Duochrome 쪽 별점·색을 지키고, 비어 있을 때만 가져온 값을 쓴다.
+                // For existing photos, keep Duochrome's rating/color and use imported values only when empty.
                 try catalog.db.run("""
                     UPDATE images SET rating = CASE WHEN rating = 0 THEN ? ELSE rating END,
                         color = CASE WHEN color = 0 THEN ? ELSE color END,
@@ -116,7 +116,7 @@ enum CatalogImport {
             }
         }
 
-        // 앨범·그룹
+        // albums · groups
         progress?("앨범 구조 가져오는 중…")
         struct Coll { let pk: Int64; let ent: Int64; let name: String; let parent: Int64? }
         var colls: [Int64: Coll] = [:]
@@ -131,7 +131,7 @@ enum CatalogImport {
         func ensure(_ pk: Int64) throws -> Int64? {
             if let a = albumMap[pk] { return a }
             guard let c = colls[pk], !specialPKs.contains(pk), [2, 7, 8].contains(c.ent) else { return nil }
-            // 최근 가져오기·최근 촬영 아래의 자동 앨범은 건너뛴다.
+            // Skip automatic albums under recent imports / recent captures.
             if let p = c.parent, specialPKs.contains(p), colls[p]?.name != "root" { return nil }
             let parentID: Int64 = try c.parent.flatMap { specialPKs.contains($0) ? nil : try ensure($0) } ?? top
             let kind = c.ent == 2 ? 1 : 0
@@ -150,7 +150,7 @@ enum CatalogImport {
             try catalog.addToAlbum(aid, m)
         }
 
-        // 조정값
+        // adjustments
         progress?("조정값 옮기는 중…")
         var layers: [Int64: [String: Any]] = [:]
         let cols = ["ZEXPOSURE", "ZCONTRAST", "ZBRIGHTNESS", "ZSATURATION", "ZCLARITY", "ZCLARITYSTRUCTURE",
@@ -170,7 +170,7 @@ enum CatalogImport {
             }
             layers[r.int(0)] = d
         }
-        // 카메라 기록 화이트 밸런스(기본 레이어)와 센서 크기
+        // As-shot white balance (base layer) and sensor size
         var shotWB: [Int64: String] = [:]
         try srcDB.query("SELECT v.Z_PK, d.ZWHITEBALANCE FROM ZVARIANT v JOIN ZVARIANTLAYER d ON d.Z_PK = v.ZDEFAULTLAYER") { r in
             if let t = r.text(1) { shotWB[r.int(0)] = t }
@@ -183,7 +183,7 @@ enum CatalogImport {
             if let sz = sensor[img.pk] { d["SENSORW"] = sz.0; d["SENSORH"] = sz.1 }
             let url = URL(fileURLWithPath: img.path)
             if library.hasSettings(for: url) { report.adjustSkippedExisting += 1; continue }
-            // 카메라 방향: 원본이 있으면 EXIF에서, 없으면 회전값에서 가장 가까운 90° 배수로 추정.
+            // Camera orientation: from EXIF if the source exists, else the nearest multiple of 90° from the rotation.
             var orientation: Int?
             if online[img.pk] == true,
                let src = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -200,7 +200,7 @@ enum CatalogImport {
         return report
     }
 
-    /// 가져온 값 → Duochrome 설정 조각 (JSON 사전). 카메라 기록값 위에 덮어 읽힌다.
+    /// Imported values → Duochrome settings fragment (JSON dictionary). Read on top of the as-shot values.
     static func convert(_ d: [String: Any], orientation: Int?) -> [String: Any] {
         func num(_ k: String) -> Double? { d[k] as? Double }
         var out: [String: Any] = [:]
@@ -209,13 +209,13 @@ enum CatalogImport {
                        ("ZCLARITY", "clarity"), ("ZCLARITYSTRUCTURE", "structure"), ("ZDEHAZEAMOUNT", "dehaze")] {
             if let v = num(c), v != 0 { out[s] = max(-100, min(100, v)) }
         }
-        // 가져온 HDR: 하이라이트는 음수가 복구(어둡게), 섀도는 양수가 밝게. Duochrome도 하이라이트·섀도 모두 -100~100 (하이라이트 음수가 복구, 섀도 양수가 밝게).
+        // Imported HDR: negative highlights recover (darker), positive shadows brighten. Duochrome's highlights/shadows are both -100–100 (negative highlights recover, positive shadows brighten).
         if let v = num("ZHIGHLIGHTRECOVERY"), v != 0 { out["highlights"] = min(max(v, -100), 100) }
         if let v = num("ZSHADOWRECOVERY"), v != 0 { out["shadow"] = min(max(v, -100), 100) }
         if let v = num("ZWHITERECOVERY"), v != 0 { out["white"] = v }
         if let v = num("ZBLACKRECOVERY"), v != 0 { out["black"] = v }
 
-        // 회전: 카메라 방향만큼 빼고 남는 것만 (90° 배수는 quarterTurns, 나머지는 미세 회전).
+        // Rotation: subtract camera orientation and keep the rest (multiples of 90° as quarterTurns, remainder as fine rotation).
         if var rot = num("ZROTATION") {
             let cam: Double
             switch orientation {
@@ -223,7 +223,7 @@ enum CatalogImport {
             case 8: cam = 270
             case 3: cam = 180
             case 1: cam = 0
-            default: cam = (rot / 90).rounded() * 90   // 원본이 없으면 가장 가까운 90° 배수를 카메라 방향으로 본다
+            default: cam = (rot / 90).rounded() * 90   // Without the source, treat the nearest multiple of 90° as the camera orientation
             }
             rot -= cam
             while rot > 180 { rot -= 360 }
@@ -238,18 +238,18 @@ enum CatalogImport {
             if Int(f) & 2 != 0 { out["flipV"] = 1.0 }
         }
 
-        // 화이트 밸런스: 가져온 RGB 배율 ÷ 카메라 기록 배율 → 미레드·틴트 차이 (R5M2 실측 계수).
-        // 절대 색온도는 RAW를 열어야 알아서 차이로 적고, 처음 열 때 카메라 기록값에 더한다 (RawDocument.applyImportedWB)
+        // White balance: imported RGB multipliers ÷ as-shot multipliers → mired/tint deltas (R5M2 measured coefficients).
+        // Absolute temperature needs the RAW, so store a delta and add it to the as-shot value on first open (RawDocument.applyImportedWB)
         if let (dm, dt) = wbShift(d["ZWHITEBALANCE"] as? String, shot: d["SHOTWB"] as? String) {
             out["importWBShift"] = [dm, dt]
         }
-        // 크롭 "센서 가운데 X;Y;세로(Y) 폭;가로(X) 폭" (센서 좌표, 위가 0) → 형태 보정 틀의 0~1
+        // Crop "sensor center X;Y;height (Y);width (X)" (sensor coordinates, top is 0) → geometry frame 0–1
         if let c = crop(d["ZCROP"] as? String, sensor: (d["SENSORW"] as? Double, d["SENSORH"] as? Double), orientation: orientation,
                         quarterTurns: out["quarterTurns"] as? Double ?? 0, rotation: out["rotation"] as? Double ?? 0) {
             out["crop"] = ["x": c.x, "y": c.y, "w": c.w, "h": c.h]
         }
 
-        // 커브 "x,y;x,y"
+        // curve "x,y;x,y"
         func curve(_ k: String) -> [String: Any]? {
             guard let s = d[k] as? String else { return nil }
             let pts = s.split(separator: ";").compactMap { p -> [Double]? in
@@ -266,25 +266,25 @@ enum CatalogImport {
         }
         if !curves.isEmpty { out["curves"] = curves }
 
-        // 레벨 "r;g;b;전체" — 전체 채널만
+        // levels "r;g;b;master" — master channel only
         func last(_ k: String) -> Double? {
             (d[k] as? String)?.split(separator: ";").last.flatMap { Double($0) }
         }
         if let v = last("ZLEVELSSHADOW"), v != 0 { out["levelInBlack"] = v }
         if let v = last("ZLEVELSHIGHLIGHT"), v != 1 { out["levelInWhite"] = v }
 
-        // 필름 그레인 (0~100)
+        // film grain (0–100)
         if let v = num("ZFILMGRAINAMOUNT"), v > 0 {
             out["grainAmount"] = v
             if let g = num("ZFILMGRAINGRANULARITY") { out["grainSize"] = g }
         }
 
-        // 비네팅 "양|방식|…" — 양은 EV. Duochrome -100~100 (대략 1EV = 40)
+        // vignette "amount|mode|…" — amount in EV. Duochrome -100–100 (roughly 1 EV = 40)
         if let s = d["ZLENSVIGNETTING"] as? String, let v = s.split(separator: "|").first.flatMap({ Double($0) }), v != 0 {
             out["vignette"] = max(-100, min(100, v * 40))
         }
 
-        // 흑백
+        // black & white
         if let e = num("ZBWENABLED"), e != 0 {
             var bw: [String: Any] = ["enabled": true]
             for (c, s) in [("ZBWRED", "red"), ("ZBWYELLOW", "yellow"), ("ZBWGREEN", "green"), ("ZBWCYAN", "cyan"),
@@ -300,7 +300,7 @@ enum CatalogImport {
             out["color"] = ["bw": bw]
         }
 
-        // 컬러 밸런스 "r;g;b" 배율 → 색 휠 (색조·양)
+        // Color balance "r;g;b" multipliers → color wheel (hue, amount)
         var wheels: [String: Any] = [:]
         for (c, s) in [("ZCOLORBALANCE", "master"), ("ZCOLORBALANCESHADOW", "shadow"),
                        ("ZCOLORBALANCEMIDTONE", "mid"), ("ZCOLORBALANCEHIGHLIGHT", "high")] {
@@ -314,12 +314,12 @@ enum CatalogImport {
         return out
     }
 
-    /// 가져온 배율 변화 → (미레드 차이, 틴트 차이). ln(R/B)·ln(G²/RB) 변화를 R5M2 실측 기울기로 푼다.
+    /// Imported multiplier change → (mired delta, tint delta). Solves ln(R/B) and ln(G²/RB) changes with R5M2 measured slopes.
     static func wbShift(_ user: String?, shot: String?) -> (Double, Double)? {
         func parse(_ s: String?) -> [Double]? { s?.split(separator: ";").compactMap { Double($0) }.count == 3 ? s!.split(separator: ";").compactMap { Double($0) } : nil }
         guard let u = parse(user), let sh = parse(shot), u[0] > 0, u[2] > 0, sh[0] > 0, sh[2] > 0 else { return nil }
         let r = log(u[0] / sh[0]) - log(u[1] / sh[1]), b = log(u[2] / sh[2]) - log(u[1] / sh[1])
-        let y1 = r - b, y2 = -r - b             // 바라는 ln(R/B), ln(G²/RB) 변화
+        let y1 = r - b, y2 = -r - b             // desired ln(R/B), ln(G²/RB) changes
         guard abs(y1) > 0.002 || abs(y2) > 0.002 else { return nil }
         // [a b; c d] [Δmired; Δtint] = [y1; y2]
         let a = -0.01055, bb = -0.00290, c = -0.00270, dd = -0.01265
@@ -327,12 +327,12 @@ enum CatalogImport {
         return ((dd * y1 - bb * y2) / det, (a * y2 - c * y1) / det)
     }
 
-    /// 센서 좌표 크롭 → Duochrome 크롭 (틀 기준 0~1, 아래가 0)
+    /// Sensor-coordinate crop → Duochrome crop (frame-relative 0–1, bottom is 0)
     static func crop(_ s: String?, sensor: (Double?, Double?), orientation: Int?, quarterTurns: Double, rotation: Double) -> CropRect? {
         guard let v = s?.split(separator: ";").compactMap({ Double($0) }), v.count == 4, v[2] > 1, v[3] > 1,
               let W = sensor.0, let H = sensor.1, W > 0, H > 0 else { return nil }
         let o = orientation ?? 1
-        // 센서 (X 오른쪽, Y 아래) → Duochrome 원본 좌표 (카메라 방향을 반영, 아래가 0)
+        // sensor (X right, Y down) → Duochrome source coordinates (with camera orientation, bottom is 0)
         func nat(_ X: Double, _ Y: Double) -> CGPoint {
             switch o {
             case 6: return CGPoint(x: H - Y, y: W - X)
@@ -348,7 +348,7 @@ enum CatalogImport {
         let c = Geometry.toDisplay(nat(cx, cy), st, native: native, fullFrame: true)
         let px = Geometry.toDisplay(nat(cx + 100, cy), st, native: native, fullFrame: true)
         let k = hypot(px.x - c.x, px.y - c.y) / 100
-        // 센서 X가 화면 가로인가
+        // is sensor X the screen horizontal?
         let xHorizontal = abs(px.x - c.x) >= abs(px.y - c.y)
         let wd = (xHorizontal ? ex : ey) * k, hd = (xHorizontal ? ey : ex) * k
         let F = Geometry.frameSize(st, native: native)
@@ -358,23 +358,23 @@ enum CatalogImport {
         return CropRect(r)
     }
 
-    /// RGB 배율(중간 회색에 곱해지는 값)을 색 휠 한 칸으로 바꾼다. 거의 1이면 nil.
+    /// Turns RGB multipliers (applied to middle gray) into one color wheel. nil if nearly 1.
     static func wheel(_ s: String?) -> [String: Any]? {
         guard let v = s?.split(separator: ";").compactMap({ Double($0) }), v.count == 3 else { return nil }
-        // 중간 회색(0.5)이 옮겨 가는 양. 밝기 성분은 빼고 색만 본다.
+        // How far middle gray (0.5) moves. Drop the luminance component and look at color only.
         var d = SIMD3<Double>(v[0] - 1, v[1] - 1, v[2] - 1) * 0.5
         let y = 0.2126 * d.x + 0.7152 * d.y + 0.0722 * d.z
         d -= SIMD3(repeating: y)
         let mag = (d * d).sum().squareRoot()
         guard mag > 0.002 else { return nil }
-        // 색조: Duochrome 색 휠과 같은 HSV 각도
+        // Hue: same HSV angle as Duochrome's color wheel
         let r = d.x, g = d.y, b = d.z
         let mx = max(r, g, b), mn = min(r, g, b), c = mx - mn
         var h: Double
         if mx == r { h = (g - b) / c } else if mx == g { h = 2 + (b - r) / c } else { h = 4 + (r - g) / c }
         h *= 60
         if h < 0 { h += 360 }
-        // 휠 끝(양 1)에서 옮겨 가는 색 크기는 대략 0.25 × 0.8
+        // At the wheel edge (amount 1) the color shift is roughly 0.25 × 0.8
         return ["hue": h, "amount": min(mag / 0.2, 1), "lightness": 0]
     }
 }

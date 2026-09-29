@@ -1,9 +1,9 @@
 import AppKit
 import ImageCaptureCore
 
-/// 카메라 연결. macOS 기본 ImageCaptureCore를 쓴다 (회사별 SDK 없이 USB로 촬영·내려받기).
-/// 카메라가 원격 촬영을 지원하면 "촬영" 버튼이 켜지고, 찍힌 파일은 세션 폴더로 바로 받는다.
-/// 조리개·셔터 같은 카메라 설정 원격 변경은 ImageCaptureCore에 없어서 libgphoto2 도우미(GPhotoTether.swift)가 맡는다.
+/// Camera connection. Uses macOS built-in ImageCaptureCore (capture and download over USB without vendor SDKs).
+/// If the camera supports remote capture the "촬영" button is enabled, and captured files go straight to the session folder.
+/// Remote camera settings like aperture and shutter aren't in ImageCaptureCore, so the libgphoto2 helper (GPhotoTether.swift) handles them.
 final class TetherCamera: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDelegate, ICCameraDeviceDownloadDelegate {
     var onStatus: ((String) -> Void)?
     var onDownloaded: ((URL) -> Void)?
@@ -21,7 +21,7 @@ final class TetherCamera: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDeleg
     }
 
     func start() {
-        // 권한 안내 문구는 Info.plist(NSCameraUsageDescription). 권한 요청 API는 iOS 전용이라 macOS에서는 쓰지 않는다.
+        // The permission prompt text is in Info.plist (NSCameraUsageDescription). The permission request API is iOS-only, so it's unused on macOS.
         browser.start()
         onStatus?("카메라를 찾는 중… USB로 연결하고 카메라를 켜 주세요.")
     }
@@ -39,9 +39,9 @@ final class TetherCamera: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDeleg
         onStatus?("촬영 중…")
     }
 
-    // MARK: 장치 찾기
+    // MARK: Device discovery
 
-    /// 아이폰·아이패드도 "카메라"로 잡힌다. 세션을 열면 휴대폰에 잠금 해제 요청이 뜨므로 건드리지 않는다.
+    /// iPhones and iPads also show up as "cameras". Opening a session asks the phone to unlock, so leave them alone.
     static func isPhone(_ device: ICDevice) -> Bool {
         let kind = (device.productKind ?? "") + " " + (device.name ?? "")
         return ["iPhone", "iPad", "iPod", "Vision"].contains { kind.localizedCaseInsensitiveContains($0) }
@@ -61,7 +61,7 @@ final class TetherCamera: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDeleg
         onStatus?("카메라 연결이 끊겼습니다.")
     }
 
-    // MARK: 장치
+    // MARK: Device
 
     func device(_ device: ICDevice, didOpenSessionWithError error: Error?) {
         if let error { onStatus?("카메라를 열 수 없습니다: \(error.localizedDescription)"); return }
@@ -80,7 +80,7 @@ final class TetherCamera: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDeleg
     func didRemove(_ device: ICDevice) { if device === camera { camera = nil; onStatus?("카메라 연결이 끊겼습니다.") } }
     func device(_ device: ICDevice, didEncounterError error: Error?) { if let error { onStatus?("카메라 오류: \(error.localizedDescription)") } }
 
-    /// 새로 찍힌 파일만 받는다 (연결 전에 카드에 있던 사진은 건드리지 않는다).
+    /// Receives only newly captured files (photos already on the card before connecting are left alone).
     func cameraDevice(_ camera: ICCameraDevice, didAdd items: [ICCameraItem]) {
         for case let file as ICCameraFile in items {
             let created = file.creationDate ?? file.fileCreationDate ?? Date.distantPast
@@ -114,8 +114,8 @@ final class TetherCamera: NSObject, ICDeviceBrowserDelegate, ICCameraDeviceDeleg
     func cameraDeviceDidEnableAccessRestriction(_ device: ICDevice) {}
 }
 
-/// 감시 폴더: 카메라 회사 프로그램처럼 다른 프로그램이 세션 폴더에 떨군 새 사진을 가져온다.
-/// 쓰는 중인 파일을 읽지 않도록 크기가 두 번 연속 같을 때만 넘긴다.
+/// Watch folder: imports new photos dropped into the session folder by other programs, like a camera vendor's app.
+/// Passes a file only when its size is the same twice in a row, so files still being written aren't read.
 final class HotFolder {
     var onNew: ((URL) -> Void)?
     private(set) var folder: URL
@@ -155,7 +155,7 @@ final class HotFolder {
     }
 }
 
-/// ③ 테더링 모드: 왼쪽 카메라·세션, 가운데 방금 찍은 사진, 오른쪽 세션 사진들.
+/// ③ Tether mode: camera and session on the left, the latest shot in the center, session photos on the right.
 final class TetherModeController: NSViewController {
     let viewer = ViewerController()
     let strip = BrowserViewController(grid: false)
@@ -169,7 +169,7 @@ final class TetherModeController: NSViewController {
     var onAF: (() -> Void)?
     var onFocus: ((Int) -> Void)?
     var onZoom: ((String) -> Void)?
-    /// 캔버스 위 라이브 뷰·구도 참고 그림·3분할 격자
+    /// Live view, composition reference image, and thirds grid over the canvas
     let overlay = LiveOverlayView()
     private let settingsStack = NSStackView()
     private let liveButton = NSButton(checkboxWithTitle: "라이브 뷰", target: nil, action: nil)
@@ -184,7 +184,7 @@ final class TetherModeController: NSViewController {
     private let overlayAlpha = NSSlider(value: 0.4, minValue: 0.05, maxValue: 1, target: nil, action: nil)
 
     private let leftVC = NSViewController()
-    /// 테더링 배치 (GlassLayout.swift): 사진이 창 전체에, 왼쪽 카메라 패널·오른쪽 사진 목록이 유리로 뜬다
+    /// Tether layout (GlassLayout.swift): the photo spans the window; the left camera panel and right photo list float as glass
     lazy var split = GlassLayoutController(content: viewer, left: leftVC, right: strip, key: GlassLayoutController.sharedKey,
                                            leftRange: GlassLayoutController.leftRange, rightRange: GlassLayoutController.rightRange,
                                            leftDefault: 288, rightDefault: 290)
@@ -307,7 +307,7 @@ final class TetherModeController: NSViewController {
 
     func setStatus(_ s: String) { status.stringValue = s }
 
-    // MARK: 카메라 설정 (연결된 카메라가 알려 준 값과 고를 수 있는 값)
+    // MARK: Camera settings (values reported by the connected camera and available choices)
 
     private static let settingOrder: [(String, String)] = [
         ("aperture", "조리개"), ("shutterspeed", "셔터"), ("iso", "ISO"), ("exposurecompensation", "노출 보정"),
@@ -350,7 +350,7 @@ final class TetherModeController: NSViewController {
         }
     }
 
-    /// 연결한 카메라에서 되는 초점·확대만 보인다
+    /// Shows only focus/zoom supported by the connected camera
     func setCaps(_ c: GPhotoCamera.Caps) {
         caps = c
         afButton.isHidden = !c.af
@@ -392,7 +392,7 @@ final class TetherModeController: NSViewController {
         if zoomValues.indices.contains(i) { onZoom?(zoomValues[i]) }
     }
 
-    // MARK: 구도 오버레이
+    // MARK: Composition overlay
 
     @objc private func pickReference() {
         let p = NSOpenPanel()
@@ -436,7 +436,7 @@ final class TetherModeController: NSViewController {
         onHotFolder?(hot.state == .on)
     }
 
-    // MARK: - 테더링 모드별 막대: [촬영] [감시 폴더 · 노출 경고] [대량 보정에서 열기]
+    // MARK: - Tether mode bar: [capture] [watch folder · exposure warning] [open in batch edit]
 
     private weak var barShoot: ModeBarButton?
     private weak var barHot: ModeBarButton?

@@ -1,7 +1,7 @@
 import AppKit
 
-/// 상단 바의 AI 엔진 단추: 엔진은 이 단추를 누르거나 AI 도구를 고를 때만 켠다.
-/// 꺼짐(회색) · 켜는 중(주황) · 켜짐(초록). 켜진 뒤 쓰지 않으면 설정한 시간 뒤 자동으로 꺼진다.
+/// AI engine button in the top bar: the engine starts only from this button or when an AI tool is picked.
+/// Off (gray) · starting (orange) · on (green). Stops automatically after the configured idle time.
 enum AIEngineButton {
     static let changed = Notification.Name("DuochromeAIEngineChanged")
     static weak var button: NSButton?
@@ -9,7 +9,7 @@ enum AIEngineButton {
 
     enum Look { case off, starting, on, fallback }
 
-    /// 지금 설정(코랩 / 이 맥)에 따른 상태
+    /// Status for the current setting (Colab / this Mac)
     static var look: Look {
         if AIRemote.current != .local {
             switch ColabEngine.shared.state {
@@ -56,11 +56,11 @@ enum AIEngineButton {
 }
 
 extension MainWindowController {
-    /// 상단 바 단추 · AI 메뉴: 켜기 / 끄기
+    /// Top bar button · AI menu: start / stop
     @objc func toggleAIEngine(_ sender: Any?) {
         switch AIEngineButton.look {
         case .off: startAIEngine()
-        case .starting: break   // 켜는 중에는 무시 (끝나면 다시 누를 수 있다)
+        case .starting: break   // Ignore while starting (can be pressed again when done)
         case .on, .fallback:
             DispatchQueue.global(qos: .utility).async {
                 if AIRemote.current != .local { ColabEngine.shared.stop("단추로 끔") }
@@ -69,10 +69,10 @@ extension MainWindowController {
         }
     }
 
-    /// AI 엔진 켜기: 무거운 일 담당(코랩 또는 이 맥)을 켠다. 지우기용 맥 엔진은 지우기 도구를 고를 때 따로 켠다
+    /// Start the AI engine: starts the heavy-work backend (Colab or this Mac). The local inpaint engine starts separately when an erase tool is picked
     func startAIEngine() {
         if AIRemote.current != .local {
-            // 기본은 코랩, 안 되면 이 맥 엔진을 예비로 켠다
+            // Colab by default; if that fails, start the local engine as fallback
             ColabEngine.shared.start(fallback: { AIEngine.shared.warmUp() })
         } else {
             AIEngine.shared.warmUp()

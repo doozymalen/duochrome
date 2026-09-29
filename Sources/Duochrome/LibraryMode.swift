@@ -1,13 +1,13 @@
 import AppKit
 
-/// ① 라이브러리 모드 (대량 처리): 왼쪽 카탈로그 목록, 가운데 큰 격자, 오른쪽 고른 사진들.
-/// 여러 장을 골라 별점·색 태그·조정 적용·앨범 넣기를 한 번에 한다. 두 번 누르면 편집 모드로 간다.
+/// ① Library mode (bulk work): catalog list on the left, large grid in the center, selected photos on the right.
+/// Select many photos and set rating, color tag, apply adjustments, add to album at once. Double-click goes to edit mode.
 final class LibraryModeController: NSViewController {
     let sources = SourceListController()
     let grid = BrowserViewController(grid: true)
     let panel = SelectionPanelController()
     private let centerVC = NSViewController()
-    /// 라이브러리 배치 (GlassLayout.swift): 왼쪽 카탈로그·오른쪽 고른 사진 패널이 유리로 뜬다. 격자는 두 패널 사이.
+    /// Library layout (GlassLayout.swift): left catalog and right selection panels float as glass. The grid sits between them.
     lazy var split = GlassLayoutController(content: centerVC, left: sources, right: panel, key: "library",
                                            leftRange: 208...348, rightRange: 268...368, leftDefault: 220, rightDefault: 280)
     private var sideL: [NSLayoutConstraint] = []
@@ -17,7 +17,7 @@ final class LibraryModeController: NSViewController {
 
     override func loadView() {
         let center = centerVC
-        // 다른 모드와 같은 모드별 막대: [묶음 이름] [썸네일 크기] [사진 검색]
+        // Per-mode bar like the other modes: [collection name] [thumbnail size] [photo search]
         let top = NSView()
         titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -53,7 +53,7 @@ final class LibraryModeController: NSViewController {
             compare.leadingAnchor.constraint(equalTo: grid.view.leadingAnchor),
             compare.trailingAnchor.constraint(equalTo: grid.view.trailingAnchor),
         ])
-        // 막대·격자는 유리 패널 사이에 (패널을 접으면 넓어진다)
+        // Bar and grid between the glass panels (wider when panels collapse)
         sideL = [top.leadingAnchor.constraint(equalTo: root.leadingAnchor), grid.view.leadingAnchor.constraint(equalTo: root.leadingAnchor)]
         sideR = [top.trailingAnchor.constraint(equalTo: root.trailingAnchor), grid.view.trailingAnchor.constraint(equalTo: root.trailingAnchor)]
         NSLayoutConstraint.activate(sideL + sideR)
@@ -71,7 +71,7 @@ final class LibraryModeController: NSViewController {
 
     func setTitle(_ s: String) { titleLabel.stringValue = s }
 
-    /// 비교 보기: 고른 사진(2~4장)을 나란히 크게. nil이면 격자로 돌아간다.
+    /// Compare view: selected photos (2–4) side by side, large. nil returns to the grid.
     let compare = CompareView()
     var isComparing: Bool { !compare.isHidden }
     func showCompare(_ items: [PhotoItem]?, library: Library) {
@@ -81,11 +81,11 @@ final class LibraryModeController: NSViewController {
         grid.view.isHidden = true
     }
 
-    /// 사진 검색 (창 막대에서 옮겨 옴)
+    /// Photo search (moved from the toolbar)
     var onSearch: ((NSSearchField) -> Void)?
     private(set) weak var searchField: NSSearchField?
     @objc private func searchChanged(_ sender: NSSearchField) { onSearch?(sender) }
-    /// 격자 보기 단추: 대량 보정으로 돌아간다
+    /// Grid view button: back to batch edit
     var onBack: (() -> Void)?
     @objc private func backTapped() { onBack?() }
 
@@ -95,7 +95,7 @@ final class LibraryModeController: NSViewController {
     }
 }
 
-/// 라이브러리 모드 오른쪽: 고른 사진들에 한꺼번에 하는 일.
+/// Library mode right side: actions for all selected photos at once.
 final class SelectionPanelController: NSViewController {
     var onRate: ((Int) -> Void)?
     var onColor: ((Int) -> Void)?
@@ -107,7 +107,7 @@ final class SelectionPanelController: NSViewController {
     var onNewAlbum: (() -> Void)?
     var onRemoveFromAlbum: (() -> Void)?
     var albums: (() -> [Catalog.Album])?
-    // 관리
+    // manage
     var onFlag: ((Int) -> Void)?
     var onAddKeywords: ((String) -> Void)?
     var onRemoveKeyword: ((Int64) -> Void)?
@@ -145,11 +145,11 @@ final class SelectionPanelController: NSViewController {
         infoLabel.font = .systemFont(ofSize: 11)
         infoLabel.textColor = .secondaryLabelColor
 
-        // 별점
+        // rating
         let starRow = NSStackView()
         starRow.spacing = 4
         for n in 0...5 {
-            // 별 하나씩 (n번째 별을 누르면 별점 n, 0은 지우기) — 패널 폭을 넘지 않게
+            // One star each (clicking the nth star sets rating n, 0 clears) — within the panel width
             let b = NSButton(title: "", target: self, action: #selector(starTapped(_:)))
             b.image = NSImage(systemSymbolName: n == 0 ? "xmark.circle" : "star", accessibilityDescription: n == 0 ? "별점 지우기" : "별점 \(n)")
             b.tag = n
@@ -161,7 +161,7 @@ final class SelectionPanelController: NSViewController {
             starButtons.append(b)
             starRow.addArrangedSubview(b)
         }
-        // 색 태그
+        // color tag
         let colorRow = NSStackView()
         colorRow.spacing = 4
         for (i, (name, color)) in colorTags.enumerated() {
@@ -200,7 +200,7 @@ final class SelectionPanelController: NSViewController {
         let newAlbum = button("고른 사진으로 새 앨범…", #selector(newAlbumTapped))
         let removeAlbum = button("지금 앨범에서 빼기", #selector(removeTapped))
 
-        // 채택·거부
+        // pick · reject
         let flagRow = NSStackView()
         flagRow.spacing = 4
         for (title, tag, tip) in [("⚑ 채택", 1, "채택 (P)"), ("✕ 거부", -1, "거부 (X)"), ("표시 없음", 0, "표시 지우기 (U)")] {
@@ -208,7 +208,7 @@ final class SelectionPanelController: NSViewController {
             b.tag = tag; b.bezelStyle = .appPush; b.controlSize = .small; b.toolTip = tip
             flagButtons.append(b); flagRow.addArrangedSubview(b)
         }
-        // 키워드
+        // keywords
         keywordField.placeholderString = "키워드 더하기: 여행, 장소>서울 (리턴)"
         keywordField.target = self; keywordField.action = #selector(keywordEntered)
         keywordChips.orientation = .vertical; keywordChips.alignment = .leading; keywordChips.spacing = 2
@@ -226,7 +226,7 @@ final class SelectionPanelController: NSViewController {
             metaStack.addArrangedSubview(f)
             f.widthAnchor.constraint(equalTo: metaStack.widthAnchor).isActive = true
         }
-        // 관리 명령
+        // management commands
         let manage = NSPopUpButton(frame: .zero, pullsDown: true)
         manage.addItem(withTitle: "관리")
         for (title, sel) in [("변형본 만들기", #selector(MainWindowController.makeVariant(_:))),
@@ -352,7 +352,7 @@ final class SelectionPanelController: NSViewController {
 }
 
 extension SelectionPanelController: NSMenuDelegate {
-    /// 앨범 목록은 열 때마다 새로 채운다 (그룹 아래 앨범은 들여쓴다).
+    /// The album list is refilled each time it opens (albums under groups are indented).
     func menuNeedsUpdate(_ menu: NSMenu) {
         while menu.items.count > 1 { menu.removeItem(at: 1) }
         let all = albums?() ?? []
@@ -372,7 +372,7 @@ extension SelectionPanelController: NSMenuDelegate {
     }
 }
 
-/// 여러 장 나란히 보기 (비교 보기). 첫 장이 기준(테두리).
+/// Side-by-side view of several photos (compare view). The first is the reference (border).
 final class CompareView: NSView {
     private var views: [NSImageView] = []
     private var labels: [NSTextField] = []
@@ -394,7 +394,7 @@ final class CompareView: NSView {
             l.alignment = .center
             addSubview(iv); addSubview(l)
             views.append(iv); labels.append(l)
-            // 크게 다시 읽는다 (조정 반영 미리보기)
+            // Reload large (preview with adjustments)
             library.loadThumbnail(item, size: 1600) { [weak iv] img in DispatchQueue.main.async { if let img { iv?.image = img } } }
         }
         needsLayout = true
