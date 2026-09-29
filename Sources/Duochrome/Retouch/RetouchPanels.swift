@@ -55,8 +55,8 @@ final class RetouchLayersPanel: NSView {
             button("plus.square.on.square", "복제 (⌘J, 선택 영역이 있으면 그 부분만)", #selector(duplicate)),
             button("square.stack.3d.down.forward", "보이는 레이어 도장 찍기 (지금 결과를 한 장으로 굳힌 새 레이어)", #selector(stamp)),
             button("sparkles", "빠른 보정 (배경 흐림·피부·노이즈)", #selector(quickMenu(_:))),
-            button("chevron.up", "앞으로", #selector(moveUp)),
-            button("chevron.down", "뒤로", #selector(moveDown)),
+            button("chevron.up", "앞으로", #selector(raiseLayer)),
+            button("chevron.down", "뒤로", #selector(lowerLayer)),
             button("trash", "레이어 지우기", #selector(remove)),
         ])
         buttons.spacing = 4
@@ -161,8 +161,8 @@ final class RetouchLayersPanel: NSView {
         guard let host, let a = i.representedObject as? QuickAction else { return }
         a.run(host)
     }
-    @objc private func moveUp() { host?.layersTab.layerUp() }
-    @objc private func moveDown() { host?.layersTab.layerDown() }
+    @objc private func raiseLayer() { host?.layersTab.layerUp() }
+    @objc private func lowerLayer() { host?.layersTab.layerDown() }
     @objc private func remove() { if host?.layersTab.deleteSelectedLayer() != true { NSSound.beep() } }
 }
 
