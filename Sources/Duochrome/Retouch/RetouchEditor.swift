@@ -17,6 +17,8 @@ final class RetouchEditor: NSViewController {
     private let work = NSLayoutGuide()
     lazy var layersWidth = layersPanel.widthAnchor.constraint(equalToConstant: 260)
     lazy var optionsWidth = inspector.widthAnchor.constraint(equalToConstant: 300)
+    /// Tool bar width: all tools, or the space between the panels when that is narrower (it then scrolls sideways)
+    private lazy var toolBarWidth = toolBar.widthAnchor.constraint(equalToConstant: 600)
     /// Name of the tool under the pointer, shown right under the tool bar
     let hoverTip = ToolHoverTip()
     private(set) var currentTool = UserDefaults.standard.string(forKey: "retouchTool") ?? "hand"
@@ -54,8 +56,7 @@ final class RetouchEditor: NSViewController {
             work.trailingAnchor.constraint(equalTo: inspector.leadingAnchor, constant: -gap),
             toolBar.topAnchor.constraint(equalTo: top, constant: gap),
             toolBar.centerXAnchor.constraint(equalTo: work.centerXAnchor),
-            toolBar.leadingAnchor.constraint(greaterThanOrEqualTo: work.leadingAnchor),
-            toolBar.trailingAnchor.constraint(lessThanOrEqualTo: work.trailingAnchor),
+            toolBarWidth,
             toolBar.heightAnchor.constraint(equalToConstant: 44),
         ])
         view = root
@@ -75,6 +76,13 @@ final class RetouchEditor: NSViewController {
             self.hoverTip.frame = CGRect(x: x, y: y, width: size.width, height: size.height)
         }
         toolBar.reload(selected: currentTool)
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let room = work.layoutFrame.width
+        let w = max(min(toolBar.contentWidth, room), 44)
+        if abs(toolBarWidth.constant - w) > 0.5 { toolBarWidth.constant = w }
     }
 
     /// The canvas lies under the panels, so "fit" uses the area between them and below the tool bar
@@ -209,8 +217,6 @@ final class RetouchToolBar: NSView {
         scroll.verticalScrollElasticity = .none
         scroll.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scroll)
-        let fit = widthAnchor.constraint(equalTo: stack.widthAnchor)
-        fit.priority = .defaultLow
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -219,8 +225,6 @@ final class RetouchToolBar: NSView {
             stack.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
             stack.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
             stack.heightAnchor.constraint(equalTo: scroll.heightAnchor),
-            widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
-            fit,
         ])
         var last: RetouchTool.Group?
         for t in RetouchTool.all {
@@ -249,6 +253,9 @@ final class RetouchToolBar: NSView {
         guard let id = b.identifier?.rawValue else { return }
         onPick?(id)
     }
+
+    /// Width that shows every tool
+    var contentWidth: CGFloat { stack.fittingSize.width }
 
     func reload(selected: String) {
         for (id, b) in buttons { b.state = id == selected ? .on : .off }

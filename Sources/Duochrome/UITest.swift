@@ -178,15 +178,17 @@ extension MainWindowController {
             let total = library.items.count
             library.query = (doc.url.deletingPathExtension().lastPathComponent)
             let found = library.items.count
+            let hasDoc = library.items.contains { $0.url == doc.url }
             library.query = ""
-            check("사진 검색", found == 1 && library.items.count == total, "\(total)장 중 이름으로 \(found)장")
+            // Other photos may share the name (another copy in the catalog); the open one must be among the results
+            check("사진 검색", found >= 1 && found < total && hasDoc && library.items.count == total, "\(total)장 중 이름으로 \(found)장, 연 사진 포함 \(hasDoc)")
 
             var st = doc.settings; st.exposure = 1; st.contrast = 40
             saveStyle(named: "시험 스타일", from: st)
-            let e0 = doc.settings.exposure
+            let e0 = doc.settings.exposure, c0 = doc.settings.contrast
             applyStyle(named: "시험 스타일", strength: 0.5)
             let e1 = doc.settings.exposure, c1v = doc.settings.contrast
-            check("스타일 저장·적용 (강도 50%)", abs(e1 - (e0 + (1 - e0) * 0.5)) < 0.001 && abs(c1v - 20) < 0.5 && MainWindowController.styleNames().contains("시험 스타일"),
+            check("스타일 저장·적용 (강도 50%)", abs(e1 - (e0 + (1 - e0) * 0.5)) < 0.001 && abs(c1v - (c0 + (40 - c0) * 0.5)) < 0.5 && MainWindowController.styleNames().contains("시험 스타일"),
                   String(format: "노출 %.2f → %.2f, 대비 → %.1f", e0, e1, c1v))
             undoAdjust(nil)
 
@@ -918,14 +920,19 @@ extension MainWindowController {
                 && doc.settings.layers.last?.adjust.exposure == -0.4 && doc.settings.layers.last?.id != st.layers.last?.id
             // Batch: one other photo that isn't open
             var batchOK = false
+            var batchWhy = "다른 사진 없음"
             let source0 = library.source
             if library.items.count < 2 { library.show(.all); browser.reload() }
             if let other = library.items.first(where: { $0 !== photoItem && !$0.offline }), let a = RecordedAction.load("시험 동작") {
                 let raw0 = library.rawSettings(for: other.url)
-                batchApply(a, to: [other])
-                if let d = try? RawDocument(url: other.url), let s = library.loadSettings(for: other.url, over: d.asShot) {
-                    batchOK = s.exposure == 0.7 && s.layers.last?.name == "동작 레이어"
-                }
+                let done = batchApply(a, to: [other])
+                batchWhy = "\(other.url.lastPathComponent) 적용 \(done)"
+                if let d = try? RawDocument(url: other.url) {
+                    if let s = library.loadSettings(for: other.url, over: d.asShot) {
+                        batchOK = s.exposure == 0.7 && s.layers.last?.name == "동작 레이어"
+                        batchWhy += " 노출 \(s.exposure) 마지막 레이어 \(s.layers.last?.name ?? "없음")"
+                    } else { batchWhy += " 저장값 없음" }
+                } else { batchWhy += " 열리지 않음" }
                 if let raw0, let dict = try? JSONSerialization.jsonObject(with: raw0) as? [String: Any] { library.saveRawSettings(dict, for: other.url) }
                 else { library.removeSettings(for: other.url) }
             }
@@ -936,7 +943,7 @@ extension MainWindowController {
             RecordedAction.delete("시험 동작")
             if library.source != source0 { library.show(source0); browser.reload() }
             check("M 동작 기록·재생·일괄 처리·주소", recOK && played && batchOK && urlOK,
-                  "기록 \(recOK) (\(rec?.steps.count ?? 0)단계), 재생 \(played), 일괄 \(batchOK), 주소 \(urlOK)")
+                  "기록 \(recOK) (\(rec?.steps.count ?? 0)단계), 재생 \(played), 일괄 \(batchOK) (\(batchWhy)), 주소 \(urlOK)")
         }
 
         // Preview-only: batch edit uses previews, layer edit full size. Export is full size even from batch edit

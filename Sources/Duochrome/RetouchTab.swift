@@ -310,11 +310,13 @@ final class RetouchOverlayView: NSView {
                 continue
             }
             let t = toView(s.target), src = toView(s.source)
-            if hypot(p.x - src.x, p.y - src.y) <= r {
-                grab = .source(i); selected = i; grabOffset = CGPoint(x: src.x - p.x, y: src.y - p.y); return
-            }
-            if hypot(p.x - t.x, p.y - t.y) <= r {
+            // Zoomed out, the two circles overlap: take the nearer one (the target on a tie)
+            let dt = hypot(p.x - t.x, p.y - t.y), ds = hypot(p.x - src.x, p.y - src.y)
+            if dt <= r, dt <= ds {
                 grab = .target(i); selected = i; grabOffset = CGPoint(x: t.x - p.x, y: t.y - p.y); return
+            }
+            if ds <= r {
+                grab = .source(i); selected = i; grabOffset = CGPoint(x: src.x - p.x, y: src.y - p.y); return
             }
         }
         grab = nil
