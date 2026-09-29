@@ -6,6 +6,12 @@ extension MainWindowController {
     func runUITests() {
         guard let doc = photo else { print("실패  사진이 열리지 않음"); exit(1) }
         var failures = 0
+        // Start from the unedited photo: edits saved by earlier runs (or on a copied photo) would shift the expectations
+        replaceSettings(doc.asShot, recordUndo: false, label: "시험 시작")
+        layersTab.select(nil)
+        studioSelection = nil
+        retouch.brush.patch = false
+        retouch.brush.kind = .heal
         func check(_ name: String, _ ok: Bool, _ detail: String) {
             print("\(ok ? "통과" : "실패")  \(name)  \(detail)")
             if !ok { failures += 1 }
@@ -1072,16 +1078,30 @@ extension MainWindowController {
             let bins = HueHistogramView.measure(doc)
             let small = doc.image(scale: 0.05)
             let viewed = RangeView.apply(small, s.color.editor[last])
-            var px = [Float](repeating: 0, count: 4)
-            let r = CGRect(x: small.extent.midX, y: small.extent.midY, width: 1, height: 1)
-            Render.context.render(viewed, toBitmap: &px, rowBytes: 16, bounds: r, format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-            // The center (concrete wall) is outside the blue range → gray
-            let grayOK = abs(px[0] - px[1]) < 0.02 && abs(px[1] - px[2]) < 0.02
+            // A colorful pixel whose hue is farthest from the range must turn gray (works on any photo)
+            let e = small.extent.integral
+            let w = Int(e.width), h = Int(e.height)
+            var orig = [Float](repeating: 0, count: w * h * 4), view = orig
+            let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+            Render.context.render(small, toBitmap: &orig, rowBytes: w * 16, bounds: e, format: .RGBAf, colorSpace: srgb)
+            Render.context.render(viewed, toBitmap: &view, rowBytes: w * 16, bounds: e, format: .RGBAf, colorSpace: srgb)
+            var far: (Int, Float)?
+            for i in 0..<(w * h) {
+                let c = NSColor(srgbRed: CGFloat(min(max(orig[i * 4], 0), 1)), green: CGFloat(min(max(orig[i * 4 + 1], 0), 1)),
+                                blue: CGFloat(min(max(orig[i * 4 + 2], 0), 1)), alpha: 1)
+                guard c.saturationComponent > 0.2, c.brightnessComponent > 0.15 else { continue }
+                let dh = abs(Float(c.hueComponent) * 360 - s.color.editor[last].hue)
+                let d = min(dh, 360 - dh)
+                if d > (far?.1 ?? 90) { far = (i, d) }
+            }
+            let grayOK = far.map { f in abs(view[f.0 * 4] - view[f.0 * 4 + 1]) < 0.02 && abs(view[f.0 * 4 + 1] - view[f.0 * 4 + 2]) < 0.02 } ?? true
             check("컬러 에디터 (고급 범위·체크 끄기·색조 분포·범위 보기)", selectedOK && offOK && onOK && bins.contains { $0 > 0 } && grayOK,
                   "고른 범위 \(selectedOK), 끄기 \(offOK)/\(onOK), 분포 \(bins.filter { $0 > 0 }.count)칸, 범위 밖 회색 \(grayOK)")
         }
 
         // 6. Retouching: click for a spot, drag for a stroke, drag the white circle to move, Delete to remove
+        retouch.brush.patch = false
+        retouch.brush.kind = .heal
         tools.select(tools.index(of: "리터칭"))
         canvas.layoutSubtreeIfNeeded()
         let ro = canvas.retouchOverlay

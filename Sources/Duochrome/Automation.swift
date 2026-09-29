@@ -11,15 +11,19 @@ struct ActionStep {
     var addedLayers: [[String: Any]] = []
     /// Number of removed layers (from the top)
     var removedLayers = 0
-    /// Layer edits by position (index from the bottom)
+    /// Layer edits by position
     var layerEdits: [(Int, [([String], Any)])] = []
+    /// Positions count from the top (the newest layer is 0), so an action that adds a layer and then edits it
+    /// works on photos with a different number of layers. Actions saved before this counted from the bottom
+    var fromTop = true
 
     var json: [String: Any] {
         ["label": label,
          "patches": patches.map { ["path": $0.0, "value": $0.1] },
          "addedLayers": addedLayers,
          "removedLayers": removedLayers,
-         "layerEdits": layerEdits.map { ["index": $0.0, "patches": $0.1.map { ["path": $0.0, "value": $0.1] }] }]
+         "layerEdits": layerEdits.map { ["index": $0.0, "patches": $0.1.map { ["path": $0.0, "value": $0.1] }] },
+         "fromTop": fromTop]
     }
 
     init(label: String) { self.label = label }
@@ -33,6 +37,7 @@ struct ActionStep {
         patches = ps(j["patches"])
         addedLayers = j["addedLayers"] as? [[String: Any]] ?? []
         removedLayers = j["removedLayers"] as? Int ?? 0
+        fromTop = j["fromTop"] as? Bool ?? false
         layerEdits = (j["layerEdits"] as? [[String: Any]] ?? []).compactMap { e in (e["index"] as? Int).map { ($0, ps(e["patches"])) } }
     }
 }
@@ -86,7 +91,7 @@ struct RecordedAction {
             guard let old = la.first(where: { ($0["id"] as? String) == (l["id"] as? String) }) else { continue }
             var p: [([String], Any)] = []
             for key in Set(old.keys).union(l.keys) where key != "id" { diff([key], old[key], l[key], into: &p) }
-            if !p.isEmpty { st.layerEdits.append((i, p)) }
+            if !p.isEmpty { st.layerEdits.append((kept.count - 1 - i, p)) }
         }
         return st
     }
@@ -107,7 +112,9 @@ struct RecordedAction {
         for (path, v) in st.patches { set(&dict, path, v) }
         var layers = dict["layers"] as? [[String: Any]] ?? []
         if st.removedLayers > 0 { layers.removeLast(min(st.removedLayers, layers.count)) }
-        for (i, p) in st.layerEdits where layers.indices.contains(i) {
+        for (k, p) in st.layerEdits {
+            let i = st.fromTop ? layers.count - 1 - k : k
+            guard layers.indices.contains(i) else { continue }
             var l = layers[i]
             for (path, v) in p { set(&l, path, v) }
             layers[i] = l
