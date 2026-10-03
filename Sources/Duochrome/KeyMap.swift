@@ -105,7 +105,7 @@ enum KeyMap {
             act("tool.zoom", "확대", "도구", bulk: ["z"], studio: ["z"]) { $0.keyTool(.zoom, studio: "zoom") },
             act("tool.crop", "크롭 / 자르기", "도구", bulk: ["c"], studio: ["c"]) { $0.keyTool(.crop, studio: "crop") },
             act("tool.straighten", "수평", "도구", bulk: ["r"], studio: []) { $0.keyTool(.straighten, studio: "straighten") },
-            act("tool.keystone", "키스톤", "도구", bulk: ["k"], studio: ["k"]) { $0.keyTool(.keystone, studio: "keystone") },
+            act("tool.keystone", "키스톤", "도구", bulk: ["k"], studio: []) { $0.keyTool(.keystone, studio: "keystone") },
             act("tool.wb", "화이트 밸런스 스포이트", "도구", bulk: ["w"], studio: []) { $0.keyTool(.whiteBalance, studio: "whiteBalance") },
             act("tool.heal", "복구", "도구", bulk: ["q", "o"], studio: ["j"]) { $0.keyRetouch("repair") },
             act("tool.clone", "복제 도장", "도구", bulk: ["s"], studio: ["s"]) { $0.keyRetouch("clone") },
@@ -113,8 +113,9 @@ enum KeyMap {
             act("tool.maskErase", "마스크 지우개", "도구", bulk: ["e"], studio: []) { w in w.layersTab.erase = true; w.keyTool(.mask, studio: "maskPaint") },
             act("tool.linear", "선형 그라디언트", "도구", bulk: ["l"], studio: []) { $0.keyGradient(.linear) },
             act("tool.radial", "원형 그라디언트", "도구", bulk: ["t"], studio: []) { $0.keyGradient(.radial) },
-            act("tool.picker", "색상 피커", "도구", bulk: ["d"], studio: ["i"]) { $0.keyTool(.colorPick, studio: "picker") },
-            // Layer-edit-only tools
+            act("tool.picker", "색상 피커", "도구", bulk: ["d"], studio: []) { $0.keyTool(.colorPick, studio: "picker") },
+            // Layer-edit-only tools. Keys of tools the layer editor no longer has (keystone, picker, eraser, type, pen, shape)
+            // are left out there: they pointed at missing tools and did nothing
             act("tool.arrange", "배치 (이동)", "도구", bulk: [], studio: ["v"]) { $0.retouchSelect("arrange") },
             act("tool.marquee", "선택 윤곽", "도구", bulk: [], studio: ["m"]) { $0.retouchSelect("selRect") },
             act("tool.lasso", "올가미", "도구", bulk: [], studio: ["l"]) { $0.retouchSelect("selFree") },
@@ -127,10 +128,10 @@ enum KeyMap {
             sel("sel.selectMask", "선택 및 마스크", "선택", #selector(W.showSelectAndMask(_:)), bulk: [], studio: ["~@r"]),
             act("tool.dodge", "닷지 (밝게)", "도구", bulk: [], studio: ["o"]) { $0.retouchSelect("lighten") },
             act("tool.gradient", "그라디언트", "도구", bulk: [], studio: ["g"]) { $0.retouchSelect("gradient") },
-            act("tool.eraser", "지우개", "도구", bulk: [], studio: ["e"]) { $0.retouchSelect("erase") },
-            act("tool.type", "문자", "도구", bulk: [], studio: ["t"]) { $0.retouchSelect("text") },
-            act("tool.pen", "펜", "도구", bulk: [], studio: ["p"]) { $0.retouchSelect("pen") },
-            act("tool.shape", "도형", "도구", bulk: [], studio: ["u"]) { $0.retouchSelect("shape") },
+            act("tool.eraser", "지우개", "도구", bulk: [], studio: []) { $0.retouchSelect("erase") },
+            act("tool.type", "문자", "도구", bulk: [], studio: []) { $0.retouchSelect("text") },
+            act("tool.pen", "펜", "도구", bulk: [], studio: []) { $0.retouchSelect("pen") },
+            act("tool.shape", "도형", "도구", bulk: [], studio: []) { $0.retouchSelect("shape") },
             act("tool.brushSmaller", "브러시 작게", "도구", bulk: ["["], studio: ["["]) { $0.brushSmaller(nil) },
             act("tool.brushLarger", "브러시 크게", "도구", bulk: ["]"], studio: ["]"]) { $0.brushLarger(nil) },
             // View

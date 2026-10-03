@@ -70,6 +70,9 @@ final class FlashLabel: NSView {
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
         ])
         alphaValue = 0
+        // Hidden, not just transparent, when idle: the floating style's arrow-cursor area would otherwise
+        // keep the arrow over the middle of the photo
+        isHidden = true
     }
     required init?(coder: NSCoder) { fatalError() }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -78,10 +81,16 @@ final class FlashLabel: NSView {
         label.stringValue = text
         token += 1
         let t = token
+        isHidden = false
         alphaValue = 1
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
             guard let self, self.token == t else { return }
-            NSAnimationContext.runAnimationGroup { $0.duration = 0.25; self.animator().alphaValue = 0 }
+            NSAnimationContext.runAnimationGroup({ $0.duration = 0.25; self.animator().alphaValue = 0 },
+                                                 completionHandler: { [weak self] in
+                guard let self, self.token == t else { return }
+                self.isHidden = true
+                self.window?.invalidateCursorRects(for: self)
+            })
         }
     }
 }

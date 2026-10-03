@@ -175,6 +175,8 @@ final class TransformOverlayView: NSView, PointerSource {
 extension MainWindowController {
     /// Free transform (⌘T): shows the frame on the selected image layer.
     @objc func freeTransform(_ sender: Any?) {
+        // Layer edit: ⌘T and the menu work on the background too (it becomes a photo layer first, as from the tool bar)
+        if mode == .studio, !preparePhotoLayerForTransform() { return }
         guard let doc = photo, let id = layersTab.selectedID,
               let layer = doc.settings.layers.first(where: { $0.id == id }), let im = layer.image,
               let src = Layers.sourceImage(im.file) else { NSSound.beep(); return }

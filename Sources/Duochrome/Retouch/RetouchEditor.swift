@@ -139,9 +139,7 @@ final class RetouchEditor: NSViewController {
         // Free transform and perspective are commands on the selected photo layer:
         // the picked tool stays and comes back when their frame closes
         if id == "transform" || id == "perspective" {
-            // These act on a photo layer. The background or a background copy is turned into one first, like the
-            // reference editor transforming whatever is picked (it used to beep and do nothing unless a photo layer was picked)
-            guard host.preparePhotoLayerForTransform() else { return }
+            // These act on a photo layer; the commands turn the background or a background copy into one first
             if id == "transform" { host.freeTransform(nil) } else { host.perspectiveLayer(nil) }
             return
         }

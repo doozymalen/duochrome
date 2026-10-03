@@ -204,6 +204,8 @@ extension MainWindowController {
     @objc func skewLayer(_ sender: Any?) { quadTransform(2) }
 
     func quadTransform(_ mode: Int) {
+        // Layer edit: the shortcut and menu work on the background too (it becomes a photo layer first, as from the tool bar)
+        if self.mode == .studio, !preparePhotoLayerForTransform() { return }
         guard let doc = photo, let (i, layer, aspect) = selectedImageLayer(), let im = layer.image else { NSSound.beep(); return }
         let before = doc.settings
         var quad = Warp.corners(im, aspect: aspect)
