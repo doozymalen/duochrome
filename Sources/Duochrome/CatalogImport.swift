@@ -181,7 +181,7 @@ enum CatalogImport {
             guard var d = layers[img.combined] else { continue }
             if let w = shotWB[img.variant] { d["SHOTWB"] = w }
             if let sz = sensor[img.pk] { d["SENSORW"] = sz.0; d["SENSORH"] = sz.1 }
-            let url = URL(fileURLWithPath: img.path)
+            let url = URL(fileURLWithPath: img.path, isDirectory: false)
             if library.hasSettings(for: url) { report.adjustSkippedExisting += 1; continue }
             // Camera orientation: from EXIF if the source exists, else the nearest multiple of 90° from the rotation.
             var orientation: Int?

@@ -44,13 +44,15 @@ extension Catalog {
     }
 
     /// Stored path ("…/a.CR3#v2") → file URL (variants append a fragment)
+    /// Never touches the disk: URL(fileURLWithPath:) without isDirectory asks the file system whether each path is a folder,
+    /// and for photos in a streaming location (Google Drive) that call could block for good, freezing the app on opening an album
     static func url(forStoredPath p: String) -> URL {
         if let r = p.range(of: "#v", options: .backwards), Int(p[r.upperBound...]) != nil {
-            var c = URLComponents(url: URL(fileURLWithPath: String(p[..<r.lowerBound])), resolvingAgainstBaseURL: false)!
+            var c = URLComponents(url: URL(fileURLWithPath: String(p[..<r.lowerBound]), isDirectory: false), resolvingAgainstBaseURL: false)!
             c.fragment = "v" + p[r.upperBound...]
             return c.url!
         }
-        return URL(fileURLWithPath: p)
+        return URL(fileURLWithPath: p, isDirectory: false)
     }
 
     static func storedPath(_ url: URL) -> String {
@@ -281,7 +283,7 @@ extension Catalog {
     /// Reads capture info from a file (any thread)
     static func readExif(_ id: Int64, _ path: String) -> ExifRow {
         var r = ExifRow(id: id)
-        if let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+        if let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path, isDirectory: false) as CFURL, nil),
            let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
             let tiff = p[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
             let exif = p[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
@@ -314,7 +316,7 @@ extension Catalog {
             todo.append(($0.int(0), $0.text(1) ?? ""))
         }
         for (id, path) in todo {
-            let url = URL(fileURLWithPath: path)
+            let url = URL(fileURLWithPath: path, isDirectory: false)
             var cam: String?, lens: String?, iso: Double?, ap: Double?, focal: Double?, sh: Double?, date: Double?
             if let src = CGImageSourceCreateWithURL(url as CFURL, nil),
                let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
