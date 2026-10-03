@@ -158,6 +158,7 @@ struct RetouchTool: Equatable {
         .init(id: "move", title: "이동 (고른 사진 레이어)", symbol: "arrow.up.and.down.and.arrow.left.and.right", group: .arrange, key: "V"),
         .init(id: "transform", title: "자유 변형 (크기·회전)", symbol: "arrow.up.left.and.arrow.down.right", group: .arrange, key: "⌘T"),
         .init(id: "perspective", title: "원근 변형", symbol: "perspective", group: .arrange),
+        .init(id: "crop", title: "자르기·수평·원근 (사진 전체)", symbol: "crop", group: .arrange),
         .init(id: "selRect", title: "사각형 선택", symbol: "rectangle.dashed", group: .select, key: "M"),
         .init(id: "selOval", title: "타원 선택", symbol: "circle.dashed", group: .select),
         .init(id: "selFree", title: "올가미", symbol: "lasso", group: .select, key: "L"),
@@ -213,8 +214,8 @@ final class RetouchToolBar: NSView {
         super.init(frame: .zero)
         StudioStyle.floating(self, radius: 22, interactive: true)
         stack.orientation = .horizontal
-        stack.spacing = 2
-        stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
+        stack.spacing = 1
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         stack.translatesAutoresizingMaskIntoConstraints = false
         // In a narrow window the bar gets narrower than its tools and scrolls sideways (trackpad or wheel)
         scroll.documentView = stack
@@ -238,7 +239,7 @@ final class RetouchToolBar: NSView {
         for t in RetouchTool.all {
             if let last, last != t.group {
                 let gap = NSView()
-                gap.widthAnchor.constraint(equalToConstant: 10).isActive = true
+                gap.widthAnchor.constraint(equalToConstant: 8).isActive = true
                 stack.addArrangedSubview(gap)
             }
             last = t.group
@@ -250,7 +251,9 @@ final class RetouchToolBar: NSView {
             b.setButtonType(.pushOnPushOff)
             b.isBordered = true
             b.identifier = NSUserInterfaceItemIdentifier(t.id)
-            b.widthAnchor.constraint(equalToConstant: 34).isActive = true
+            b.setAccessibilityLabel(t.title)
+            // 31 pt: all 30 tools fit between the panels on a 1680 pt window (at 34 the last tool was cut off)
+            b.widthAnchor.constraint(equalToConstant: 31).isActive = true
             buttons[t.id] = b
             stack.addArrangedSubview(b)
         }

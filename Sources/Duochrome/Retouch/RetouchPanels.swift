@@ -371,6 +371,24 @@ final class RetouchInspector: NSView {
                 ? "사진 위를 끌어 그으면 시작점은 조정이 다 걸리고 끝점으로 갈수록 사라지는 그라디언트 레이어가 생깁니다 (하늘 어둡게 등). 고른 그라디언트의 점을 끌면 고칩니다."
                 : "가운데에서 끌어 원을 그리면 안쪽에만 조정이 걸리는 레이어가 생깁니다 (⌥ 타원). 가운데를 끌면 옮기고, 오른쪽 점을 끌면 크기를 바꿉니다. 바깥에 걸려면 마스크 '반전'.")]
             if host.studioSelection != nil { views.append(note("선택 영역이 있어 그 안에만 걸립니다.")) }
+        case .arrange where tool.id == "crop":
+            // The batch-edit geometry panel is borrowed here; the batch-edit tool tabs take it back when that tab is shown again
+            // It is a scroll view (no height of its own), so it sits in a box sized to its content; constraints tie it to the box
+            // only, so they go away when the batch-edit tab takes it back (that tab sizes it by frame)
+            let shape = host.shape.view
+            let box = NSView()
+            shape.removeFromSuperview()
+            shape.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(shape)
+            let h = (shape as? NSScrollView)?.documentView?.fittingSize.height ?? 520
+            NSLayoutConstraint.activate([
+                shape.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: -12),
+                shape.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: 12),
+                shape.topAnchor.constraint(equalTo: box.topAnchor),
+                shape.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+                box.heightAnchor.constraint(equalToConstant: h),
+            ])
+            views = [note("사진 위 틀의 모서리·변을 끌어 자릅니다. 회전·수평·키스톤·비율은 아래 값으로 바꿉니다 (대량 보정 '형태'와 같은 값)."), box]
         case .arrange:
             views = [note("왼쪽에서 고른 사진 레이어를 끌어 옮깁니다.\n\n자유 변형(⌘T): 모서리를 끌면 크기(⇧ 비율 무시), 변 가운데는 한쪽만, 바깥을 끌면 회전(⇧ 15°씩).\n원근 변형: 네 모서리를 끌어 맞춥니다.\n둘 다 ↩ 확정, esc 취소.")]
         case .retouch:

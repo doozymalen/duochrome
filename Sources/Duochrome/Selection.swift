@@ -592,13 +592,18 @@ final class SelectionOptionsView: NSStackView {
             views.append(note("누를 때마다 꼭짓점을 찍습니다. 첫 점을 누르거나 두 번 누르면 닫힙니다."))
         case "selRow", "selColumn":
             views.append(note("누른 자리의 가로(세로) 1픽셀 줄을 고릅니다."))
+        case "selSubject", "selSky":
+            break   // one click; the inspector adds its own note
         default:
             views.append(note("끌어서 고릅니다."))
         }
-        views.append(slider("초점 영역 한계값", key: "focus.threshold", 0.02, 0.9, 0.25, fmt: "%.0f", display: 100))
-        let focus = NSButton(title: "초점 영역 선택", target: host, action: #selector(MainWindowController.selectFocusArea(_:)))
-        focus.bezelStyle = .appPush; focus.controlSize = .small
-        views.append(focus)
+        // Focus area is an automatic selection like subject: shown with that tool only (it used to follow every selection tool)
+        if tool == "selSubject" {
+            views.append(slider("초점 영역 한계값", key: "focus.threshold", 0.02, 0.9, 0.25, fmt: "%.0f", display: 100))
+            let focus = NSButton(title: "초점 영역 선택", target: host, action: #selector(MainWindowController.selectFocusArea(_:)))
+            focus.bezelStyle = .appPush; focus.controlSize = .small
+            views.append(focus)
+        }
         for v in views {
             toolBox.addArrangedSubview(v)
             v.widthAnchor.constraint(equalTo: toolBox.widthAnchor).isActive = true

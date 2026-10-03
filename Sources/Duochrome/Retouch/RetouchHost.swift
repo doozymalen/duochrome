@@ -128,7 +128,8 @@ extension MainWindowController {
             enterTool(photo == nil ? .pan : .gradient)
         case .arrange:
             // "transform" never gets here (it is a command, RetouchEditor.selectTool)
-            enterTool(photo == nil ? .pan : .move)
+            // Crop shows the whole frame with the crop box, like the batch-edit geometry tab (same values, same undo)
+            enterTool(photo == nil ? .pan : (tool.id == "crop" ? .crop : .move))
         case .retouch:
             switch tool.id {
             case "heal", "clone", "patch":

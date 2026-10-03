@@ -234,18 +234,25 @@ final class RetouchOverlayView: NSView {
             let r = viewRadius(s)
             let tp = s.points.map(toView)
             let sp = s.points.map { toView(CGPoint(x: $0.x + s.offset.x, y: $0.y + s.offset.y)) }
-            let src = polyline(sp)
-            src.lineWidth = 1.5
-            src.setLineDash([5, 3], count: 2, phase: 0)
-            NSColor.systemGreen.setStroke()
-            src.stroke()
-            let body = polyline(tp)
-            body.lineWidth = r * 2
-            (i == selected ? NSColor.controlAccentColor : NSColor.white).withAlphaComponent(0.3).setStroke()
-            body.stroke()
+            // Keep the healed result visible: a thin spine only, the brush body and source path when the pointer is over
+            // the stroke (or it is selected). Drawing them always covered the result, so it wasn't clear the wire was gone.
+            let near = hover.map { distance($0, tp) <= max(r, 6) } ?? false
+            if near || i == selected {
+                let src = polyline(sp)
+                src.lineWidth = 1.5
+                src.setLineDash([5, 3], count: 2, phase: 0)
+                NSColor.systemGreen.setStroke()
+                src.stroke()
+            }
+            if near {
+                let body = polyline(tp)
+                body.lineWidth = r * 2
+                (i == selected ? NSColor.controlAccentColor : NSColor.white).withAlphaComponent(0.25).setStroke()
+                body.stroke()
+            }
             let spine = polyline(tp)
-            spine.lineWidth = 1.5
-            (i == selected ? NSColor.controlAccentColor : NSColor.white).setStroke()
+            spine.lineWidth = i == selected ? 1.5 : 1
+            (i == selected ? NSColor.controlAccentColor : NSColor.white).withAlphaComponent(near || i == selected ? 1 : 0.45).setStroke()
             spine.stroke()
         }
         for (i, s) in spots.enumerated() where !s.isStroke {

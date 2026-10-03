@@ -487,6 +487,33 @@ final class RawDocument {
     private var frozenBase: (key: String, base: CIImage, guide: CIImage, guideScale: CGFloat)?
     private var frozenDecodes: [String: (key: String, image: CIImage)] = [:]
 
+    /// Full-size decode frozen for viewing (see decoded): one at a time, about 360 MB for 45 MP
+    private var viewDecode: (key: String, image: CIImage)?
+    private var viewFreezeKey: String?
+
+    private func startViewFreeze(_ img: CIImage, key: String) {
+        guard viewFreezeKey != key else { return }
+        viewFreezeKey = key
+        viewDecode = nil
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let e = img.extent.integral
+            var data = Data(count: Int(e.width) * Int(e.height) * 8)
+            data.withUnsafeMutableBytes { p in
+                guard let base = p.baseAddress else { return }
+                // The export context keeps no intermediates (the display one would hold the 45 MP decode twice)
+                Render.exportContext.render(img, toBitmap: base, rowBytes: Int(e.width) * 8, bounds: e, format: .RGBAh, colorSpace: Render.workingSpace)
+            }
+            let frozen = CIImage(bitmapData: data, bytesPerRow: Int(e.width) * 8, size: e.size, format: .RGBAh, colorSpace: Render.workingSpace)
+                .transformed(by: .init(translationX: e.minX, y: e.minY))
+            DispatchQueue.main.async {
+                guard let self, self.viewFreezeKey == key else { return }
+                self.viewDecode = (key, frozen)
+                self.cache.removeAll()
+                NotificationCenter.default.post(name: Self.needsRedraw, object: self)
+            }
+        }
+    }
+
     /// For thumbnails: if there's no preview for these exact settings, use another preview of the same photo (as-shot etc.) with only exposure/temperature deltas applied.
     /// Skips the RAW decode (a 45 MP CR3 takes 2 s per photo even downscaled, one at a time). At 320 px the difference is invisible
     var approximateFromPreview = false
@@ -609,6 +636,16 @@ final class RawDocument {
                     ]).cropped(to: frozen.extent)
                 }
                 return Lens.apply(settings, Look.apply(img, look: settings.look, camera: info.camera))
+            }
+            // Full-size viewing (layer edit at 100% and closer): the RAW decoder decodes every newly visible region anew,
+            // 2–4 s per frame on 45 MP while panning. Decode the whole frame once in the background and reuse it.
+            if !guide, !draft, !freezeDecodes, !thumbBaseMode, Thread.isMainThread, decodeScale >= 0.999, !decodedImage.extent.isEmpty {
+                let key = fullKey + "|\(scale)|\(previewOnly)"
+                if let v = viewDecode, v.key == key {
+                    decodedImage = v.image
+                } else {
+                    startViewFreeze(decodedImage, key: key)
+                }
             }
             if freezeDecodes, !draft, !decodedImage.extent.isEmpty, let frozen = freeze(decodedImage) {
                 frozenDecodes[frozenSlot] = (fullKey, frozen)

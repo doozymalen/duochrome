@@ -11,3 +11,7 @@ docs/DEVELOPMENT.md
 Tests/Fixtures/
 scripts/snap.sh
 __pycache__/
+docs/COMPARE*
+Duotest.app/
+build.log
+uitest.log

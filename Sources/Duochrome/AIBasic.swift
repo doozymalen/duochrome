@@ -25,7 +25,9 @@ enum AIBasic {
 
     // MARK: Sky selection
     /// macOS AI has no sky segmentation, so build it from image cues:
-    /// skyness = brightness · blueness · low texture (clouds and clear sky alike), more toward the top. Keep only regions connected to the top edge, then refine edges with image luminance.
+    /// skyness = brightness · blueness · low texture (clouds and clear sky alike), more toward the top, and not warm-tinted
+    /// (bright beige walls are as smooth and bright as clouds, but sky and clouds are neutral to cool). Keep only regions connected
+    /// to the top edge without crossing a color edge, fill small holes (cloud texture), then refine edges with image luminance.
     static func skyMask(_ doc: RawDocument) -> String? {
         guard let (img, cg) = nativeSmall(doc, scale: 0.125) else { return nil }
         let w = cg.width, h = cg.height
@@ -46,35 +48,80 @@ enum AIBasic {
             for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] { d += abs(L[(y + dy) * w + x + dx] - c) }
             tex[y * w + x] = d / 4
         } }
-        // Skyness score
-        var score = [Float](repeating: 0, count: w * h)
-        for y in 0..<h { for x in 0..<w {
-            let i = y * w + x
-            let r = Float(px[i * 4]) / 255, g = Float(px[i * 4 + 1]) / 255, b = Float(px[i * 4 + 2]) / 255
-            let blue = max(0, b - max(r, g * 0.9))            // blue sky
-            let white = L[i] > 0.72 ? (L[i] - 0.72) * 3 : 0   // white overcast sky
-            let smooth = max(0, 1 - tex[i] * 18)              // less texture scores higher
-            let top = 1 - Float(y) / Float(h) * 0.9           // higher up scores higher
-            score[i] = min(1, (blue * 4 + white + 0.15) * smooth * top * 1.6)
-        } }
-        // Only sky-like regions connected to the top edge (flood fill)
-        var seen = [Bool](repeating: false, count: w * h)
-        var queue: [Int] = []
-        for x in 0..<w where score[x] > 0.35 { queue.append(x); seen[x] = true }
-        var head = 0
-        while head < queue.count {
-            let i = queue[head]; head += 1
+        // Warmth (red minus blue): sky and clouds are neutral or cool, sunlit concrete and sand are warm
+        var warm = [Float](repeating: 0, count: w * h)
+        for i in 0..<(w * h) { warm[i] = (Float(px[i * 4]) - Float(px[i * 4 + 2])) / 255 }
+        func region(coolOnly: Bool) -> [Int] {
+            // Skyness score
+            var score = [Float](repeating: 0, count: w * h)
+            for y in 0..<h { for x in 0..<w {
+                let i = y * w + x
+                let r = Float(px[i * 4]) / 255, g = Float(px[i * 4 + 1]) / 255, b = Float(px[i * 4 + 2]) / 255
+                let blue = max(0, b - max(r, g * 0.9))            // blue sky
+                let white = L[i] > 0.72 ? (L[i] - 0.72) * 3 : 0   // white overcast sky
+                let smooth = max(0, 1 - tex[i] * 18)              // less texture scores higher
+                let top = 1 - Float(y) / Float(h) * 0.9           // higher up scores higher
+                let cool = coolOnly ? max(0, min(1, 1 - (warm[i] - 0.015) * 25)) : 1   // fades out from r − b ≈ 0.015 to 0.055
+                score[i] = min(1, (blue * 4 + white + 0.15) * smooth * top * cool * 1.6)
+            } }
+            // Only sky-like regions connected to the top edge (flood fill), not crossing a luminance or color edge
+            var seen = [Bool](repeating: false, count: w * h)
+            var queue: [Int] = []
+            for x in 0..<w where score[x] > 0.35 { queue.append(x); seen[x] = true }
+            var head = 0
+            while head < queue.count {
+                let i = queue[head]; head += 1
+                let x = i % w, y = i / w
+                for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    let nx = x + dx, ny = y + dy
+                    guard nx >= 0, ny >= 0, nx < w, ny < h else { continue }
+                    let j = ny * w + nx
+                    if !seen[j], score[j] > 0.3, abs(L[j] - L[i]) < 0.12, !coolOnly || abs(warm[j] - warm[i]) < 0.03 {
+                        seen[j] = true; queue.append(j)
+                    }
+                }
+            }
+            return queue
+        }
+        // Warm skies (sunsets) fail the cool test: fall back to the brightness/texture rule when it finds almost nothing
+        var queue = region(coolOnly: true)
+        if queue.count <= w * h / 200 { queue = region(coolOnly: false) }
+        guard queue.count > w * h / 200 else { return nil }   // almost no sky
+        var out = [UInt8](repeating: 0, count: w * h)
+        for i in queue { out[i] = 255 }
+        // Fill small holes inside the sky (cloud texture, birds): unselected areas not reachable from the image border
+        // and smaller than 0.5% of the image
+        var outside = [Bool](repeating: false, count: w * h)
+        var stack: [Int] = []
+        for x in 0..<w { stack.append(x); stack.append((h - 1) * w + x) }
+        for y in 0..<h { stack.append(y * w); stack.append(y * w + w - 1) }
+        stack = stack.filter { out[$0] == 0 }
+        for i in stack { outside[i] = true }
+        while let i = stack.popLast() {
             let x = i % w, y = i / w
             for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
                 let nx = x + dx, ny = y + dy
                 guard nx >= 0, ny >= 0, nx < w, ny < h else { continue }
                 let j = ny * w + nx
-                if !seen[j], score[j] > 0.3, abs(L[j] - L[i]) < 0.12 { seen[j] = true; queue.append(j) }
+                if out[j] == 0, !outside[j] { outside[j] = true; stack.append(j) }
             }
         }
-        guard queue.count > w * h / 200 else { return nil }   // almost no sky
-        var out = [UInt8](repeating: 0, count: w * h)
-        for i in queue { out[i] = 255 }
+        var visited = [Bool](repeating: false, count: w * h)
+        for start in 0..<(w * h) where out[start] == 0 && !outside[start] && !visited[start] {
+            var hole = [start]; visited[start] = true
+            var k = 0
+            while k < hole.count {
+                let i = hole[k]; k += 1
+                let x = i % w, y = i / w
+                for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    let nx = x + dx, ny = y + dy
+                    guard nx >= 0, ny >= 0, nx < w, ny < h else { continue }
+                    let j = ny * w + nx
+                    if out[j] == 0, !visited[j] { visited[j] = true; hole.append(j) }
+                }
+            }
+            if hole.count < w * h / 200 { for i in hole { out[i] = 255 } }
+        }
         // CGImage (row 0 at top) → CIImage
         guard let prov = CGDataProvider(data: Data(out) as CFData),
               let mcg = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: w, space: CGColorSpaceCreateDeviceGray(),
@@ -83,7 +130,11 @@ enum AIBasic {
         var m = CIImage(cgImage: mcg).clampedToExtent().blurred(1.2).cropped(to: CGRect(x: 0, y: 0, width: w, height: h))
         // Refine edges guided by image luminance (between branches and wires)
         let guide = img.transformed(by: .init(scaleX: CGFloat(w) / img.extent.width, y: CGFloat(h) / img.extent.height))
+        let coarse = m
         m = Layers.refineMask(m, guide: guide.cropped(to: m.extent), radius: 3)
+        // Refining left specks inside bright clouds: well inside the coarse sky (shrunk by 2 px) stays fully selected
+        let core = coarse.applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: 2]).cropped(to: m.extent)
+        m = core.applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: m]).cropped(to: m.extent)
         return store(m, size: doc.nativeSize)
     }
 

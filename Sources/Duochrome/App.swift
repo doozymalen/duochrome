@@ -117,6 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSLog("window png %@", out)
             }
         }
+        // Dev only: remote driver for a developer tool (DUOCHROME_DEV=1 + DUOCHROME_DRIVER=dir), see DevDriver.swift
+        if let w = windowController?.window { DevDriver.startIfRequested(window: w) }
         // Dev only: open a photo right after launch.
         if let path = ProcessInfo.processInfo.environment["DUOCHROME_FOLDER"] {
             windowController?.openFolder(URL(fileURLWithPath: path))
