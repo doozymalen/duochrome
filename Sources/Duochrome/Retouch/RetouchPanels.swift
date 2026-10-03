@@ -25,15 +25,14 @@ final class RetouchLayersPanel: NSView {
         opacity.onChange = { [weak self] v, dragging in
             self?.editSelected(dragging) { $0.opacity = Float(v) }
         }
-        let blendRow = NSStackView(views: [NSTextField(labelWithString: "혼합"), blend])
-        blendRow.spacing = 6
-        selectedBox.orientation = .vertical
-        selectedBox.alignment = .leading
-        selectedBox.spacing = 6
-        for v in [opacity, blendRow] as [NSView] {
-            selectedBox.addArrangedSubview(v)
-            v.widthAnchor.constraint(equalTo: selectedBox.widthAnchor).isActive = true
-        }
+        // Blend mode and opacity on one row, like the reference editor
+        blend.toolTip = "혼합 모드"
+        blend.widthAnchor.constraint(equalToConstant: 96).isActive = true
+        selectedBox.orientation = .horizontal
+        selectedBox.alignment = .bottom
+        selectedBox.spacing = 10
+        selectedBox.addArrangedSubview(blend)
+        selectedBox.addArrangedSubview(opacity)
 
         list.orientation = .vertical
         list.alignment = .leading
@@ -49,19 +48,16 @@ final class RetouchLayersPanel: NSView {
             doc.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
         ])
 
-        let buttons = NSStackView(views: [
-            button("plus", "새 조정 레이어 (선택 영역이 있으면 그 부분에만)", #selector(addAdjust)),
-            button("photo.badge.plus", "사진을 레이어로 넣기", #selector(addPhoto)),
-            button("plus.square.on.square", "복제 (⌘J, 선택 영역이 있으면 그 부분만)", #selector(duplicate)),
-            button("square.stack.3d.down.forward", "보이는 레이어 도장 찍기 (지금 결과를 한 장으로 굳힌 새 레이어)", #selector(stamp)),
-            button("sparkles", "빠른 보정 (배경 흐림·피부·노이즈)", #selector(quickMenu(_:))),
-            button("chevron.up", "앞으로", #selector(raiseLayer)),
-            button("chevron.down", "뒤로", #selector(lowerLayer)),
-            button("trash", "레이어 지우기", #selector(remove)),
-        ])
-        buttons.spacing = 4
+        // Header: title, then + (new adjustment layer) and ⋯ (everything else), like the reference editor
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        let header = NSStackView(views: [title, spacer,
+                                         button("plus", "새 조정 레이어 (선택 영역이 있으면 그 부분에만)", #selector(addAdjust)),
+                                         button("sparkles", "빠른 보정 (배경 흐림·피부·노이즈)", #selector(quickMenu(_:))),
+                                         button("ellipsis.circle", "레이어 작업", #selector(moreMenu(_:)))])
+        header.spacing = 4
 
-        let stack = NSStackView(views: [title, selectedBox, scroll, buttons])
+        let stack = NSStackView(views: [header, selectedBox, scroll])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -74,6 +70,7 @@ final class RetouchLayersPanel: NSView {
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             selectedBox.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24),
+            header.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24),
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24),
             doc.widthAnchor.constraint(equalTo: scroll.widthAnchor),
         ])
@@ -139,6 +136,20 @@ final class RetouchLayersPanel: NSView {
     @objc private func addPhoto() { host?.placeImageLayer(nil) }
     @objc private func duplicate() { host?.duplicateLayerOrBackground(nil) }
     @objc private func stamp() { host?.stampVisible(nil) }
+    /// ⋯ in the header: the layer commands that used to be a row of buttons at the bottom
+    @objc private func moreMenu(_ b: NSButton) {
+        let m = NSMenu()
+        for (t, sel) in [("사진을 레이어로 넣기…", #selector(addPhoto)), ("복제  ⌘J", #selector(duplicate)),
+                         ("보이는 레이어 도장 찍기", #selector(stamp)), ("앞으로", #selector(raiseLayer)),
+                         ("뒤로", #selector(lowerLayer)), ("레이어 지우기  ⌫", #selector(remove))] as [(String, Selector)] {
+            let i = NSMenuItem(title: t, action: sel, keyEquivalent: "")
+            i.target = self
+            m.addItem(i)
+            if t.hasPrefix("보이는") || t == "뒤로" { m.addItem(.separator()) }
+        }
+        m.popUp(positioning: nil, at: CGPoint(x: 0, y: b.bounds.height + 4), in: b)
+    }
+
     @objc private func quickMenu(_ b: NSButton) {
         let m = NSMenu()
         func item(_ title: String, _ f: @escaping (MainWindowController) -> Void) {
@@ -200,6 +211,25 @@ final class RetouchInspector: NSView {
     private let brushSize = SliderRow(label: "붓 크기", min: 5, max: 1500, format: "%.0f px", defaultValue: 120)
     private let brushHardness = SliderRow(label: "경도", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.3)
     private let brushFlow = SliderRow(label: "흐름", min: 0.05, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
+    private let brushStrength = SliderRow(label: "세기", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.5)
+    private var rangeRadios: [NSButton] = []
+    private lazy var rangeBox: NSView = {
+        let box = NSStackView()
+        box.orientation = .vertical
+        box.alignment = .leading
+        box.spacing = 3
+        let title = NSTextField(labelWithString: "범위")
+        title.font = .systemFont(ofSize: 11)
+        title.textColor = .secondaryLabelColor
+        box.addArrangedSubview(title)
+        for (k, t) in ["전체", "어두운 곳", "중간 밝기", "밝은 곳"].enumerated() {
+            let r = NSButton(radioButtonWithTitle: t, target: self, action: #selector(rangePicked(_:)))
+            r.tag = k
+            rangeRadios.append(r)
+            box.addArrangedSubview(r)
+        }
+        return box
+    }()
     private let retouchSize = SliderRow(label: "크기", min: 2, max: 500, format: "%.0f px", defaultValue: 40)
     private let retouchFeather = SliderRow(label: "부드러움", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.5)
     private let retouchOpacity = SliderRow(label: "불투명도", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
@@ -254,6 +284,11 @@ final class RetouchInspector: NSView {
         brushSize.onChange = { [weak self] v, _ in self?.host?.layersTab.brushRadius = v; self?.host?.retouchBrushChanged() }
         brushHardness.onChange = { [weak self] v, _ in self?.host?.layersTab.brushHardness = v }
         brushFlow.onChange = { [weak self] v, _ in self?.host?.layersTab.brushFlow = v }
+        brushStrength.onChange = { [weak self] v, dragging in
+            guard let self, let tool = self.host?.retouchEditor.currentTool else { return }
+            RetouchTool.setStrength(v, tool)
+            self.updatePresetLayer(tool, dragging: dragging)
+        }
         retouchSize.onChange = { [weak self] v, _ in self?.host?.retouch.brush.radius = v }
         retouchFeather.onChange = { [weak self] v, _ in self?.host?.retouch.brush.feather = v }
         retouchOpacity.onChange = { [weak self] v, _ in self?.host?.retouch.brush.opacity = v }
@@ -292,7 +327,7 @@ final class RetouchInspector: NSView {
         selRefine.onChange = { [weak self] v, _ in self?.editSelection { $0.refine = v == 0 ? nil : v } }
         histogram.heightAnchor.constraint(equalToConstant: 80).isActive = true
 
-        let stack = NSStackView(views: [histogram, toolTitle, toolBox, separator(), layerTitle, layerBox])
+        let stack = NSStackView(views: [toolTitle, toolBox, separator(), layerTitle, layerBox])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -305,18 +340,38 @@ final class RetouchInspector: NSView {
         scroll.translatesAutoresizingMaskIntoConstraints = false
         holder.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scroll)
+        // Footer like the reference editor: compare (split before/after) and reset, always at the bottom
+        let compare = NSButton(title: "", target: nil, action: #selector(MainWindowController.toggleSplitCompare(_:)))
+        compare.image = NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: "비교")
+        compare.toolTip = "비교 (왼쪽 보정 전 · 오른쪽 보정 후)"
+        let reset = NSButton(title: "초기화", target: self, action: #selector(resetPressed))
+        reset.toolTip = "고른 조정 레이어의 값, 없으면 도구 설정을 처음으로"
+        for b in [compare, reset] { b.bezelStyle = .appPush; b.controlSize = .regular }
+        let footer = NSStackView(views: [compare, reset])
+        footer.distribution = .fillEqually
+        footer.spacing = 8
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        let line = separator()
+        line.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(line)
+        addSubview(footer)
         NSLayoutConstraint.activate([
+            footer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            footer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            footer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            line.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            line.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            line.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -10),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.topAnchor.constraint(equalTo: topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scroll.bottomAnchor.constraint(equalTo: line.topAnchor, constant: -4),
             holder.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
             holder.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
             holder.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
             holder.widthAnchor.constraint(equalTo: scroll.widthAnchor),
             toolBox.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24),
             layerBox.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24),
-            histogram.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24),
         ])
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -329,6 +384,77 @@ final class RetouchInspector: NSView {
 
     /// Hand/zoom tools: the whole photo with the visible part outlined
     private let navigator = NavigatorView()
+
+    /// Move tool: order, transform, lock, hide, group and merge for the selected layer, like the reference editor's arrange panel
+    private func arrangeButtons(_ host: MainWindowController) -> NSView {
+        func b(_ title: String, _ f: @escaping (MainWindowController) -> Void) -> NSButton {
+            let x = ClosureButton(title: title) { [weak host] in
+                guard let host else { return }
+                host.keyLayerEdit(f)
+            }
+            x.bezelStyle = .appPush
+            x.controlSize = .small
+            return x
+        }
+        func row(_ items: [NSButton]) -> NSStackView {
+            let r = NSStackView(views: items)
+            r.distribution = .fillEqually
+            r.spacing = 6
+            return r
+        }
+        func heading2(_ t: String) -> NSTextField {
+            let h = NSTextField(labelWithString: t)
+            h.font = .systemFont(ofSize: 11)
+            h.textColor = .secondaryLabelColor
+            return h
+        }
+        func editSel(_ f: @escaping (inout AdjustLayer) -> Void) -> (MainWindowController) -> Void {
+            return { h in
+                guard var s = h.photo?.settings, let id = h.layersTab.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }) else { NSSound.beep(); return }
+                f(&s.layers[i])
+                h.apply(s, dragging: false)
+            }
+        }
+        let box = NSStackView()
+        box.orientation = .vertical
+        box.alignment = .leading
+        box.spacing = 6
+        let rows: [NSView] = [
+            heading2("순서"),
+            row([b("맨 뒤") { $0.layersTab.layerToEnd(top: false) }, b("뒤로") { $0.layersTab.layerDown() },
+                 b("앞으로") { $0.layersTab.layerUp() }, b("맨 앞") { $0.layersTab.layerToEnd(top: true) }]),
+            heading2("변형"),
+            row([b("자유 변형") { $0.retouchEditor.selectTool("transform") }, b("원근 변형") { $0.retouchEditor.selectTool("perspective") }]),
+            heading2("레이어"),
+            row([b("잠금") { editSel { $0.locked = true }($0) }, b("잠금 풀기") { editSel { $0.locked = false }($0) }]),
+            row([b("숨기기") { editSel { $0.enabled = false }($0) }, b("보이기") { editSel { $0.enabled = true }($0) }]),
+            row([b("그룹") { $0.groupLayer(nil) }, b("그룹 풀기") { $0.ungroupLayer(nil) }]),
+            row([b("아래와 합치기") { $0.mergeDown(nil) }]),
+        ]
+        for v in rows {
+            box.addArrangedSubview(v)
+            if v is NSStackView { v.widthAnchor.constraint(equalTo: box.widthAnchor).isActive = true }
+        }
+        return box
+    }
+
+    /// Zoom level picker under the navigator (the reference editor shows the percentage there)
+    private func zoomPopup(_ host: MainWindowController) -> NSView {
+        let p = NSPopUpButton()
+        p.controlSize = .small
+        let levels: [CGFloat] = [0, 12.5, 25, 50, 100, 200, 400, 800]
+        for l in levels { p.addItem(withTitle: l == 0 ? "화면 맞춤" : "\(l == 12.5 ? "12.5" : String(Int(l)))%"); p.lastItem?.representedObject = l }
+        let now = host.canvas.zoomPercent
+        p.setTitle("\(Int(now.rounded()))%")
+        p.target = self
+        p.action = #selector(zoomPicked(_:))
+        return p
+    }
+
+    @objc private func zoomPicked(_ p: NSPopUpButton) {
+        guard let host, let l = p.selectedItem?.representedObject as? CGFloat else { return }
+        if l == 0 { host.zoomToFit(nil) } else { host.canvas.setZoomPercent(l); host.flashCommand("\(Int(l))%") }
+    }
 
     /// [맞춤] [100%] [−] [+]
     private func zoomButtons(_ host: MainWindowController) -> NSView {
@@ -376,7 +502,7 @@ final class RetouchInspector: NSView {
         switch tool.group {
         case .view:
             navigator.attach(host.canvas)
-            views = [navigator, zoomButtons(host), note("사진을 끌어 옮깁니다. 위 축소판을 누르거나 끌어도 옮겨집니다.")]
+            views = [navigator, zoomPopup(host), zoomButtons(host), note("사진을 끌어 옮깁니다. 위 축소판을 누르거나 끌어도 옮겨집니다.")]
         case .select:
             host.selectionOptions.show(tool: tool.id)
             views = [host.selectionOptions]
@@ -388,10 +514,19 @@ final class RetouchInspector: NSView {
             brushSize.value = host.layersTab.brushRadius
             brushHardness.value = host.layersTab.brushHardness
             brushFlow.value = host.layersTab.brushFlow
-            let what = tool.id == "maskBrush"
-                ? "고른 조정 레이어의 마스크를 칠합니다. 칠한 곳에만 조정이 걸리고, ⌥를 누르고 칠하면 지웁니다."
-                : "칠한 곳에 '\(RetouchTool.presets[tool.id]?.name ?? tool.title)' 레이어가 걸립니다. 세기는 아래 레이어 값으로 바꾸고, ⌥를 누르고 칠하면 지웁니다."
-            views = [brushSize, brushHardness, brushFlow, note(what)]
+            if tool.id == "maskBrush" {
+                views = [brushSize, brushHardness, brushFlow,
+                         note("고른 조정 레이어의 마스크를 칠합니다. 레이어가 없으면 처음 칠할 때 만들어집니다. ⌥를 누르고 칠하면 지웁니다.")]
+            } else {
+                brushStrength.value = RetouchTool.strength(tool.id)
+                for (k, r) in rangeRadios.enumerated() { r.state = k == RetouchTool.range ? .on : .off }
+                views = [brushSize, brushHardness, brushFlow, brushStrength, rangeBox,
+                         note("칠한 곳에 '\(RetouchTool.presets[tool.id]?.name ?? tool.title)' 레이어가 걸립니다 (원본은 그대로). ⌥를 누르고 칠하면 지웁니다.")]
+            }
+        case .distort:
+            brushSize.value = host.layersTab.brushRadius
+            brushFlow.value = host.layersTab.brushFlow
+            views = [brushSize, brushFlow, note("끌어서 칠합니다. 처음 칠할 때 지금 모습이 사진 레이어로 만들어지고 거기에 걸립니다. ↩ 또는 esc로 끝냅니다.")]
         case .gradient:
             views = [note(tool.id == "gradLinear"
                 ? "사진 위를 끌어 그으면 시작점은 조정이 다 걸리고 끝점으로 갈수록 사라지는 그라디언트 레이어가 생깁니다 (하늘 어둡게 등). 고른 그라디언트의 점을 끌면 고칩니다."
@@ -415,6 +550,20 @@ final class RetouchInspector: NSView {
                 box.heightAnchor.constraint(equalToConstant: h),
             ])
             views = [note("틀을 끌어 자릅니다. 회전·키스톤은 아래 값으로."), box]
+        case .arrange where tool.id == "adjust":
+            // Color adjustments act on an adjustment layer: its values show below. Without one, say so and offer to make it
+            let sel = host.layersTab.selectedID.flatMap { id in host.photo?.settings.layers.first { $0.id == id } }
+            if sel?.kind == "adjust" {
+                views = [note("고른 조정 레이어의 값을 아래에서 바꿉니다.")]
+            } else {
+                let make = ClosureButton(title: host.studioSelection == nil ? "조정 레이어 만들기" : "이 선택으로 조정 레이어 만들기") { [weak host] in
+                    host?.retouchAddAdjustLayer()
+                }
+                make.bezelStyle = .appPush
+                views = [note("색 조정은 조정 레이어에 겁니다 (원본은 그대로). 선택 영역이 있으면 그 부분에만 걸립니다."), make]
+            }
+        case .arrange where tool.id == "move":
+            views = [arrangeButtons(host), note("왼쪽에서 고른 사진 레이어를 끌어 옮깁니다. 변형은 ↩ 확정, esc 취소.")]
         case .arrange:
             views = [note("왼쪽에서 고른 사진 레이어를 끌어 옮깁니다.\n\n자유 변형(⌘T): 모서리를 끌면 크기(⇧ 비율 무시), 변 가운데는 한쪽만, 바깥을 끌면 회전(⇧ 15°씩).\n원근 변형: 네 모서리를 끌어 맞춥니다.\n둘 다 ↩ 확정, esc 취소.")]
         case .retouch:
@@ -455,6 +604,8 @@ final class RetouchInspector: NSView {
         layerTitle.stringValue = layer.name
         var views: [NSView] = []
         if layer.kind == "adjust" {
+            // Histogram belongs with the adjustment values (it used to sit above every tool)
+            views.append(histogram)
             for (key, r) in adjustRows {
                 r.value = Double(layer.adjust[keyPath: key])
                 views.append(r)
@@ -530,6 +681,41 @@ final class RetouchInspector: NSView {
         guard !s.layers[i].locked else { NSSound.beep(); return }
         f(&s.layers[i])
         if dragging { host.apply(s, dragging: true) } else { host.replaceSettings(s, recordUndo: true, label: label) }
+    }
+
+    @objc private func rangePicked(_ b: NSButton) {
+        for r in rangeRadios { r.state = r === b ? .on : .off }
+        RetouchTool.range = b.tag
+        if let tool = host?.retouchEditor.currentTool { updatePresetLayer(tool, dragging: false) }
+    }
+
+    /// Strength or range changed: the selected layer of this brush follows (strokes stay)
+    private func updatePresetLayer(_ tool: String, dragging: Bool) {
+        guard let host, var s = host.photo?.settings, let id = host.layersTab.selectedID,
+              let i = s.layers.firstIndex(where: { $0.id == id && $0.preset == tool }), !s.layers[i].locked else { return }
+        RetouchTool.applyPreset(tool, to: &s.layers[i])
+        host.apply(s, dragging: dragging)
+    }
+
+    /// Footer "초기화": the selected adjustment layer's values back to zero (mask kept); with no such layer, the tool settings back to defaults
+    @objc private func resetPressed() {
+        guard let host else { return }
+        if let id = host.layersTab.selectedID, var s = host.photo?.settings, let i = s.layers.firstIndex(where: { $0.id == id }),
+           s.layers[i].kind == "adjust" {
+            guard !s.layers[i].locked else { NSSound.beep(); return }
+            s.layers[i].adjust = LocalAdjust()
+            host.apply(s, dragging: false)
+            reloadLayer(host: host)
+            return
+        }
+        host.layersTab.brushRadius = 120
+        host.layersTab.brushHardness = 0.3
+        host.layersTab.brushFlow = 1
+        var b = host.retouch.brush
+        b.radius = 40; b.feather = 0.5; b.opacity = 1
+        host.retouch.brush = b
+        host.retouchBrushChanged()
+        if let t = RetouchTool.named(host.retouchEditor.currentTool) { show(tool: t, host: host) }
     }
 
     private func editAdjust(_ dragging: Bool, _ f: (inout LocalAdjust) -> Void) {
@@ -609,4 +795,16 @@ final class RetouchInspector: NSView {
         editLayer("선택 영역을 마스크로") { $0.mask = sel }
     }
     @objc private func showMask() { host?.toggleMaskView(nil) }
+}
+
+/// Push button running a closure
+final class ClosureButton: NSButton {
+    private var run: () -> Void = {}
+    convenience init(title: String, _ run: @escaping () -> Void) {
+        self.init(title: title, target: nil, action: nil)
+        self.run = run
+        target = self
+        action = #selector(fire)
+    }
+    @objc private func fire() { run() }
 }

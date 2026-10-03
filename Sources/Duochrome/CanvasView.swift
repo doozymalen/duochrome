@@ -522,14 +522,14 @@ final class CanvasView: MTKView {
             img = red.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: img, kCIInputMaskImageKey: half])
         }
         if let sel = selectionMask, !showOriginal {
-            // Marching ants: the selection edge (1.5 screen px) filled with a black/white check
+            // Marching ants: the selection edge (2 screen px, 1.5 was hard to see at fit view) filled with a black/white check
             let px = level / pz
             let m = doc.selectionPreview(sel, scale: level, base: img)
             let edge = m.applyingFilter("CIColorThreshold", parameters: ["inputThreshold": 0.5])
-                .applyingFilter("CIMorphologyGradient", parameters: [kCIInputRadiusKey: max(px * 1.5, 0.5)]).cropped(to: img.extent)
+                .applyingFilter("CIMorphologyGradient", parameters: [kCIInputRadiusKey: max(px * 2, 0.75)]).cropped(to: img.extent)
             let ants = CIFilter(name: "CICheckerboardGenerator", parameters: [
                 "inputCenter": CIVector(x: 0, y: 0), "inputColor0": CIColor.black, "inputColor1": CIColor.white,
-                "inputWidth": max(px * 4, 0.5), "inputSharpness": 1])!.outputImage!.cropped(to: img.extent)
+                "inputWidth": max(px * 5, 0.75), "inputSharpness": 1])!.outputImage!.cropped(to: img.extent)
             img = ants.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: img, kCIInputMaskImageKey: edge]).cropped(to: img.extent)
         }
         let s = pz / level

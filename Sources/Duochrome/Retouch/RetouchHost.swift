@@ -117,11 +117,14 @@ extension MainWindowController {
         case .brush:
             c.brushSurface.radius = CGFloat(layersTab.brushRadius)
             c.brushSurface.liveUpdates = true
-            if tool.id == "maskBrush", layersTab.selectedID == nil {
-                // Nothing to paint a mask on yet: keep the tool picked, the inspector says what to do
-                enterTool(.pan)
-            } else {
-                enterTool(photo == nil ? .pan : .brush)
+            enterTool(photo == nil ? .pan : .brush)
+        case .distort:
+            // Liquify strokes on a photo layer (made from the current look on the first stroke); Return or esc ends it
+            let kinds = ["liqPush": 0, "liqBloat": 1, "liqPucker": 2, "liqTwirl": 3, "liqReconstruct": 5]
+            if photo == nil { enterTool(.pan) } else {
+                liquify(tool: kinds[tool.id] ?? 0)
+                // The tool stays picked like a brush: an instruction only, no done button
+                retouchEditor.canvasBar.show("끌어서 칠합니다 · 붓 크기 [ ]", [])
             }
         case .gradient:
             c.gradientSurface.kind = tool.id == "gradRadial" ? .radial : .linear
@@ -129,7 +132,7 @@ extension MainWindowController {
         case .arrange:
             // "transform" never gets here (it is a command, RetouchEditor.selectTool)
             // Crop shows the whole frame with the crop box, like the batch-edit geometry tab (same values, same undo)
-            enterTool(photo == nil ? .pan : (tool.id == "crop" ? .crop : .move))
+            enterTool(photo == nil || tool.id == "adjust" ? .pan : (tool.id == "crop" ? .crop : .move))
         case .retouch:
             switch tool.id {
             case "heal", "clone", "patch":
@@ -205,7 +208,7 @@ extension MainWindowController {
                 var l = AdjustLayer(name: preset.name)
                 l.preset = tool
                 l.mask.kind = .brush
-                preset.adjust(&l.adjust)
+                RetouchTool.applyPreset(tool, to: &l)
                 // With a selection, the brush stays inside it
                 if let sel = studioSelection { l.mask.combos = [MaskCombo(op: .intersect, mask: simpleSelectionMask(sel))] }
                 s.layers.append(l)
@@ -216,8 +219,17 @@ extension MainWindowController {
             ed.strokeLayerID = s.layers[k].id
             s.layers[k].mask.strokes.append(stroke)
         } else {
-            // Mask brush: the selected layer's mask
-            guard let id = t.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }), !s.layers[i].locked else {
+            // Mask brush: the selected layer's mask. With no layer selected, the first stroke makes an empty adjustment layer
+            // limited to where it is painted (it used to fall back to the hand tool and drag the photo around)
+            if ed.strokeLayerID == nil, t.selectedID.flatMap({ id in s.layers.first { $0.id == id } }) == nil {
+                var l = AdjustLayer(name: "조정 \(s.layers.count + 1)")
+                l.mask.kind = .brush
+                if let sel = studioSelection { l.mask.combos = [MaskCombo(op: .intersect, mask: simpleSelectionMask(sel))] }
+                s.layers.append(l)
+                ed.strokeBase = s
+                ed.strokeLayerID = l.id   // selected when the stroke ends (it isn't in the document yet)
+            }
+            guard let id = ed.strokeLayerID ?? t.selectedID, let i = s.layers.firstIndex(where: { $0.id == id }), !s.layers[i].locked else {
                 if !painting { NSSound.beep() }
                 return
             }

@@ -347,6 +347,7 @@ extension MainWindowController {
         m.kind = .rect
         m.box = [0, 0, Double(doc.nativeSize.width), Double(doc.nativeSize.height)]
         studioSelection = m
+        flashCommand("전체 선택")
     }
 
     /// ⌫ with a selection: hides the selected area of the selected layer (through its mask, so it can be brought back)

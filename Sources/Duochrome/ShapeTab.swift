@@ -174,7 +174,7 @@ final class ShapeTabController: NSViewController {
     @objc private func autoKeystone() { onAutoKeystone?(keystoneMode) }
     func selectKeystoneMode(_ m: Geometry.KeystoneMode) { keyMode.selectItem(at: m.rawValue); onKeystoneMode?(m) }
 
-    @objc private func resetCrop() { change(false) { $0.crop = CropRect(); $0.cropAspect = 0 } }
+    @objc func resetCrop() { change(false) { $0.crop = CropRect(); $0.cropAspect = 0 } }
 
     @objc private func aspectChanged() {
         var ratio = Self.aspects[aspect.indexOfSelectedItem].1

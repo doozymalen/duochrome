@@ -1359,10 +1359,13 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         clippingButton?.isOn = canvas.showClipping
     }
 
-    @objc func zoomToFit(_ sender: Any?) { canvas.zoomToFit() }
-    @objc func zoomToActual(_ sender: Any?) { canvas.zoomToActual() }
-    @objc func zoomIn(_ sender: Any?) { canvas.zoomBy(2) }
-    @objc func zoomOut(_ sender: Any?) { canvas.zoomBy(0.5) }
+    @objc func zoomToFit(_ sender: Any?) { canvas.zoomToFit(); flashCommand("화면 맞춤") }
+    @objc func zoomToActual(_ sender: Any?) { canvas.zoomToActual(); flashCommand("실제 크기") }
+    @objc func zoomIn(_ sender: Any?) { canvas.zoomBy(2); flashCommand("\(Int(canvas.zoomPercent.rounded()))%") }
+    @objc func zoomOut(_ sender: Any?) { canvas.zoomBy(0.5); flashCommand("\(Int(canvas.zoomPercent.rounded()))%") }
+
+    /// Layer editor: the command name shown briefly in the middle of the canvas
+    func flashCommand(_ text: String) { if mode == .studio { retouchEditor.flash(text) } }
 
     @objc func toggleSplitCompare(_ sender: Any?) { canvas.splitCompare.toggle(); canvas.showOriginal = false }
     @objc func toggleMaskGray(_ sender: Any?) {

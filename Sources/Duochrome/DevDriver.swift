@@ -11,6 +11,7 @@ import AppKit
 ///   {"cmd":"tree"}                                       → <dir>/tree.txt (controls with their frames and labels)
 ///   {"cmd":"click","x":10,"y":20,"count":1,"flags":"cmd,shift"}
 ///   {"cmd":"rclick","x":10,"y":20}
+///   {"cmd":"press","x":10,"y":20,"sec":0.6}            (long press)
 ///   {"cmd":"clickid","id":"heal"}                        (clicks the center of the view with that identifier)
 ///   {"cmd":"drag","path":[[x,y],[x,y],…]}                (press at first point, release at last)
 ///   {"cmd":"trace","path":[[x,y],…],"stepMs":16,"frameEvery":4,"name":"t"}
@@ -44,7 +45,10 @@ final class DevDriver {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? "".write(to: dir.appendingPathComponent("out.log"), atomically: true, encoding: .utf8)
         try? "".write(to: dir.appendingPathComponent("cmd.jsonl"), atomically: true, encoding: .utf8)
-        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in self?.poll() }
+        let t = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in self?.poll() }
+        // Common modes: keeps reading commands while a menu or a drag tracking loop runs (so esc can close a menu)
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
         log("driver ready \(dir.path)")
     }
 
@@ -138,6 +142,13 @@ final class DevDriver {
             let c = target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: nil)
             post(mouse(.leftMouseDown, c)); post(mouse(.leftMouseUp, c))
             finish("ok")
+        case "press":
+            // Mouse down, held for "sec", then up (long press)
+            guard let p = windowPoint(num("x") ?? 0, num("y") ?? 0) else { return finish("fail") }
+            post(mouse(.leftMouseDown, p, flags: fl))
+            DispatchQueue.main.asyncAfter(deadline: .now() + (num("sec") ?? 0.6)) { [weak self] in
+                self?.post(self?.mouse(.leftMouseUp, p, flags: fl)); finish("ok")
+            }
         case "click", "rclick":
             guard let p = windowPoint(num("x") ?? 0, num("y") ?? 0) else { return finish("fail") }
             let n = Int(num("count") ?? 1)

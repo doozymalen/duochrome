@@ -339,7 +339,7 @@ extension MainWindowController {
 
     @objc func invertSelection(_ sender: Any?) { editSelected("선택 반전") { $0.invert.toggle() } }
     @objc func deselectAll(_ sender: Any?) {
-        if mode == .studio { studioSelection = nil; return }
+        if mode == .studio { studioSelection = nil; flashCommand("선택 해제"); return }
         editSelected("선택 해제") { m in
             m.kind = .full; m.combos = nil; m.invert = false; m.colorRange = nil
         }
@@ -524,7 +524,8 @@ final class SelectAndMaskPanel: NSWindowController {
 /// Layer-edit selection tool options: combine mode, per-tool values, refine selection buttons
 final class SelectionOptionsView: NSStackView {
     private weak var host: MainWindowController?
-    private let modePopup = NSPopUpButton()
+    private let modeBox = NSStackView()
+    private var radios: [NSButton] = []
     private let toolBox = NSStackView()
     private let hint = NSTextField(wrappingLabelWithString: "")
 
@@ -534,26 +535,44 @@ final class SelectionOptionsView: NSStackView {
         orientation = .vertical
         alignment = .leading
         spacing = 10
-        modePopup.addItems(withTitles: ["새 선택", "선택에 더하기", "선택에서 빼기", "선택과 교차"])
-        modePopup.controlSize = .small
-        modePopup.target = self; modePopup.action = #selector(modeChanged)
+        // New / add / subtract / intersect as radio buttons with a line each, like the reference editor (it was a popup)
         let mode = UserDefaults.standard.string(forKey: "selection.mode") ?? ""
-        modePopup.selectItem(at: ["", "add", "subtract", "intersect"].firstIndex(of: mode) ?? 0)
+        let modes: [(String, String, String)] = [("", "새로", "새 선택을 만듭니다."), ("add", "더하기", "지금 선택에 더합니다. (⇧)"),
+                                                 ("subtract", "빼기", "지금 선택에서 뺍니다. (⌥)"), ("intersect", "교차", "겹치는 부분만 남깁니다. (⇧⌥)")]
+        modeBox.orientation = .vertical
+        modeBox.alignment = .leading
+        modeBox.spacing = 4
+        for (k, (key, title, desc)) in modes.enumerated() {
+            let r = NSButton(radioButtonWithTitle: title, target: self, action: #selector(modePicked(_:)))
+            r.tag = k
+            r.state = key == mode ? .on : .off
+            let d = NSTextField(labelWithString: desc)
+            d.font = .systemFont(ofSize: 10)
+            d.textColor = .tertiaryLabelColor
+            let item = NSStackView(views: [r, d])
+            item.orientation = .vertical
+            item.alignment = .leading
+            item.spacing = 0
+            d.leadingAnchor.constraint(equalTo: item.leadingAnchor, constant: 20).isActive = true
+            modeBox.addArrangedSubview(item)
+            radios.append(r)
+        }
         toolBox.orientation = .vertical
         toolBox.alignment = .leading
         toolBox.spacing = 8
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
-        hint.stringValue = "⇧ 더하기 · ⌥ 빼기 · ⇧⌥ 교차\n새 레이어는 선택 영역에만 걸립니다."
-        for v in [modePopup, toolBox, hint, buttons()] as [NSView] {
+        hint.stringValue = "새 레이어는 선택 영역에만 걸립니다."
+        for v in [modeBox, toolBox, hint, buttons()] as [NSView] {
             addArrangedSubview(v)
             v.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
         }
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc private func modeChanged() {
-        UserDefaults.standard.set(["", "add", "subtract", "intersect"][modePopup.indexOfSelectedItem], forKey: "selection.mode")
+    @objc private func modePicked(_ b: NSButton) {
+        for r in radios { r.state = r === b ? .on : .off }
+        UserDefaults.standard.set(["", "add", "subtract", "intersect"][b.tag], forKey: "selection.mode")
     }
 
     private func slider(_ t: String, key: String, _ lo: Double, _ hi: Double, _ def: Double, fmt: String = "%.0f", display: Double = 1) -> SliderRow {

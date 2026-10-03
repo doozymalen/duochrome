@@ -19,6 +19,11 @@ final class RetouchEditor: NSViewController {
     lazy var optionsWidth = inspector.widthAnchor.constraint(equalToConstant: 300)
     /// Tool bar width: all tools, or the space between the panels when that is narrower (it then scrolls sideways)
     private lazy var toolBarWidth = toolBar.widthAnchor.constraint(equalToConstant: 600)
+    /// Instruction bar at the bottom of the canvas (crop, liquify, perspective…) and the brief command name in the middle
+    let canvasBar = CanvasBar()
+    let flashLabel = FlashLabel()
+    func flash(_ text: String) { if isViewLoaded { flashLabel.flash(text) } }
+
     /// Name of the tool under the pointer, shown right under the tool bar
     let hoverTip = ToolHoverTip()
     private(set) var currentTool = UserDefaults.standard.string(forKey: "retouchTool") ?? "hand"
@@ -67,6 +72,17 @@ final class RetouchEditor: NSViewController {
             toolBar.heightAnchor.constraint(equalToConstant: 44),
         ])
         view = root
+        for v in [canvasBar, flashLabel] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            root.addSubview(v)
+        }
+        NSLayoutConstraint.activate([
+            canvasBar.centerXAnchor.constraint(equalTo: work.centerXAnchor),
+            canvasBar.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -18),
+            canvasBar.widthAnchor.constraint(lessThanOrEqualTo: work.widthAnchor, constant: -16),
+            flashLabel.centerXAnchor.constraint(equalTo: work.centerXAnchor),
+            flashLabel.centerYAnchor.constraint(equalTo: work.centerYAnchor),
+        ])
         toolBar.onPick = { [weak self] id in self?.selectTool(id) }
         hoverTip.isHidden = true
         root.addSubview(hoverTip)
@@ -122,14 +138,25 @@ final class RetouchEditor: NSViewController {
         _ = view
         // Free transform and perspective are commands on the selected photo layer:
         // the picked tool stays and comes back when their frame closes
-        if id == "transform" { host.freeTransform(nil); return }
-        if id == "perspective" { host.perspectiveLayer(nil); return }
+        if id == "transform" || id == "perspective" {
+            // These act on the selected photo layer; say so instead of doing nothing silently
+            let hasPhotoLayer = host.layersTab.selectedID.flatMap { sid in host.photo?.settings.layers.first { $0.id == sid } }?.image != nil
+            guard hasPhotoLayer else { flash("먼저 왼쪽에서 사진 레이어를 고르세요"); NSSound.beep(); return }
+            if id == "transform" { host.freeTransform(nil) } else { host.perspectiveLayer(nil) }
+            return
+        }
         currentTool = id
         host.traceTool(id)
         UserDefaults.standard.set(id, forKey: "retouchTool")
         toolBar.reload(selected: id)
         host.applyRetouchTool(tool)
         inspector.show(tool: tool, host: host)
+        if id == "crop" {
+            canvasBar.show("틀의 모서리·변을 끌어 자릅니다", [("초기화", { [weak host] in host?.shape.resetCrop() }),
+                                                         ("완료", { [weak self] in self?.selectTool("hand") })])
+        } else if tool.group != .distort {
+            canvasBar.hide()
+        }
     }
 
     func restoreTool() { selectTool(RetouchTool.named(currentTool) != nil ? currentTool : "hand") }
@@ -138,13 +165,14 @@ final class RetouchEditor: NSViewController {
     func reload() {
         guard isViewLoaded, let host else { return }
         layersPanel.reload(host: host)
-        inspector.reloadLayer(host: host)
+        // The color adjustments tool's options depend on whether an adjustment layer is picked
+        if currentTool == "adjust", let t = RetouchTool.named("adjust") { inspector.show(tool: t, host: host) } else { inspector.reloadLayer(host: host) }
     }
 }
 
 /// One tool of the layer editor
 struct RetouchTool: Equatable {
-    enum Group { case view, arrange, select, brush, gradient, retouch }
+    enum Group { case view, arrange, select, brush, distort, gradient, retouch }
     let id: String
     let title: String
     let symbol: String
@@ -153,39 +181,81 @@ struct RetouchTool: Equatable {
     var key: String = ""
 
     static let all: [RetouchTool] = [
-        .init(id: "hand", title: "손 (옮겨 보기)", symbol: "hand.raised", group: .view, key: "H"),
+        .init(id: "hand", title: "손", symbol: "hand.raised", group: .view, key: "H"),
         .init(id: "zoom", title: "확대/축소", symbol: "magnifyingglass", group: .view, key: "Z"),
-        .init(id: "move", title: "이동 (고른 사진 레이어)", symbol: "arrow.up.and.down.and.arrow.left.and.right", group: .arrange, key: "V"),
-        .init(id: "transform", title: "자유 변형 (크기·회전)", symbol: "arrow.up.left.and.arrow.down.right", group: .arrange, key: "⌘T"),
+        .init(id: "move", title: "이동", symbol: "arrow.up.and.down.and.arrow.left.and.right", group: .arrange, key: "V"),
+        .init(id: "transform", title: "자유 변형", symbol: "arrow.up.left.and.arrow.down.right", group: .arrange, key: "⌘T"),
         .init(id: "perspective", title: "원근 변형", symbol: "perspective", group: .arrange),
-        .init(id: "crop", title: "자르기·수평·원근 (사진 전체)", symbol: "crop", group: .arrange),
+        .init(id: "crop", title: "자르기", symbol: "crop", group: .arrange),
+        .init(id: "adjust", title: "색 조정", symbol: "slider.horizontal.3", group: .arrange),
         .init(id: "selRect", title: "사각형 선택", symbol: "rectangle.dashed", group: .select, key: "M"),
         .init(id: "selOval", title: "타원 선택", symbol: "circle.dashed", group: .select),
         .init(id: "selFree", title: "올가미", symbol: "lasso", group: .select, key: "L"),
         .init(id: "selQuick", title: "빠른 선택", symbol: "wand.and.rays", group: .select, key: "W"),
-        .init(id: "selWand", title: "자동 선택 (비슷한 색)", symbol: "wand.and.stars", group: .select, key: "⇧W"),
-        .init(id: "selSubject", title: "피사체 선택 (AI)", symbol: "person.crop.rectangle", group: .select),
-        .init(id: "selSky", title: "하늘 선택 (AI)", symbol: "cloud.sun", group: .select),
-        .init(id: "dodge", title: "밝게 (닷지)", symbol: "sun.max", group: .brush, key: "O"),
-        .init(id: "burn", title: "어둡게 (번)", symbol: "moon", group: .brush),
+        .init(id: "selWand", title: "자동 선택", symbol: "wand.and.stars", group: .select, key: "⇧W"),
+        .init(id: "selSubject", title: "피사체 선택", symbol: "person.crop.rectangle", group: .select),
+        .init(id: "selSky", title: "하늘 선택", symbol: "cloud.sun", group: .select),
+        .init(id: "dodge", title: "밝게", symbol: "sun.max", group: .brush, key: "O"),
+        .init(id: "burn", title: "어둡게", symbol: "moon", group: .brush),
         .init(id: "saturate", title: "채도 높이기", symbol: "drop.fill", group: .brush),
         .init(id: "desaturate", title: "채도 낮추기", symbol: "drop", group: .brush),
         .init(id: "sharpen", title: "선명하게", symbol: "triangle", group: .brush),
         .init(id: "soften", title: "부드럽게", symbol: "aqi.medium", group: .brush),
-        .init(id: "denoiseBrush", title: "노이즈 제거 붓", symbol: "circle.dotted", group: .brush),
-        .init(id: "blurBrush", title: "흐림 붓 (배경 흐리게)", symbol: "drop.halffull", group: .brush),
-        .init(id: "skinBrush", title: "피부 붓 (매끈하게)", symbol: "face.smiling", group: .brush),
-        .init(id: "maskBrush", title: "마스크 붓 (고른 레이어)", symbol: "paintbrush", group: .brush, key: "B"),
-        .init(id: "gradLinear", title: "선형 그라디언트 (끌어서 긋기)", symbol: "square.bottomhalf.filled", group: .gradient, key: "G"),
-        .init(id: "gradRadial", title: "원형 그라디언트 (끌어서 원)", symbol: "circle.circle", group: .gradient),
-        .init(id: "heal", title: "복구 (누르면 스팟, 끌면 붓)", symbol: "bandage", group: .retouch, key: "J"),
+        .init(id: "denoiseBrush", title: "노이즈 제거", symbol: "circle.dotted", group: .brush),
+        .init(id: "blurBrush", title: "흐림", symbol: "drop.halffull", group: .brush),
+        .init(id: "skinBrush", title: "피부 매끈하게", symbol: "face.smiling", group: .brush),
+        .init(id: "maskBrush", title: "마스크 붓", symbol: "paintbrush", group: .brush, key: "B"),
+        .init(id: "liqPush", title: "왜곡: 밀기", symbol: "hand.point.up.left", group: .distort),
+        .init(id: "liqBloat", title: "왜곡: 부풀리기", symbol: "circle.circle.fill", group: .distort),
+        .init(id: "liqPucker", title: "왜곡: 오므리기", symbol: "smallcircle.filled.circle", group: .distort),
+        .init(id: "liqTwirl", title: "왜곡: 돌리기 (⌥ 반대로)", symbol: "tornado", group: .distort),
+        .init(id: "liqReconstruct", title: "왜곡: 되돌리기", symbol: "arrow.uturn.backward.circle", group: .distort),
+        .init(id: "gradLinear", title: "선형 그라디언트", symbol: "square.bottomhalf.filled", group: .gradient, key: "G"),
+        .init(id: "gradRadial", title: "원형 그라디언트", symbol: "circle.circle", group: .gradient),
+        .init(id: "heal", title: "복구", symbol: "bandage", group: .retouch, key: "J"),
         .init(id: "clone", title: "복제 도장", symbol: "doc.on.doc", group: .retouch, key: "S"),
-        .init(id: "patch", title: "패치 (고칠 곳을 두르기)", symbol: "square.dashed.inset.filled", group: .retouch),
-        .init(id: "smartErase", title: "스마트 지우기 (둘레 색으로)", symbol: "eraser", group: .retouch),
+        .init(id: "patch", title: "패치", symbol: "square.dashed.inset.filled", group: .retouch),
+        .init(id: "smartErase", title: "스마트 지우기", symbol: "eraser", group: .retouch),
         .init(id: "aiRemove", title: "AI 지우기", symbol: "sparkles", group: .retouch),
     ]
 
     static func named(_ id: String) -> RetouchTool? { all.first { $0.id == id } }
+
+    /// Tool bar slots: similar tools share one button (pick another by holding or right-clicking it), like the reference editor
+    static let slots: [[String]] = [
+        ["hand", "zoom"], ["move", "transform", "perspective"], ["crop"], ["adjust"],
+        ["selRect", "selOval", "selFree"], ["selQuick", "selWand"], ["selSubject", "selSky"],
+        ["dodge", "burn"], ["saturate", "desaturate"], ["sharpen", "soften"], ["denoiseBrush", "blurBrush", "skinBrush"], ["maskBrush"],
+        ["liqPush", "liqBloat", "liqPucker", "liqTwirl", "liqReconstruct"],
+        ["gradLinear", "gradRadial"],
+        ["heal", "clone", "patch"], ["smartErase", "aiRemove"],
+    ]
+
+    /// Brush strength 0–1 (0.5 is the preset as defined) and tonal range, per tool, like the reference editor's brush tools
+    static func strength(_ tool: String) -> Double { UserDefaults.standard.object(forKey: "brush.strength.\(tool)") as? Double ?? 0.5 }
+    static func setStrength(_ v: Double, _ tool: String) { UserDefaults.standard.set(v, forKey: "brush.strength.\(tool)") }
+    /// 0 all, 1 shadows, 2 midtones, 3 highlights
+    static var range: Int {
+        get { UserDefaults.standard.integer(forKey: "brush.range") }
+        set { UserDefaults.standard.set(newValue, forKey: "brush.range") }
+    }
+
+    /// Sets a brush layer's adjustment from its preset at the current strength, and its mask's brightness band from the range
+    static func applyPreset(_ tool: String, to l: inout AdjustLayer) {
+        guard let p = presets[tool] else { return }
+        var a = LocalAdjust()
+        p.adjust(&a)
+        let k = Float(strength(tool) / 0.5)
+        a.exposure *= k; a.saturation *= k; a.clarity *= k; a.blur *= k
+        if let d = a.denoise { a.denoise = d * k }
+        if let v = a.skinSmooth { a.skinSmooth = v * k }
+        l.adjust = a
+        let bands: [(Float, Float)] = [(0, 1), (0, 0.35), (0.25, 0.75), (0.65, 1)]
+        let (lo, hi) = bands[max(0, min(range, 3))]
+        l.mask.lumaMin = lo
+        l.mask.lumaMax = hi
+        l.mask.lumaSoft = range == 0 ? 0.1 : 0.15
+    }
 
     /// Brush tools painting an adjustment preset: layer name and its adjustment
     static let presets: [String: (name: String, adjust: (inout LocalAdjust) -> Void)] = [
@@ -208,7 +278,6 @@ final class RetouchToolBar: NSView {
     var onHover: ((RetouchTool?, NSView?) -> Void)?
     private let stack = NSStackView()
     private let scroll = NSScrollView()
-    private var buttons: [String: NSButton] = [:]
 
     init() {
         super.init(frame: .zero)
@@ -236,45 +305,127 @@ final class RetouchToolBar: NSView {
             stack.heightAnchor.constraint(equalTo: scroll.heightAnchor),
         ])
         var last: RetouchTool.Group?
-        for t in RetouchTool.all {
-            if let last, last != t.group {
+        for (k, ids) in RetouchTool.slots.enumerated() {
+            let tools = ids.compactMap(RetouchTool.named)
+            guard let first = tools.first else { continue }
+            if let last, last != first.group {
                 let gap = NSView()
                 gap.widthAnchor.constraint(equalToConstant: 8).isActive = true
                 stack.addArrangedSubview(gap)
             }
-            last = t.group
-            let img = NSImage(systemSymbolName: t.symbol, accessibilityDescription: t.title)
-                ?? NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: t.title)!
-            let b = HoverButton(image: img, target: self, action: #selector(picked(_:)))
-            b.onHover = { [weak self, weak b] inside in self?.onHover?(inside ? t : nil, inside ? b : nil) }
+            last = first.group
+            let saved = UserDefaults.standard.string(forKey: "retouchSlot.\(ids[0])")
+            let current = tools.first { $0.id == saved } ?? first
+            let b = SlotButton(image: Self.image(current), target: self, action: #selector(picked(_:)))
+            b.alternatives = tools
+            b.onHover = { [weak self, weak b] inside in
+                guard let self, let b else { return }
+                self.onHover?(inside ? b.current : nil, inside ? b : nil)
+            }
+            b.onChoose = { [weak self] t in self?.onPick?(t.id) }
             b.bezelStyle = .recessed
             b.setButtonType(.pushOnPushOff)
             b.isBordered = true
-            b.identifier = NSUserInterfaceItemIdentifier(t.id)
-            b.setAccessibilityLabel(t.title)
-            // 31 pt: all 30 tools fit between the panels on a 1680 pt window (at 34 the last tool was cut off)
-            b.widthAnchor.constraint(equalToConstant: 31).isActive = true
-            buttons[t.id] = b
+            b.current = current
+            b.widthAnchor.constraint(equalToConstant: 34).isActive = true
+            slots.append((k, b))
             stack.addArrangedSubview(b)
         }
+    }
+
+    private var slots: [(Int, SlotButton)] = []
+
+    static func image(_ t: RetouchTool) -> NSImage {
+        NSImage(systemSymbolName: t.symbol, accessibilityDescription: t.title)
+            ?? NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: t.title)!
     }
     required init?(coder: NSCoder) { fatalError() }
 
     @objc private func picked(_ b: NSButton) {
-        guard let id = b.identifier?.rawValue else { return }
-        onPick?(id)
+        guard let b = b as? SlotButton, let t = b.current else { return }
+        onPick?(t.id)
     }
 
     /// Width that shows every tool
     var contentWidth: CGFloat { stack.fittingSize.width }
 
     func reload(selected: String) {
-        for (id, b) in buttons { b.state = id == selected ? .on : .off }
+        for (_, b) in slots {
+            if let t = b.alternatives.first(where: { $0.id == selected }) {
+                b.current = t
+                UserDefaults.standard.set(t.id, forKey: "retouchSlot.\(b.alternatives[0].id)")
+                b.state = .on
+            } else {
+                b.state = .off
+            }
+        }
+    }
+}
+
+/// Tool bar button holding one tool or a few similar ones: shows the current one; hold or right-click to pick another.
+/// A small triangle at the bottom right marks buttons with alternatives.
+final class SlotButton: HoverButton {
+    var alternatives: [RetouchTool] = []
+    var onChoose: ((RetouchTool) -> Void)?
+    var current: RetouchTool? {
+        didSet {
+            guard let t = current else { return }
+            image = RetouchToolBar.image(t)
+            identifier = NSUserInterfaceItemIdentifier(t.id)
+            setAccessibilityLabel(t.title)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard alternatives.count > 1 else { return }
+        let p = NSBezierPath()
+        let x = bounds.maxX - 4, y = isFlipped ? bounds.maxY - 3 : bounds.minY + 3
+        p.move(to: NSPoint(x: x, y: y))
+        p.line(to: NSPoint(x: x - 4, y: y))
+        p.line(to: NSPoint(x: x, y: isFlipped ? y - 4 : y + 4))
+        p.close()
+        NSColor.secondaryLabelColor.setFill()
+        p.fill()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard alternatives.count > 1 else { super.mouseDown(with: event); return }
+        onHover?(false)
+        // A short click picks the current tool; holding opens the alternatives. Decided here rather than inside
+        // the button's own tracking loop, which would still wait for a mouse-up the menu already took
+        highlight(true)
+        let up = window?.nextEvent(matching: [.leftMouseUp], until: Date(timeIntervalSinceNow: 0.35), inMode: .eventTracking, dequeue: true)
+        highlight(false)
+        if up != nil { sendAction(action, to: target) } else { showMenu() }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if alternatives.count > 1 { showMenu() } else { super.rightMouseDown(with: event) }
+    }
+
+    private func showMenu() {
+        let menu = NSMenu()
+        for t in alternatives {
+            let item = NSMenuItem(title: t.key.isEmpty ? t.title : "\(t.title)  \(t.key)", action: #selector(chose(_:)), keyEquivalent: "")
+            item.target = self
+            item.image = RetouchToolBar.image(t)
+            item.representedObject = t.id
+            item.state = t.id == current?.id ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: isFlipped ? bounds.maxY + 4 : -4), in: self)
+    }
+
+    @objc private func chose(_ item: NSMenuItem) {
+        guard let id = item.representedObject as? String, let t = alternatives.first(where: { $0.id == id }) else { return }
+        current = t
+        onChoose?(t)
     }
 }
 
 /// Tool button that reports the pointer entering and leaving
-final class HoverButton: NSButton {
+class HoverButton: NSButton {
     var onHover: ((Bool) -> Void)?
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

@@ -146,7 +146,6 @@ final class LayerRowContent: NSStackView {
         eye.isEnabled = toggleable
         eye.alphaValue = toggleable ? 1 : 0.35
         setEye()
-        addArrangedSubview(eye)
 
         // Content thumbnail (or icon)
         let box = ThumbBox(size: NSSize(width: w, height: h), selected: selected)
@@ -195,14 +194,19 @@ final class LayerRowContent: NSStackView {
         texts.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setCustomSpacing(8, after: arrangedSubviews.last!)
         addArrangedSubview(texts)
+        // Visibility check at the right end of the row, like the reference editor's layer list
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        addArrangedSubview(spacer)
+        addArrangedSubview(eye)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     private func setEye() {
-        eye.image = NSImage(systemSymbolName: visible ? "eye" : "eye.slash", accessibilityDescription: visible ? "보임" : "숨김")?
-            .withSymbolConfiguration(.init(pointSize: 11, weight: .regular))
-        eye.contentTintColor = visible ? .secondaryLabelColor : .tertiaryLabelColor
+        eye.image = NSImage(systemSymbolName: visible ? "checkmark.square.fill" : "square", accessibilityDescription: visible ? "보임" : "숨김")?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+        eye.contentTintColor = visible ? .controlAccentColor : .tertiaryLabelColor
     }
 
     @objc private func eyeTapped() {

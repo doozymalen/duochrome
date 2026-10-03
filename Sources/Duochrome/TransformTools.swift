@@ -142,12 +142,18 @@ extension MainWindowController {
         }
         enterTool(.points)
         window?.makeFirstResponder(o)
+        if mode == .studio {
+            // Layer editor: the instruction goes to the bar at the bottom of the canvas, with cancel · done
+            retouchEditor.canvasBar.show(hint, [("취소", { [weak o] in o?.onCancel?() }), ("완료", { [weak o] in o?.onCommit?() })])
+            o.hint = ""
+        }
         return o
     }
 
     func endPoints() {
         canvas.pointsOverlay.onCommit = nil
         canvas.pointsOverlay.onCancel = nil
+        if mode == .studio { retouchEditor.canvasBar.hide() }
         // Layer editor: back to the picked tool (so the canvas input matches the tool bar)
         if mode == .studio { retouchEditor.restoreTool() } else { enterTool(.pan) }
     }
