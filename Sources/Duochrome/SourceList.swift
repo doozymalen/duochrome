@@ -214,7 +214,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
         field.stringValue = initial
         a.accessoryView = field
         a.addButton(withTitle: "확인")
-        a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         return a.runModal() == .alertFirstButtonReturn && !field.stringValue.isEmpty ? field.stringValue : nil
     }
 
@@ -257,7 +257,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
         let a = NSAlert()
         a.messageText = "\"\(node.title)\" 키워드와 그 아래 키워드를 지울까요?"
         a.informativeText = "사진에서 키워드만 떼어 냅니다. 사진은 그대로입니다."
-        a.addButton(withTitle: "지우기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "지우기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         try? catalog.deleteKeyword(id)
         reload(); onAlbumsChanged?()
@@ -275,7 +275,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
         a.messageText = "\"\(node.title)\" 앨범을 지울까요?"
         a.informativeText = "앨범만 지웁니다. 사진 파일과 다른 앨범은 그대로입니다."
         a.addButton(withTitle: "지우기")
-        a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         try? catalog.deleteAlbum(id)
         reload(); onAlbumsChanged?()
@@ -310,7 +310,7 @@ enum SmartRuleEditor {
         st.orientation = .vertical; st.alignment = .leading; st.spacing = 6
         st.frame = NSRect(x: 0, y: 0, width: 220, height: 380)
         a.accessoryView = st
-        a.addButton(withTitle: "확인"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "확인"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return nil }
         var r = Catalog.SmartRule()
         r.minRating = rating.indexOfSelectedItem

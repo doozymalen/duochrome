@@ -6,7 +6,7 @@ import Vision
 /// All points are in the caller's coordinates (source or displayed image); toView/fromView convert to view coordinates.
 final class PointsOverlayView: NSView {
     enum Style { case quad, grid4, pins, strokes }
-    var style: Style = .quad { didSet { needsDisplay = true } }
+    var style: Style = .quad { didSet { needsDisplay = true; window?.invalidateCursorRects(for: self) } }
     var points: [CGPoint] = [] { didSet { needsDisplay = true } }
     /// Original pin positions (dimmed dots in pin mode)
     var anchors: [CGPoint] = []
@@ -21,7 +21,11 @@ final class PointsOverlayView: NSView {
     var onCommit: (() -> Void)?
     var onCancel: (() -> Void)?
     /// Brush radius (view pixels, brush-mode cursor)
-    var brushRadius: CGFloat = 0
+    var brushRadius: CGFloat = 0 { didSet { window?.invalidateCursorRects(for: self) } }
+    /// Brush strokes (liquify) get the brush circle as the pointer, point handles the crosshair
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: style == .strokes ? BrushCursor.make(viewRadius: brushRadius) : .crosshair)
+    }
 
     private var grabbed: Int?
     private var current: [CGPoint] = []
@@ -70,7 +74,7 @@ final class PointsOverlayView: NSView {
             let l = NSBezierPath(); l.move(to: f); pv.dropFirst().forEach { l.line(to: $0) }
             l.lineWidth = 2; NSColor.systemOrange.setStroke(); l.stroke()
         }
-        if style == .strokes, brushRadius > 0, let m = mouse {
+        if style == .strokes, brushRadius > 256, let m = mouse {   // smaller brushes: the pointer is the circle
             let c = NSBezierPath(ovalIn: NSRect(x: m.x - brushRadius, y: m.y - brushRadius, width: brushRadius * 2, height: brushRadius * 2))
             NSColor.white.setStroke(); c.stroke()
         }
@@ -318,7 +322,7 @@ extension MainWindowController {
         let st = NSStackView(views: fields.map(\.1) + [color]); st.orientation = .vertical; st.alignment = .trailing
         st.frame = NSRect(x: 0, y: 0, width: 220, height: 150)
         a.accessoryView = st
-        a.addButton(withTitle: "적용"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "적용"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let v = fields.enumerated().map { i, f in max(0, Double(f.0.stringValue) ?? 0) / (i % 2 == 0 ? w : h) }
         s.canvasPad = v.allSatisfy { $0 == 0 } ? nil : v
@@ -371,7 +375,7 @@ extension MainWindowController {
         let st = NSStackView(views: [NSStackView(views: [NSTextField(labelWithString: "가로 (px)"), wf]), rs]); st.orientation = .vertical
         st.frame = NSRect(x: 0, y: 0, width: 240, height: 60)
         a.accessoryView = st
-        a.addButton(withTitle: "적용"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "적용"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let w = Double(wf.stringValue) ?? 0
         s.outputSize = w > 0 ? [w, (w * Double(cur.height / cur.width)).rounded()] : nil
@@ -390,7 +394,7 @@ extension MainWindowController {
         let st = NSStackView(views: [NSStackView(views: [NSTextField(labelWithString: "가로 %"), wf]), NSStackView(views: [NSTextField(labelWithString: "세로 %"), hf])])
         st.orientation = .vertical; st.frame = NSRect(x: 0, y: 0, width: 200, height: 56)
         a.accessoryView = st
-        a.addButton(withTitle: "만들기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "만들기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn, var s = photo?.settings else { return }
         let target: AdjustLayer? = layersTab.selectedID.flatMap { id in s.layers.first { $0.id == id && $0.isImage } }
         guard let src = target.map({ var l = $0; l.mask = LayerMask(); l.opacity = 1; l.group = nil; return rasterize([l], withPhoto: false) }) ?? rasterize(s.layers, withPhoto: true) else { return }
@@ -626,7 +630,7 @@ extension MainWindowController {
         let st = NSStackView(views: sliders.map(\.1)); st.orientation = .vertical; st.alignment = .trailing
         st.frame = NSRect(x: 0, y: 0, width: 260, height: 120)
         a.accessoryView = st
-        a.addButton(withTitle: "적용"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "적용"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let v = sliders.map { $0.0.doubleValue / 100 }
         let n = doc.nativeSize

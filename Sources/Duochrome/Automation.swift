@@ -168,7 +168,7 @@ extension MainWindowController {
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         field.stringValue = "동작 \(RecordedAction.names().count + 1)"
         a.accessoryView = field
-        a.addButton(withTitle: "기록"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "기록"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         beginRecording(field.stringValue)
     }
@@ -256,7 +256,7 @@ extension MainWindowController {
         let box = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 56))
         box.addSubview(popup); box.addSubview(exportBox)
         a.accessoryView = box
-        a.addButton(withTitle: "실행"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "실행"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn, let name = popup.titleOfSelectedItem, let act = RecordedAction.load(name) else { return }
         batchApply(act, to: items)
         if exportBox.state == .on { exportPhotos(nil) }

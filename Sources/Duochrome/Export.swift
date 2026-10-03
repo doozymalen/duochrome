@@ -406,7 +406,7 @@ final class ExportSheet: NSWindowController {
         let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         f.stringValue = "\(recipe.format.title) \(recipe.longSide == 0 ? "원본" : "\(recipe.longSide)px")"
         a.accessoryView = f
-        a.addButton(withTitle: "저장"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "저장"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn, !f.stringValue.isEmpty else { return }
         var r = recipe
         r.name = f.stringValue

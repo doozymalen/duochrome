@@ -139,7 +139,7 @@ final class RetouchOverlayView: NSView {
     weak var canvas: CanvasView?
     var spots: [RetouchSpot] = [] { didSet { needsDisplay = true } }
     var selected: Int? { didSet { needsDisplay = true } }
-    var brushRadius: Double = 40
+    var brushRadius: Double = 40 { didSet { window?.invalidateCursorRects(for: self) } }
     /// Source coordinates ↔ view coordinates.
     var toView: ((CGPoint) -> CGPoint)?
     var fromView: ((CGPoint) -> CGPoint)?
@@ -272,8 +272,8 @@ final class RetouchOverlayView: NSView {
             (i == selected ? NSColor.controlAccentColor : NSColor.white).setStroke()
             to.stroke()
         }
-        // brush preview
-        if let h = hover, grab == nil, !patchMode, let fromView {
+        // brush preview (the pointer is the circle; drawn here only when bigger than the largest pointer)
+        if let h = hover, grab == nil, !patchMode, let fromView, CGFloat(brushRadius) * (canvas?.zoom ?? 1) > 256 {
             let p = fromView(h)
             let probe = RetouchSpot(targetX: p.x, targetY: p.y, sourceX: p.x, sourceY: p.y, radius: brushRadius)
             let r = viewRadius(probe)
@@ -282,6 +282,10 @@ final class RetouchOverlayView: NSView {
             NSColor.white.withAlphaComponent(0.6).setStroke()
             c.stroke()
         }
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: patchMode ? .crosshair : BrushCursor.make(viewRadius: CGFloat(brushRadius) * (canvas?.zoom ?? 1)))
     }
 
     override func mouseMoved(with event: NSEvent) {

@@ -8,7 +8,7 @@ final class BrushSurfaceView: NSView {
     var toView: ((CGPoint) -> CGPoint)?
     var fromView: ((CGPoint) -> CGPoint)?
     /// Brush radius (source pixels)
-    var radius: CGFloat = 120 { didSet { needsDisplay = true } }
+    var radius: CGFloat = 120 { didSet { needsDisplay = true; window?.invalidateCursorRects(for: self) } }
     /// Stroke so far: points, erasing, still painting
     var onStroke: (([CGPoint], Bool, Bool) -> Void)?
     /// Brushes that are too slow to redo on every move (AI remove) only get the finished stroke
@@ -19,7 +19,8 @@ final class BrushSurfaceView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { isHidden ? nil : super.hitTest(point) }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    // The pointer itself is the brush circle (it used to be a crosshair with a circle drawn next to it)
+    override func resetCursorRects() { addCursorRect(bounds, cursor: BrushCursor.make(viewRadius: viewRadius)) }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
@@ -69,7 +70,8 @@ final class BrushSurfaceView: NSView {
             (erasing ? NSColor.systemBlue : NSColor.systemOrange).withAlphaComponent(0.3).setStroke()
             path.stroke()
         }
-        if let h = hover {
+        // Brushes bigger than the largest pointer still get the circle drawn here
+        if let h = hover, viewRadius > 256 {
             let c = NSBezierPath(ovalIn: CGRect(x: h.x - viewRadius, y: h.y - viewRadius, width: viewRadius * 2, height: viewRadius * 2))
             c.lineWidth = 1.5
             NSColor.black.withAlphaComponent(0.5).setStroke(); c.stroke()
@@ -163,6 +165,7 @@ extension MainWindowController {
     /// Brush size changed in the inspector
     func retouchBrushChanged() {
         viewer.canvas.brushSurface.radius = CGFloat(layersTab.brushRadius)
+        if viewer.canvas.pointsOverlay.style == .strokes { viewer.canvas.pointsOverlay.brushRadius = CGFloat(layersTab.brushRadius) * viewer.canvas.zoom }
         viewer.canvas.selectionTool.brushRadius = CGFloat(layersTab.brushRadius)
     }
 

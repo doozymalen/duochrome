@@ -137,7 +137,7 @@ extension MainWindowController {
         st.frame = NSRect(x: 0, y: 0, width: 300, height: 80)
         field.widthAnchor.constraint(equalToConstant: 300).isActive = true
         a.accessoryView = st
-        a.addButton(withTitle: "바꾸기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "바꾸기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         UserDefaults.standard.set(field.stringValue, forKey: "renamePattern")
         let (n, errors) = renameFiles(items, pattern: field.stringValue, start: Int(startField.stringValue) ?? 1)
@@ -170,7 +170,7 @@ extension MainWindowController {
         let st = NSStackView(views: [NSTextField(labelWithString: "일"), d, NSTextField(labelWithString: "시간"), h, NSTextField(labelWithString: "분"), m])
         st.frame = NSRect(x: 0, y: 0, width: 330, height: 24)
         a.accessoryView = st
-        a.addButton(withTitle: "옮기기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "옮기기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let secs = (Double(d.stringValue) ?? 0) * 86400 + (Double(h.stringValue) ?? 0) * 3600 + (Double(m.stringValue) ?? 0) * 60
         shiftCaptureTime(items, by: secs)

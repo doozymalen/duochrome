@@ -411,7 +411,7 @@ extension MainWindowController {
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         a.accessoryView = field
         a.addButton(withTitle: "만들기")
-        a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn, !field.stringValue.isEmpty else { return }
         guard let id = try? library.catalog.addAlbum(field.stringValue) else { return }
         addSelection(toAlbum: id)

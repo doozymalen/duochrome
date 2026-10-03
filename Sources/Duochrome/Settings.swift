@@ -309,7 +309,7 @@ enum SettingsPane {
                             let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
                             f.placeholderString = "인증 코드"
                             a.accessoryView = f
-                            a.addButton(withTitle: "연결"); a.addButton(withTitle: "취소")
+                            a.addButton(withTitle: "연결"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
                             a.window.initialFirstResponder = f
                             return a.runModal() == .alertFirstButtonReturn ? f.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) : nil
                         }

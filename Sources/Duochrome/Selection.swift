@@ -333,7 +333,7 @@ extension MainWindowController {
         let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
         f.doubleValue = def
         a.accessoryView = f
-        a.addButton(withTitle: "확인"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "확인"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         return a.runModal() == .alertFirstButtonReturn ? f.doubleValue : nil
     }
 
@@ -582,7 +582,8 @@ final class SelectionOptionsView: NSStackView {
         return r
     }
 
-    func show(tool: String) {
+    /// brush: false when the caller shows its own brush size (the layer editor shows it as % of the photo)
+    func show(tool: String, brush: Bool = true) {
         toolBox.arrangedSubviews.forEach { $0.removeFromSuperview() }
         var views: [NSView] = []
         switch tool {
@@ -595,10 +596,12 @@ final class SelectionOptionsView: NSStackView {
             views.append(slider("허용량", key: "colorRange.fuzz", 0.02, 1, 0.25, display: 100))
             views.append(note("고를 색을 누릅니다. 그 색에 가까운 곳이 선택됩니다 (고른 레이어의 마스크에 곱한다)."))
         case "selQuick", "aiRemove", "smartErase", "selObject":
-            let r = SliderRow(label: "붓 크기 (원본 픽셀)", min: 5, max: 1500, format: "%.0f", defaultValue: 120)
-            r.value = host?.layersTab.brushRadius ?? 120
-            r.onChange = { [weak self] v, _ in self?.host?.layersTab.brushRadius = v; self?.host?.canvas.maskOverlay.brushRadius = v }
-            views.append(r)
+            if brush {
+                let r = SliderRow(label: "붓 크기 (원본 픽셀)", min: 5, max: 1500, format: "%.0f", defaultValue: 120)
+                r.value = host?.layersTab.brushRadius ?? 120
+                r.onChange = { [weak self] v, _ in self?.host?.layersTab.brushRadius = v; self?.host?.canvas.maskOverlay.brushRadius = v }
+                views.append(r)
+            }
             let notes = [
                 "aiRemove": "지울 것을 붓으로 덮어 칠하세요. 손을 떼면 AI가 둘레에 맞춰 지운 레이어를 만듭니다 (원본은 그대로, 이 맥 안에서만).",
                 "smartErase": "지울 것을 대충 칠하세요. 칠한 곳과 색이 비슷한 둘레까지 넓혀 함께 지웁니다.",

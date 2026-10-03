@@ -133,7 +133,7 @@ final class ImportSheet {
         st.orientation = .vertical; st.alignment = .leading; st.spacing = 6
         st.frame = NSRect(x: 0, y: 0, width: 330, height: 300)
         a.accessoryView = st
-        a.addButton(withTitle: "불러오기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "불러오기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return nil }
         let d = UserDefaults.standard
         d.set(mode.indexOfSelectedItem, forKey: "import.mode"); d.set(dest.stringValue, forKey: "import.dest")
@@ -229,7 +229,7 @@ extension MainWindowController {
         a.informativeText = "고른 스타일을 붓으로 칠한 곳에만 겁니다 (노출·대비·밝기·채도·클래리티·디헤이즈·화이트 밸런스·하이라이트·섀도)."
         let pop = NSPopUpButton(); pop.addItems(withTitles: names)
         a.accessoryView = pop
-        a.addButton(withTitle: "칠하기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "칠하기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn, let name = pop.titleOfSelectedItem,
               let data = try? Data(contentsOf: Self.stylesFolder.appendingPathComponent("\(name).json")),
               let style = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
@@ -442,7 +442,7 @@ extension MainWindowController {
         if let c = ProofProfile.current, let i = list.firstIndex(of: c) { pop.selectItem(at: i + 1) }
         pop.frame = NSRect(x: 0, y: 0, width: 320, height: 26)
         a.accessoryView = pop
-        a.addButton(withTitle: "고르기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "고르기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         ProofProfile.current = pop.indexOfSelectedItem == 0 ? nil : list[pop.indexOfSelectedItem - 1]
         viewer.canvas.softProof = true
@@ -506,7 +506,7 @@ extension MainWindowController {
         st.frame = NSRect(x: 0, y: 0, width: 280, height: 90)
         a.accessoryView = st
         a.informativeText = "색 관리: " + (ProofProfile.current?.deletingPathExtension().lastPathComponent ?? "Display P3") + " 값으로 보냅니다 (교정쇄 프로파일을 고르면 그 공간)."
-        a.addButton(withTitle: "계속…"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "계속…"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let view = PrintImageView(image: cg, page: info.paperSize)
         view.fill = fit.indexOfSelectedItem == 1

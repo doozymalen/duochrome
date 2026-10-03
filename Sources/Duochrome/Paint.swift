@@ -376,7 +376,7 @@ extension MainWindowController {
         a.informativeText = "칠한 곳만 고른 시점의 모습으로 되돌립니다."
         let pop = NSPopUpButton(); pop.addItems(withTitles: entries.map(\.0)); pop.selectItem(at: 0)
         a.accessoryView = pop
-        a.addButton(withTitle: "칠하기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "칠하기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard ProcessInfo.processInfo.environment["DUOCHROME_UITEST"] != nil || a.runModal() == .alertFirstButtonReturn else { return }
         let src = entries[max(pop.indexOfSelectedItem, 0)].1
         let cur = doc.settings

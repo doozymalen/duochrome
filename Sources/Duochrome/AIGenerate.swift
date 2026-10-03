@@ -335,7 +335,7 @@ extension MainWindowController {
         let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         f.placeholderString = "예: concrete wall with moss"
         a.accessoryView = f
-        a.addButton(withTitle: "채우기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "채우기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         aiGenerativeFill(prompt: f.stringValue)
     }
@@ -392,7 +392,7 @@ extension MainWindowController {
         f.placeholderString = "설명 (비우면 둘레에 맞춰)"
         let v = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 58)); v.addSubview(pop); v.addSubview(f)
         a.accessoryView = v
-        a.addButton(withTitle: "만들기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "만들기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         aiGenerativeExpand(percent: [10.0, 20, 35, 50][pop.indexOfSelectedItem], prompt: f.stringValue)
     }

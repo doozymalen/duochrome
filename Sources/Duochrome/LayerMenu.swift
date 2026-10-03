@@ -99,7 +99,7 @@ extension MainWindowController {
         f.stringValue = s.layers[i].name
         a.accessoryView = f
         a.addButton(withTitle: "바꾸기")
-        a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         a.window.initialFirstResponder = f
         guard a.runModal() == .alertFirstButtonReturn, !f.stringValue.isEmpty else { return }
         s.layers[i].name = f.stringValue

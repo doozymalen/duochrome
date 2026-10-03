@@ -208,7 +208,8 @@ final class RetouchInspector: NSView {
         ("노이즈 제거", \.denoiseAmount, 0, 100, "%.0f"), ("선명하게", \.sharpen, 0, 300, "%.0f"),
         ("흐림", \.blur, 0, 100, "%.0f px"), ("피부 매끈하게", \.skinAmount, 0, 100, "%.0f"),
     ]
-    private let brushSize = SliderRow(label: "붓 크기", min: 5, max: 1500, format: "%.0f px", defaultValue: 120)
+    /// Brush sizes are shown as % of the photo's long side (brush diameter), like the reference editor; stored in pixels
+    private let brushSize = SliderRow(label: "붓 크기", min: 0.1, max: 25, format: "%.1f%%", defaultValue: 3)
     private let brushHardness = SliderRow(label: "경도", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.3)
     private let brushFlow = SliderRow(label: "흐름", min: 0.05, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
     private let brushStrength = SliderRow(label: "세기", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.5)
@@ -230,7 +231,7 @@ final class RetouchInspector: NSView {
         }
         return box
     }()
-    private let retouchSize = SliderRow(label: "크기", min: 2, max: 500, format: "%.0f px", defaultValue: 40)
+    private let retouchSize = SliderRow(label: "크기", min: 0.05, max: 10, format: "%.2f%%", defaultValue: 1)
     private let retouchFeather = SliderRow(label: "부드러움", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 0.5)
     private let retouchOpacity = SliderRow(label: "불투명도", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
     /// Histogram of the whole result (fed from updateHistogram)
@@ -281,7 +282,12 @@ final class RetouchInspector: NSView {
             r.onChange = { [weak self] v, dragging in self?.editAdjust(dragging) { $0[keyPath: key] = Float(v) } }
             filterRows.append((key, r))
         }
-        brushSize.onChange = { [weak self] v, _ in self?.host?.layersTab.brushRadius = v; self?.host?.retouchBrushChanged() }
+        brushSize.onChange = { [weak self] v, _ in
+            guard let self else { return }
+            self.host?.layersTab.brushRadius = self.px(v)
+            self.host?.retouchBrushChanged()
+            self.brushSize.toolTip = "지름 \(Int(self.px(v) * 2)) px"
+        }
         brushHardness.onChange = { [weak self] v, _ in self?.host?.layersTab.brushHardness = v }
         brushFlow.onChange = { [weak self] v, _ in self?.host?.layersTab.brushFlow = v }
         brushStrength.onChange = { [weak self] v, dragging in
@@ -289,7 +295,11 @@ final class RetouchInspector: NSView {
             RetouchTool.setStrength(v, tool)
             self.updatePresetLayer(tool, dragging: dragging)
         }
-        retouchSize.onChange = { [weak self] v, _ in self?.host?.retouch.brush.radius = v }
+        retouchSize.onChange = { [weak self] v, _ in
+            guard let self else { return }
+            self.host?.retouch.brush.radius = self.px(v)
+            self.retouchSize.toolTip = "지름 \(Int(self.px(v) * 2)) px"
+        }
         retouchFeather.onChange = { [weak self] v, _ in self?.host?.retouch.brush.feather = v }
         retouchOpacity.onChange = { [weak self] v, _ in self?.host?.retouch.brush.opacity = v }
 
@@ -326,6 +336,11 @@ final class RetouchInspector: NSView {
         selGrow.onChange = { [weak self] v, _ in self?.editSelection { $0.grow = v == 0 ? nil : v } }
         selRefine.onChange = { [weak self] v, _ in self?.editSelection { $0.refine = v == 0 ? nil : v } }
         histogram.heightAnchor.constraint(equalToConstant: 80).isActive = true
+        // Keep the zoom picker's title in step with zooming by other means (keys, pinch, toolbar slider)
+        NotificationCenter.default.addObserver(forName: CanvasView.viewChanged, object: nil, queue: .main) { [weak self] n in
+            guard let self, let c = n.object as? CanvasView, let p = self.zoomPull else { return }
+            p.item(at: 0)?.title = "\(Int(c.zoomPercent.rounded()))%"
+        }
 
         let stack = NSStackView(views: [toolTitle, toolBox, separator(), layerTitle, layerBox])
         stack.orientation = .vertical
@@ -440,12 +455,13 @@ final class RetouchInspector: NSView {
 
     /// Zoom level picker under the navigator (the reference editor shows the percentage there)
     private func zoomPopup(_ host: MainWindowController) -> NSView {
-        let p = NSPopUpButton()
+        // Pull-down: the title shows the current zoom, the items set it (a plain popup grew an extra "24%" item from setTitle)
+        let p = NSPopUpButton(frame: .zero, pullsDown: true)
         p.controlSize = .small
+        p.addItem(withTitle: "\(Int(host.canvas.zoomPercent.rounded()))%")
         let levels: [CGFloat] = [0, 12.5, 25, 50, 100, 200, 400, 800]
         for l in levels { p.addItem(withTitle: l == 0 ? "화면 맞춤" : "\(l == 12.5 ? "12.5" : String(Int(l)))%"); p.lastItem?.representedObject = l }
-        let now = host.canvas.zoomPercent
-        p.setTitle("\(Int(now.rounded()))%")
+        zoomPull = p
         p.target = self
         p.action = #selector(zoomPicked(_:))
         return p
@@ -453,8 +469,10 @@ final class RetouchInspector: NSView {
 
     @objc private func zoomPicked(_ p: NSPopUpButton) {
         guard let host, let l = p.selectedItem?.representedObject as? CGFloat else { return }
-        if l == 0 { host.zoomToFit(nil) } else { host.canvas.setZoomPercent(l); host.flashCommand("\(Int(l))%") }
+        if l == 0 { host.zoomToFit(nil) } else { host.canvas.setZoomPercent(l); host.flashCommand(l == 12.5 ? "12.5%" : "\(Int(l))%") }
+        p.item(at: 0)?.title = "\(Int(host.canvas.zoomPercent.rounded()))%"
     }
+    private weak var zoomPull: NSPopUpButton?
 
     /// [맞춤] [100%] [−] [+]
     private func zoomButtons(_ host: MainWindowController) -> NSView {
@@ -504,14 +522,14 @@ final class RetouchInspector: NSView {
             navigator.attach(host.canvas)
             views = [navigator, zoomPopup(host), zoomButtons(host), note("사진을 끌어 옮깁니다. 위 축소판을 누르거나 끌어도 옮겨집니다.")]
         case .select:
-            host.selectionOptions.show(tool: tool.id)
+            host.selectionOptions.show(tool: tool.id, brush: false)
             views = [host.selectionOptions]
-            if tool.id == "selQuick" { brushSize.value = host.layersTab.brushRadius; views.insert(brushSize, at: 0) }
+            if tool.id == "selQuick" { brushSize.value = pct(host.layersTab.brushRadius); views.insert(brushSize, at: 0) }
             if tool.id == "selSubject" { views.insert(note("사진을 누르면 AI가 피사체를 골라 선택 영역으로 잡습니다."), at: 0) }
             if tool.id == "selSky" { views.insert(note("사진을 누르면 하늘을 찾아 선택합니다."), at: 0) }
             views += selectionRefineViews(host)
         case .brush:
-            brushSize.value = host.layersTab.brushRadius
+            brushSize.value = pct(host.layersTab.brushRadius)
             brushHardness.value = host.layersTab.brushHardness
             brushFlow.value = host.layersTab.brushFlow
             if tool.id == "maskBrush" {
@@ -524,7 +542,7 @@ final class RetouchInspector: NSView {
                          note("칠한 곳에 '\(RetouchTool.presets[tool.id]?.name ?? tool.title)' 레이어가 걸립니다 (원본은 그대로). ⌥를 누르고 칠하면 지웁니다.")]
             }
         case .distort:
-            brushSize.value = host.layersTab.brushRadius
+            brushSize.value = pct(host.layersTab.brushRadius)
             brushFlow.value = host.layersTab.brushFlow
             views = [brushSize, brushFlow, note("끌어서 칠합니다. 처음 칠할 때 지금 모습이 사진 레이어로 만들어지고 거기에 걸립니다. ↩ 또는 esc로 끝냅니다.")]
         case .gradient:
@@ -549,7 +567,16 @@ final class RetouchInspector: NSView {
                 shape.bottomAnchor.constraint(equalTo: box.bottomAnchor),
                 box.heightAnchor.constraint(equalToConstant: h),
             ])
-            views = [note("틀을 끌어 자릅니다. 회전·키스톤은 아래 값으로."), box]
+            // Quick actions on top like the reference editor's crop panel: suggested crop and automatic perspective
+            let autoCrop = ClosureButton(title: "자동 자르기") { [weak host] in host?.suggestCropAI(nil) }
+            let autoPersp = ClosureButton(title: "자동 원근") { [weak host] in host?.autoKeystone(.full) }
+            for b in [autoCrop, autoPersp] { b.bezelStyle = .appPush; b.controlSize = .small }
+            autoCrop.toolTip = "사진을 보고 자르기 후보 셋을 보여 줍니다"
+            autoPersp.toolTip = "곧은 선을 찾아 세로·가로 원근을 바로잡습니다"
+            let quick = NSStackView(views: [autoCrop, autoPersp])
+            quick.distribution = .fillEqually
+            quick.spacing = 6
+            views = [quick, note("틀을 끌어 자릅니다. 비율·회전·키스톤은 아래 값으로."), box]
         case .arrange where tool.id == "adjust":
             // Color adjustments act on an adjustment layer: its values show below. Without one, say so and offer to make it
             let sel = host.layersTab.selectedID.flatMap { id in host.photo?.settings.layers.first { $0.id == id } }
@@ -568,13 +595,13 @@ final class RetouchInspector: NSView {
             views = [note("왼쪽에서 고른 사진 레이어를 끌어 옮깁니다.\n\n자유 변형(⌘T): 모서리를 끌면 크기(⇧ 비율 무시), 변 가운데는 한쪽만, 바깥을 끌면 회전(⇧ 15°씩).\n원근 변형: 네 모서리를 끌어 맞춥니다.\n둘 다 ↩ 확정, esc 취소.")]
         case .retouch:
             if tool.id == "aiRemove" || tool.id == "smartErase" {
-                brushSize.value = host.layersTab.brushRadius
+                brushSize.value = pct(host.layersTab.brushRadius)
                 views = [brushSize, note(tool.id == "aiRemove"
                     ? "지울 것을 칠하면 AI가 둘레에 맞게 새로 채웁니다 (처음에는 AI 엔진 설치가 필요합니다). 결과는 새 레이어로 들어옵니다."
                     : "지울 것을 칠하면 둘레 색으로 메웁니다. 작은 얼룩·먼지에 빠릅니다. 결과는 새 레이어로 들어옵니다.")]
             } else {
                 let b = host.retouch.brush
-                retouchSize.value = b.radius
+                retouchSize.value = pct(b.radius)
                 retouchFeather.value = b.feather
                 retouchOpacity.value = b.opacity
                 let what: String
@@ -683,6 +710,12 @@ final class RetouchInspector: NSView {
         if dragging { host.apply(s, dragging: true) } else { host.replaceSettings(s, recordUndo: true, label: label) }
     }
 
+    /// Photo long side in pixels (brush sizes are a share of it)
+    private var longSide: Double { Double(max(host?.photo?.pixelSize.width ?? 8192, host?.photo?.pixelSize.height ?? 8192, 1)) }
+    /// Brush radius in pixels → diameter as % of the long side, and back
+    private func pct(_ radius: Double) -> Double { radius * 2 / longSide * 100 }
+    private func px(_ percent: Double) -> Double { max(percent / 100 * longSide / 2, 1) }
+
     @objc private func rangePicked(_ b: NSButton) {
         for r in rangeRadios { r.state = r === b ? .on : .off }
         RetouchTool.range = b.tag
@@ -775,8 +808,8 @@ final class RetouchInspector: NSView {
 
     /// Brush size changed by [ or ]: keep the size sliders in step
     func syncBrushSizes(_ host: MainWindowController) {
-        brushSize.value = host.layersTab.brushRadius
-        retouchSize.value = host.retouch.brush.radius
+        brushSize.value = pct(host.layersTab.brushRadius)
+        retouchSize.value = pct(host.retouch.brush.radius)
     }
 
     /// The selection changed: keep the refine sliders in step

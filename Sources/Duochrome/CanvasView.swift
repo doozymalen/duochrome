@@ -317,6 +317,9 @@ final class CanvasView: MTKView {
         onZoomChange?((fitting, zoom * backing * 100))
         overlay.needsDisplay = true
         retouchOverlay.needsDisplay = true
+        // Brush pointers are drawn at the brush's on-screen size
+        window?.invalidateCursorRects(for: retouchOverlay)
+        window?.invalidateCursorRects(for: brushSurface)
         maskOverlay.needsDisplay = true
         gridOverlay.needsDisplay = true
         transformOverlay.needsDisplay = true

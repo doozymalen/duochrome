@@ -84,7 +84,7 @@ extension MainWindowController {
         field.placeholderString = "스타일 이름"
         a.accessoryView = field
         a.addButton(withTitle: "저장")
-        a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn, !field.stringValue.isEmpty else { return }
         saveStyle(named: field.stringValue, from: doc.settings)
     }

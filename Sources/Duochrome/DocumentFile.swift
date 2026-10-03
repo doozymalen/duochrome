@@ -91,7 +91,7 @@ extension MainWindowController {
                 a.messageText = "원본 파일을 찾을 수 없습니다"
                 a.informativeText = "\(c.source.path)\n원본을 옮겼다면 찾아 주세요."
                 a.addButton(withTitle: "찾기…")
-                a.addButton(withTitle: "취소")
+                a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
                 guard a.runModal() == .alertFirstButtonReturn else { return }
                 let p = NSOpenPanel()
                 p.nameFieldStringValue = c.source.lastPathComponent

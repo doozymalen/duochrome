@@ -20,7 +20,7 @@ extension MainWindowController {
         let st = NSStackView(views: [pop, half]); st.orientation = .vertical; st.alignment = .leading
         st.frame = NSRect(x: 0, y: 0, width: 240, height: 56)
         a.accessoryView = st
-        a.addButton(withTitle: "합치기"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "합치기"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         runMerge(.panorama(Merge.Projection(rawValue: pop.indexOfSelectedItem) ?? .cylindrical), scale: half.state == .on ? 0.5 : 1)
     }
@@ -127,7 +127,7 @@ extension MainWindowController {
         a.messageText = "자동 혼합 레이어"
         let pop = NSPopUpButton(); pop.addItems(withTitles: ["이미지 쌓기 (가장 선명한 곳)", "파노라마 (이음새를 부드럽게)"])
         a.accessoryView = pop
-        a.addButton(withTitle: "혼합"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "혼합"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         let testMode = ProcessInfo.processInfo.environment["DUOCHROME_UITEST"] != nil
         guard testMode || a.runModal() == .alertFirstButtonReturn else { return }
         let stack = testMode || pop.indexOfSelectedItem == 0
@@ -298,7 +298,7 @@ extension MainWindowController {
         let st = NSStackView(views: [pop, color, light, dust]); st.orientation = .vertical; st.alignment = .leading
         st.frame = NSRect(x: 0, y: 0, width: 240, height: 100)
         a.accessoryView = st
-        a.addButton(withTitle: "적용"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "적용"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let prof = pop.indexOfSelectedItem < list.count ? list[pop.indexOfSelectedItem] : nil
         let mode = (color.state == .on ? 1 : 0) | (light.state == .on ? 2 : 0)

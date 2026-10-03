@@ -68,7 +68,7 @@ final class DevDriver {
         busy = true
         run(cmd, obj) { [weak self] msg in
             self?.log("\(self?.done ?? 0) \(cmd) \(msg)")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { self?.busy = false }
+            DevDriver.later(0.12) { self?.busy = false }
         }
     }
 
@@ -122,7 +122,11 @@ final class DevDriver {
                     p.arguments = ["-x", "-o", "-l", String(w.windowNumber), url.path]
                     try? p.run(); p.waitUntilExit()
                     let ok = FileManager.default.fileExists(atPath: url.path) && p.terminationStatus == 0
-                    DispatchQueue.main.async { finish(ok ? "ok real \(name).png" : "fail real capture (status \(p.terminationStatus)); retry with mode=view") }
+                    // Back on the main run loop in common modes (runs during a modal window too), woken explicitly
+                    CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
+                        finish(ok ? "ok real \(name).png" : "fail real capture (status \(p.terminationStatus)); retry with mode=view")
+                    }
+                    CFRunLoopWakeUp(CFRunLoopGetMain())
                 }
                 return
             }
@@ -146,7 +150,7 @@ final class DevDriver {
             // Mouse down, held for "sec", then up (long press)
             guard let p = windowPoint(num("x") ?? 0, num("y") ?? 0) else { return finish("fail") }
             post(mouse(.leftMouseDown, p, flags: fl))
-            DispatchQueue.main.asyncAfter(deadline: .now() + (num("sec") ?? 0.6)) { [weak self] in
+            DevDriver.later((num("sec") ?? 0.6)) { [weak self] in
                 self?.post(self?.mouse(.leftMouseUp, p, flags: fl)); finish("ok")
             }
         case "click", "rclick":
@@ -167,12 +171,12 @@ final class DevDriver {
             func step() {
                 if i < pts.count {
                     post(mouse(.leftMouseDragged, pts[i], flags: fl)); i += 1
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { step() }
+                    DevDriver.later(0.02) { step() }
                 } else {
                     post(mouse(.leftMouseUp, pts[pts.count - 1], flags: fl)); finish("ok")
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { step() }
+            DevDriver.later(0.03) { step() }
         case "trace":
             guard let pts = (o["path"] as? [[Double]])?.compactMap({ $0.count == 2 ? ($0, windowPoint($0[0], $0[1])) : nil }), pts.count >= 2 else {
                 return finish("fail path")
@@ -194,7 +198,7 @@ final class DevDriver {
             let code = UInt16(num("code") ?? 0)
             for t in [NSEvent.EventType.keyDown, .keyUp] {
                 post(NSEvent.keyEvent(with: t, location: .zero, modifierFlags: fl, timestamp: ProcessInfo.processInfo.systemUptime,
-                                      windowNumber: w.windowNumber, context: nil, characters: chars,
+                                      windowNumber: (NSApp.keyWindow ?? w).windowNumber, context: nil, characters: chars,
                                       charactersIgnoringModifiers: chars.lowercased(), isARepeat: false, keyCode: code))
             }
             finish("ok")
@@ -204,7 +208,7 @@ final class DevDriver {
                 let s = String(ch)
                 for t in [NSEvent.EventType.keyDown, .keyUp] {
                     post(NSEvent.keyEvent(with: t, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                          windowNumber: w.windowNumber, context: nil, characters: s, charactersIgnoringModifiers: s,
+                                          windowNumber: (NSApp.keyWindow ?? w).windowNumber, context: nil, characters: s, charactersIgnoringModifiers: s,
                                           isARepeat: false, keyCode: 0))
                 }
             }
@@ -212,9 +216,9 @@ final class DevDriver {
         case "activate":
             NSApp.activate(ignoringOtherApps: true)
             window?.makeKeyAndOrderFront(nil)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { finish(NSApp.isActive ? "ok" : "ok (not active yet)") }
+            DevDriver.later(0.3) { finish(NSApp.isActive ? "ok" : "ok (not active yet)") }
         case "wait":
-            DispatchQueue.main.asyncAfter(deadline: .now() + (num("sec") ?? 1)) { finish("ok") }
+            DevDriver.later((num("sec") ?? 1)) { finish("ok") }
         default:
             finish("unknown command")
         }
@@ -259,7 +263,7 @@ final class DevDriver {
         func step() {
             if i >= pts.count {
                 post(mouse(.leftMouseUp, pts[pts.count - 1].1, flags: flags))
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                DevDriver.later(0.2) {
                     self.contactSheet(name: name, count: frames)
                     let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted])
                     try? data?.write(to: self.dir.appendingPathComponent(name + ".json"))
@@ -293,11 +297,11 @@ final class DevDriver {
                 CFRunLoopRemoveObserver(CFRunLoopGetMain(), o, .commonModes)
                 if let m = monitor { NSEvent.removeMonitor(m) }
                 i += 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + stepMs / 1000) { step() }
+                DevDriver.later(stepMs / 1000) { step() }
             }
             CFRunLoopAddObserver(CFRunLoopGetMain(), obs, .commonModes)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { step() }
+        DevDriver.later(0.03) { step() }
     }
 
     /// Tiles the trace frames into one image (<dir>/<name>-sheet.png, 3 columns) so a whole drag can be read at a glance.
@@ -402,5 +406,13 @@ extension NSView {
     @objc func devAddCursorRect(_ rect: NSRect, cursor: NSCursor) {
         DevDriver.record(rect, cursor)
         devAddCursorRect(rect, cursor: cursor)
+    }
+}
+
+extension DevDriver {
+    /// Runs after a delay on the main run loop in common modes, so it also runs while a modal window or menu is up
+    /// (the main dispatch queue isn't serviced in a modal session, which froze the driver at an alert)
+    static func later(_ sec: Double, _ f: @escaping () -> Void) {
+        RunLoop.main.add(Timer(timeInterval: sec, repeats: false) { _ in f() }, forMode: .common)
     }
 }

@@ -232,7 +232,10 @@ enum AIBasic {
         let boxes = sal.results?.first?.salientObjects?.map(\.boundingBox) ?? []
         var focus = boxes.reduce(CGRect.null) { $0.union($1) }
         if focus.isNull { focus = CGRect(x: 0.35, y: 0.35, width: 0.3, height: 0.3) }
-        let angle = Float(horizon.results?.first?.angle ?? 0) * 180 / .pi
+        // Handheld tilt is a few degrees; a bigger "horizon" angle is usually converging lines of a building shot from below
+        // (perspective, fixed with keystone), and rotating for it made the photo look worse (seen at 9.6°)
+        let raw = Float(horizon.results?.first?.angle ?? 0) * 180 / .pi
+        let angle = abs(raw) <= 5 ? raw : 0
         let aspect = e.width / e.height
         var ideas: [CropIdea] = []
         for (name, r) in [("원래 비율", aspect), ("4:5", 4.0 / 5), ("1:1", 1), ("16:9", 16.0 / 9), ("3:2", 1.5)] as [(String, CGFloat)] {
@@ -376,7 +379,7 @@ extension MainWindowController {
         let picker = RadioGroup(buttons)
         stack.frame = NSRect(x: 0, y: 0, width: CGFloat(ideas.count) * 160, height: 170)
         a.accessoryView = stack
-        a.addButton(withTitle: "크롭"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "크롭"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let idea = ideas[picker.selected]
         var s = doc.settings

@@ -27,7 +27,7 @@ extension MainWindowController {
         let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         f.stringValue = "구성 \((s.layerComps?.count ?? 0) + 1)"
         a.accessoryView = f
-        a.addButton(withTitle: "저장"); a.addButton(withTitle: "취소")
+        a.addButton(withTitle: "저장"); a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
         guard ProcessInfo.processInfo.environment["DUOCHROME_UITEST"] != nil || a.runModal() == .alertFirstButtonReturn else { return }
         s.layerComps = (s.layerComps ?? []) + [Self.makeComp(f.stringValue, s.layers)]
         replaceSettings(s, recordUndo: true, label: "레이어 구성 저장")
