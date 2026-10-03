@@ -624,6 +624,11 @@ final class SelectionOptionsView: NSStackView {
         grid.orientation = .vertical
         grid.alignment = .leading
         grid.spacing = 6
+        // The next step after selecting is usually an adjustment for that area: offer it right here (it was only the + at the bottom left)
+        let adjust = NSButton(title: "이 선택으로 조정 레이어 만들기", target: host, action: #selector(MainWindowController.addAdjustLayerFromSelection(_:)))
+        adjust.bezelStyle = .appPush; adjust.controlSize = .regular; adjust.keyEquivalent = ""
+        grid.addArrangedSubview(adjust)
+        adjust.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
         let items: [(String, Selector)] = [("전체 선택", #selector(MainWindowController.selectAllStudio(_:))),
                                            ("해제", #selector(MainWindowController.deselectAll(_:))),
                                            ("반전", #selector(MainWindowController.invertSelection(_:))),

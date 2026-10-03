@@ -163,6 +163,9 @@ extension MainWindowController {
         viewer.canvas.selectionTool.brushRadius = CGFloat(layersTab.brushRadius)
     }
 
+    /// "이 선택으로 조정 레이어 만들기" in the selection options: same as + in the layers panel
+    @objc func addAdjustLayerFromSelection(_ sender: Any?) { retouchAddAdjustLayer() }
+
     /// + in the layers panel: a new adjustment layer on top (masked by the selection if there is one)
     func retouchAddAdjustLayer() {
         guard let doc = photo else { NSSound.beep(); return }

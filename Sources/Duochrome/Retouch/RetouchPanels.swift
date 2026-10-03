@@ -355,6 +355,11 @@ final class RetouchInspector: NSView {
     }
 
     private func put(_ views: [NSView], in box: NSStackView) {
+        // A typed value (↩ in a slider's number field) rebuilds this list while that field is still being edited;
+        // removing the edited row then left the reused rows out of order. End the editing first (the value is already in).
+        if let editor = window?.firstResponder as? NSTextView, let field = editor.delegate as? NSView, field.isDescendant(of: box) {
+            window?.makeFirstResponder(nil)
+        }
         box.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for v in views {
             box.addArrangedSubview(v)
