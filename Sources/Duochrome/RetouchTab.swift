@@ -135,7 +135,7 @@ final class RetouchTabController: NSViewController {
 }
 
 /// Retouch layer over the canvas. Connects each spot's target (white circle) and source (green dashed circle).
-final class RetouchOverlayView: NSView {
+final class RetouchOverlayView: NSView, PointerSource {
     weak var canvas: CanvasView?
     var spots: [RetouchSpot] = [] { didSet { needsDisplay = true } }
     var selected: Int? { didSet { needsDisplay = true } }
@@ -285,38 +285,38 @@ final class RetouchOverlayView: NSView {
     }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: patchMode ? .crosshair : BrushCursor.make(viewRadius: CGFloat(brushRadius) * (canvas?.zoom ?? 1)))
+        addCursorRect(editArea, cursor: patchMode ? .crosshair : BrushCursor.make(viewRadius: CGFloat(brushRadius) * (canvas?.zoom ?? 1)))
     }
 
     override func mouseMoved(with event: NSEvent) {
         hover = convert(event.locationInWindow, from: nil)
         needsDisplay = true
+        if grab == nil { updatePointer(event) }
     }
 
     override func mouseExited(with event: NSEvent) { hover = nil; needsDisplay = true }
 
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        let p = convert(event.locationInWindow, from: nil)
-        guard let toView, let fromView else { return }
+    /// The spot (or stroke) under a view point: which part, the grab offset, whether the drag follows the pointer by deltas
+    private func hit(_ p: CGPoint) -> (Grab, CGPoint, Bool)? {
+        guard let toView else { return nil }
         // Topmost drawn spots first (later spots are on top).
         for (i, s) in spots.enumerated().reversed() {
             let r = max(viewRadius(s), 6)
             if s.isPatch {
                 let tp = s.points.map(toView)
                 let sp = s.points.map { toView(CGPoint(x: $0.x + s.offset.x, y: $0.y + s.offset.y)) }
-                if Self.inside(p, sp) { grab = .source(i); selected = i; grabOffset = .zero; lastDrag = fromView(p); return }
-                if Self.inside(p, tp) { grab = .target(i); selected = i; grabOffset = .zero; lastDrag = fromView(p); return }
+                if Self.inside(p, sp) { return (.source(i), .zero, true) }
+                if Self.inside(p, tp) { return (.target(i), .zero, true) }
                 continue
             }
             if s.isStroke {
                 let tp = s.points.map(toView)
                 let sp = s.points.map { toView(CGPoint(x: $0.x + s.offset.x, y: $0.y + s.offset.y)) }
                 if distance(p, sp) <= max(r * 0.6, 6) {
-                    grab = .source(i); selected = i; grabOffset = .zero; lastDrag = fromView(p); return
+                    return (.source(i), .zero, true)
                 }
                 if distance(p, tp) <= r {
-                    grab = .target(i); selected = i; grabOffset = .zero; lastDrag = fromView(p); return
+                    return (.target(i), .zero, true)
                 }
                 continue
             }
@@ -324,11 +324,29 @@ final class RetouchOverlayView: NSView {
             // Zoomed out, the two circles overlap: take the nearer one (the target on a tie)
             let dt = hypot(p.x - t.x, p.y - t.y), ds = hypot(p.x - src.x, p.y - src.y)
             if dt <= r, dt <= ds {
-                grab = .target(i); selected = i; grabOffset = CGPoint(x: t.x - p.x, y: t.y - p.y); return
+                return (.target(i), CGPoint(x: t.x - p.x, y: t.y - p.y), false)
             }
             if ds <= r {
-                grab = .source(i); selected = i; grabOffset = CGPoint(x: src.x - p.x, y: src.y - p.y); return
+                return (.source(i), CGPoint(x: src.x - p.x, y: src.y - p.y), false)
             }
+        }
+        return nil
+    }
+
+    /// Over a spot or stroke the move arrows (dragging moves it), elsewhere the brush circle
+    func pointer(at p: NSPoint) -> NSCursor? {
+        if hit(p) != nil { return Pointers.move }
+        return patchMode ? .crosshair : BrushCursor.make(viewRadius: CGFloat(brushRadius) * (canvas?.zoom ?? 1))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        let p = convert(event.locationInWindow, from: nil)
+        guard let fromView else { return }
+        if let (g, offset, follows) = hit(p) {
+            grab = g; selected = g.index; grabOffset = offset
+            if follows { lastDrag = fromView(p) }
+            return
         }
         grab = nil
         drawing = [p]

@@ -5,8 +5,8 @@ enum AppSettings {
     private static var d: UserDefaults { .standard }
 
     // General
-    /// Startup mode: -1 last mode, otherwise an AppMode number
-    static var startMode: Int { get { d.object(forKey: "set.startMode") as? Int ?? -1 } set { d.set(newValue, forKey: "set.startMode") } }
+    /// Startup mode: the library (grid view) unless chosen otherwise (-1 last used mode, otherwise an AppMode number)
+    static var startMode: Int { get { d.object(forKey: "set.startMode") as? Int ?? AppMode.library.rawValue } set { d.set(newValue, forKey: "set.startMode") } }
     /// Default look for new photos: 1 camera-fitted, 0 Apple default
     static var defaultLook: Int { get { d.object(forKey: "set.defaultLook") as? Int ?? 0 } set { d.set(newValue, forKey: "set.defaultLook") } }
     static var snapEnabled: Bool { get { d.object(forKey: "set.snap") as? Bool ?? true } set { d.set(newValue, forKey: "set.snap") } }
@@ -172,8 +172,8 @@ enum SettingsPane {
 
     static func general() -> NSViewController {
         let p = Pane()
-        let modes = ["마지막으로 쓴 모드", "대량 보정", "심화 보정", "테더링"]
-        let modeValues = [-1, AppMode.edit.rawValue, AppMode.studio.rawValue, AppMode.tether.rawValue]
+        let modes = ["라이브러리 (격자 보기)", "마지막으로 쓴 모드", "대량 보정", "심화 보정", "테더링"]
+        let modeValues = [AppMode.library.rawValue, -1, AppMode.edit.rawValue, AppMode.studio.rawValue, AppMode.tether.rawValue]
         p.row("시작할 때", p.popup(modes, selected: modeValues.firstIndex(of: AppSettings.startMode) ?? 0) { AppSettings.startMode = modeValues[$0] })
         // With no look tables at all there's nothing to choose (Apple default only)
         if Look.anyAvailable {

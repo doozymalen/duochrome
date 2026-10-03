@@ -139,9 +139,9 @@ final class RetouchEditor: NSViewController {
         // Free transform and perspective are commands on the selected photo layer:
         // the picked tool stays and comes back when their frame closes
         if id == "transform" || id == "perspective" {
-            // These act on the selected photo layer; say so instead of doing nothing silently
-            let hasPhotoLayer = host.layersTab.selectedID.flatMap { sid in host.photo?.settings.layers.first { $0.id == sid } }?.image != nil
-            guard hasPhotoLayer else { flash("먼저 왼쪽에서 사진 레이어를 고르세요"); NSSound.beep(); return }
+            // These act on a photo layer. The background or a background copy is turned into one first, like the
+            // reference editor transforming whatever is picked (it used to beep and do nothing unless a photo layer was picked)
+            guard host.preparePhotoLayerForTransform() else { return }
             if id == "transform" { host.freeTransform(nil) } else { host.perspectiveLayer(nil) }
             return
         }
@@ -174,6 +174,9 @@ final class RetouchEditor: NSViewController {
 struct RetouchTool: Equatable {
     enum Group { case view, arrange, select, brush, distort, gradient, retouch }
     let id: String
+    /// One-shot commands (free transform, perspective): they run from the slot menu but never become the slot's tool,
+    /// or a plain click on the slot would run the command again instead of picking the tool
+    var isCommand: Bool { id == "transform" || id == "perspective" }
     let title: String
     let symbol: String
     let group: Group
@@ -283,8 +286,8 @@ final class RetouchToolBar: NSView {
         super.init(frame: .zero)
         StudioStyle.floating(self, radius: 22, interactive: true)
         stack.orientation = .horizontal
-        stack.spacing = 1
-        stack.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        stack.spacing = 2
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
         stack.translatesAutoresizingMaskIntoConstraints = false
         // In a narrow window the bar gets narrower than its tools and scrolls sideways (trackpad or wheel)
         scroll.documentView = stack
@@ -308,14 +311,10 @@ final class RetouchToolBar: NSView {
         for (k, ids) in RetouchTool.slots.enumerated() {
             let tools = ids.compactMap(RetouchTool.named)
             guard let first = tools.first else { continue }
-            if let last, last != first.group {
-                let gap = NSView()
-                gap.widthAnchor.constraint(equalToConstant: 8).isActive = true
-                stack.addArrangedSubview(gap)
-            }
+            if let last, last != first.group { stack.addArrangedSubview(GroupDivider()) }
             last = first.group
             let saved = UserDefaults.standard.string(forKey: "retouchSlot.\(ids[0])")
-            let current = tools.first { $0.id == saved } ?? first
+            let current = tools.first { $0.id == saved && !$0.isCommand } ?? first
             let b = SlotButton(image: Self.image(current), target: self, action: #selector(picked(_:)))
             b.alternatives = tools
             b.onHover = { [weak self, weak b] inside in
@@ -323,11 +322,11 @@ final class RetouchToolBar: NSView {
                 self.onHover?(inside ? b.current : nil, inside ? b : nil)
             }
             b.onChoose = { [weak self] t in self?.onPick?(t.id) }
-            b.bezelStyle = .recessed
             b.setButtonType(.pushOnPushOff)
-            b.isBordered = true
+            b.isBordered = false
             b.current = current
-            b.widthAnchor.constraint(equalToConstant: 34).isActive = true
+            b.widthAnchor.constraint(equalToConstant: 36).isActive = true
+            b.heightAnchor.constraint(equalToConstant: 34).isActive = true
             slots.append((k, b))
             stack.addArrangedSubview(b)
         }
@@ -376,17 +375,47 @@ final class SlotButton: HoverButton {
         }
     }
 
+    private var hovered = false { didSet { needsDisplay = true } }
+    // Same box for every tool (the glyph's own insets made the buttons differ in height)
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets() }
+    override var intrinsicContentSize: NSSize { NSSize(width: 36, height: 34) }
+    override func mouseEntered(with event: NSEvent) { hovered = true; super.mouseEntered(with: event) }
+    override func mouseExited(with event: NSEvent) { hovered = false; super.mouseExited(with: event) }
+
+    /// Drawn like the reference editor's tool bar: a plain glyph, a soft square under the pointer,
+    /// the accent square behind the picked tool, a small corner mark when the button holds more tools
     override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
+        let on = state == .on
+        let box = bounds.insetBy(dx: 2, dy: 2)
+        let shape = NSBezierPath(roundedRect: box, xRadius: 8, yRadius: 8)
+        if on { NSColor.controlAccentColor.setFill(); shape.fill() }
+        else if isHighlighted { NSColor.white.withAlphaComponent(0.2).setFill(); shape.fill() }
+        else if hovered { NSColor.white.withAlphaComponent(0.1).setFill(); shape.fill() }
+        if let t = current, let glyph = Self.glyph(t, color: on ? .white : NSColor.white.withAlphaComponent(0.82)) {
+            let s = glyph.size
+            glyph.draw(in: NSRect(x: (bounds.width - s.width) / 2, y: (bounds.height - s.height) / 2, width: s.width, height: s.height))
+        }
         guard alternatives.count > 1 else { return }
         let p = NSBezierPath()
-        let x = bounds.maxX - 4, y = isFlipped ? bounds.maxY - 3 : bounds.minY + 3
+        let x = box.maxX - 3, y = isFlipped ? box.maxY - 3 : box.minY + 3
         p.move(to: NSPoint(x: x, y: y))
         p.line(to: NSPoint(x: x - 4, y: y))
         p.line(to: NSPoint(x: x, y: isFlipped ? y - 4 : y + 4))
         p.close()
-        NSColor.secondaryLabelColor.setFill()
+        NSColor.white.withAlphaComponent(on ? 0.85 : 0.45).setFill()
         p.fill()
+    }
+
+    private static var glyphs: [String: NSImage] = [:]
+    /// The tool's symbol at tool bar size, tinted
+    static func glyph(_ t: RetouchTool, color: NSColor) -> NSImage? {
+        let key = "\(t.id)|\(color.alphaComponent)"
+        if let g = glyphs[key] { return g }
+        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+            .applying(.init(paletteColors: [color]))
+        let g = RetouchToolBar.image(t).withSymbolConfiguration(config)
+        glyphs[key] = g
+        return g
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -419,8 +448,21 @@ final class SlotButton: HoverButton {
 
     @objc private func chose(_ item: NSMenuItem) {
         guard let id = item.representedObject as? String, let t = alternatives.first(where: { $0.id == id }) else { return }
-        current = t
+        if !t.isCommand { current = t }
         onChoose?(t)
+    }
+}
+
+/// Thin line between tool groups
+final class GroupDivider: NSView {
+    init() {
+        super.init(frame: .zero)
+        widthAnchor.constraint(equalToConstant: 9).isActive = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.white.withAlphaComponent(0.16).setFill()
+        NSRect(x: bounds.midX - 0.5, y: bounds.midY - 10, width: 1, height: 20).fill()
     }
 }
 

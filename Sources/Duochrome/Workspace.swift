@@ -95,7 +95,7 @@ final class GuidesOverlayView: NSView {
     var onCount: ((CGPoint, Bool) -> Void)?   // (point, ⌥ delete)
 
     override func hitTest(_ point: NSPoint) -> NSView? { tool == .none || isHidden ? nil : super.hitTest(point) }
-    override func resetCursorRects() { if tool != .none { addCursorRect(bounds, cursor: .crosshair) } }
+    override func resetCursorRects() { if tool != .none { addCursorRect(editArea, cursor: .crosshair) } }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let c = canvas else { return }

@@ -20,7 +20,7 @@ final class BrushSurfaceView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { isHidden ? nil : super.hitTest(point) }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     // The pointer itself is the brush circle (it used to be a crosshair with a circle drawn next to it)
-    override func resetCursorRects() { addCursorRect(bounds, cursor: BrushCursor.make(viewRadius: viewRadius)) }
+    override func resetCursorRects() { addCursorRect(editArea, cursor: BrushCursor.make(viewRadius: viewRadius)) }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
@@ -169,6 +169,31 @@ extension MainWindowController {
         viewer.canvas.selectionTool.brushRadius = CGFloat(layersTab.brushRadius)
     }
 
+    /// Makes sure a photo (pixel) layer is picked for free transform / perspective:
+    /// a background copy becomes a photo layer of itself, nothing picked makes a photo layer of the current look.
+    /// Adjustment layers have no pixels to move, so that case says so. False when nothing can be transformed.
+    func preparePhotoLayerForTransform() -> Bool {
+        guard var s = photo?.settings else { NSSound.beep(); return false }
+        let picked = layersTab.selectedID.flatMap { id in s.layers.firstIndex { $0.id == id } }
+        if let i = picked, s.layers[i].isImage {
+            if s.layers[i].locked { retouchEditor.flash("잠긴 레이어입니다"); NSSound.beep(); return false }
+            return true
+        }
+        if let i = picked, !s.layers[i].isCopy {
+            retouchEditor.flash("조정 레이어는 변형할 수 없습니다. 사진 레이어를 고르세요")
+            NSSound.beep()
+            return false
+        }
+        let source = picked.map { [s.layers[$0]] } ?? s.layers
+        guard let img = rasterize(source, withPhoto: true),
+              let l = imageLayer(from: img, name: picked.map { s.layers[$0].name } ?? "변형") else { NSSound.beep(); return false }
+        if let i = picked { s.layers[i] = l } else { s.layers.append(l) }
+        replaceSettings(s, recordUndo: true, label: picked == nil ? "변형할 사진 레이어" : "사진 레이어로 바꾸기")
+        layersTab.select(l.id)
+        retouchEditor.reload()
+        return true
+    }
+
     /// "이 선택으로 조정 레이어 만들기" in the selection options: same as + in the layers panel
     @objc func addAdjustLayerFromSelection(_ sender: Any?) { retouchAddAdjustLayer() }
 
@@ -309,7 +334,7 @@ final class MoveSurfaceView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { isHidden ? nil : super.hitTest(point) }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+    override func resetCursorRects() { addCursorRect(editArea, cursor: .openHand) }
 
     override func mouseDown(with event: NSEvent) {
         start = fromView?(convert(event.locationInWindow, from: nil))

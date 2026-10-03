@@ -31,7 +31,8 @@ final class CanvasView: MTKView {
     /// Cursor tool. Hand drags to pan, zoom clicks 2× (Option zooms out).
     var tool: Tool = .pan {
         didSet {
-            window?.invalidateCursorRects(for: self)
+            // Every canvas layer clips its edit pointer to the uncovered area
+            window?.resetCursorRects()
             overlay.isHidden = !(tool == .crop || tool == .straighten || tool == .keystone)
             overlay.mode = tool == .straighten ? .straighten : (tool == .keystone ? .keystone : .crop)
             retouchOverlay.isHidden = tool != .retouch
@@ -151,8 +152,12 @@ final class CanvasView: MTKView {
         needsDisplay = true
     }
 
+    /// The window's photo view (for the edit area of the canvas layers above it)
+    static weak var current: CanvasView?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window != nil { Self.current = self }
         NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeScreenNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeScreenProfileNotification, object: nil)
         guard let w = window else { return }
@@ -381,10 +386,24 @@ final class CanvasView: MTKView {
         sample(at: p)
         onHover?(imagePoint(at: p))
     }
-    override func mouseExited(with event: NSEvent) { onSample?(nil) }
+    override func mouseExited(with event: NSEvent) { pendingSample = nil; onSample?(nil) }
 
-    /// Reads one pixel from the draft-stage image currently on screen.
+    /// Pointer position waiting for a pixel read, and whether a read is running
+    private var pendingSample: CGPoint?
+    private var sampling = false
+    private static let sampleQueue = DispatchQueue(label: "duochrome.canvas.sample", qos: .userInitiated)
+
+    /// Reads one pixel from the draft-stage image currently on screen. The read runs off the main thread and
+    /// mouse moves during it are merged into one next read, so moving the pointer never waits on a render.
     private func sample(at p: CGPoint) {
+        pendingSample = p
+        guard !sampling else { return }
+        runSample()
+    }
+
+    private func runSample() {
+        guard let p = pendingSample else { return }
+        pendingSample = nil
         guard let doc = document, let onSample else { return }
         let ip = imagePoint(at: p)
         guard ip.x >= 0, ip.y >= 0, ip.x < doc.pixelSize.width, ip.y < doc.pixelSize.height else {
@@ -392,10 +411,21 @@ final class CanvasView: MTKView {
         }
         let level = previewLevel(for: zoom * backing)
         let img = showOriginal ? beforeImage(doc, level) : doc.image(scale: level)
-        var px = [UInt8](repeating: 0, count: 4)
         let r = CGRect(x: (ip.x * level).rounded(.down), y: (ip.y * level).rounded(.down), width: 1, height: 1)
-        ciContext.render(img, toBitmap: &px, rowBytes: 4, bounds: r, format: .RGBA8, colorSpace: displaySpace)
-        onSample([Int(px[0]), Int(px[1]), Int(px[2])])
+        let context = ciContext, space = displaySpace
+        sampling = true
+        Self.sampleQueue.async { [weak self] in
+            var px = [UInt8](repeating: 0, count: 4)
+            context.render(img, toBitmap: &px, rowBytes: 4, bounds: r, format: .RGBA8, colorSpace: space)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.sampling = false
+                if self.pendingSample != nil { self.runSample(); return }
+                // The pointer may have left meanwhile (the readout was already cleared)
+                guard let w = self.window, self.bounds.contains(self.convert(w.mouseLocationOutsideOfEventStream, from: nil)) else { return }
+                self.onSample?([Int(px[0]), Int(px[1]), Int(px[2])])
+            }
+        }
     }
 
     /// The center not covered by panels/top bar (edit cursors only here)

@@ -4,7 +4,7 @@ import Vision
 
 /// Point-drag layer for reshaping: free transform corners, warp grid, puppet pins, perspective crop, vanishing point planes, adaptive wide angle lines, liquify brush.
 /// All points are in the caller's coordinates (source or displayed image); toView/fromView convert to view coordinates.
-final class PointsOverlayView: NSView {
+final class PointsOverlayView: NSView, PointerSource {
     enum Style { case quad, grid4, pins, strokes }
     var style: Style = .quad { didSet { needsDisplay = true; window?.invalidateCursorRects(for: self) } }
     var points: [CGPoint] = [] { didSet { needsDisplay = true } }
@@ -24,7 +24,7 @@ final class PointsOverlayView: NSView {
     var brushRadius: CGFloat = 0 { didSet { window?.invalidateCursorRects(for: self) } }
     /// Brush strokes (liquify) get the brush circle as the pointer, point handles the crosshair
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: style == .strokes ? BrushCursor.make(viewRadius: brushRadius) : .crosshair)
+        addCursorRect(editArea, cursor: style == .strokes ? BrushCursor.make(viewRadius: brushRadius) : .crosshair)
     }
 
     private var grabbed: Int?
@@ -41,7 +41,16 @@ final class PointsOverlayView: NSView {
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self))
     }
-    override func mouseMoved(with event: NSEvent) { mouse = convert(event.locationInWindow, from: nil); if style == .strokes { needsDisplay = true } }
+    override func mouseMoved(with event: NSEvent) {
+        mouse = convert(event.locationInWindow, from: nil)
+        if style == .strokes { needsDisplay = true } else if grabbed == nil { updatePointer(event) }
+    }
+
+    /// Point handles: the drag-point ring over a point, crosshair elsewhere (brush strokes keep the brush circle)
+    func pointer(at p: NSPoint) -> NSCursor? {
+        guard style != .strokes, let toView else { return nil }
+        return points.map(toView).contains { hypot($0.x - p.x, $0.y - p.y) < 10 } ? Pointers.point : .crosshair
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let toView else { return }
@@ -91,7 +100,7 @@ final class PointsOverlayView: NSView {
         if style == .strokes { current = [fromView(p)]; pressures = [pressure(event)]; return }
         let near = points.map(toView).firstIndex { hypot($0.x - p.x, $0.y - p.y) < 10 }
         if let i = near, event.modifierFlags.contains(.option), style == .pins { onRemove?(i); return }
-        if let i = near { grabbed = i; return }
+        if let i = near { grabbed = i; NSCursor.closedHand.set(); return }
         if style == .pins { onAdd?(fromView(p)); grabbed = points.count - 1 }
     }
 
@@ -114,6 +123,7 @@ final class PointsOverlayView: NSView {
         }
         if let i = grabbed { onChange?(i, p, false) }
         grabbed = nil
+        updatePointer(event)
     }
 
     override func keyDown(with event: NSEvent) {

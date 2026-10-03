@@ -971,7 +971,7 @@ final class LayerListRow: DraggableLayerRow {
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 44),
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4 + CGFloat(depth) * 14),
-            content.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),   // the visibility check sits at the right end
             content.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }

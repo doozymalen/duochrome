@@ -499,9 +499,10 @@ enum Layers {
         }
         // Smooth downscale first so it doesn't alias when shrinking.
         var img = src
-        let total = k * scale
+        let total = max(k, ky) * scale
         if total < 0.5 {
-            img = src.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: total, kCIInputAspectRatioKey: ky / k])
+            // Lanczos scales the height by `scale` and the width by `scale × aspect ratio`
+            img = src.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: ky * scale, kCIInputAspectRatioKey: k / ky])
             let e2 = img.extent
             let t2 = CGAffineTransform(translationX: -e2.midX, y: -e2.midY)
                 .concatenating(.init(rotationAngle: CGFloat(info.rotation) * .pi / 180))

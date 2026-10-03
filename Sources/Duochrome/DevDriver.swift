@@ -49,7 +49,15 @@ final class DevDriver {
         // Common modes: keeps reading commands while a menu or a drag tracking loop runs (so esc can close a menu)
         RunLoop.main.add(t, forMode: .common)
         timer = t
+        if let a = class_getInstanceMethod(NSApplication.self, #selector(NSApplication.reportException(_:))),
+           let b = class_getInstanceMethod(NSApplication.self, #selector(NSApplication.devReportException(_:))) {
+            method_exchangeImplementations(a, b)
+        }
         log("driver ready \(dir.path)")
+    }
+
+    func logException(_ e: NSException) {
+        log("EXCEPTION \(e.name.rawValue): \(e.reason ?? "")\n" + e.callStackSymbols.prefix(25).joined(separator: "\n"))
     }
 
     private func log(_ s: String) {
@@ -343,6 +351,7 @@ final class DevDriver {
         let known: [(NSCursor, String)] = [(.arrow, "arrow"), (.openHand, "openHand"), (.closedHand, "closedHand"), (.crosshair, "crosshair"),
                                            (.iBeam, "iBeam"), (.resizeLeftRight, "resizeLeftRight"), (.resizeUpDown, "resizeUpDown"),
                                            (.pointingHand, "pointingHand"), (.operationNotAllowed, "notAllowed")]
+        if let n = Pointers.name(of: c) { return n }
         return known.first { $0.0 === c || ($0.0.hotSpot == c.hotSpot && $0.0.image.size == c.image.size) }?.1 ?? "custom \(c.image.size)"
     }
 
@@ -362,6 +371,10 @@ final class DevDriver {
         }
         walk(v)
         for view in front.reversed() {
+            // Views that pick the pointer by position decide it themselves (as on a real mouse move)
+            if let ps = view as? PointerSource, let c = ps.effectivePointer(at: view.convert(p0, from: nil)) {
+                return (c, "ok \(DevDriver.name(of: c)) from \(type(of: view))")
+            }
             DevDriver.recorded = []
             view.resetCursorRects()
             let hits = DevDriver.recorded ?? []
@@ -398,6 +411,15 @@ final class DevDriver {
         walk(v, 0)
         try? out.joined(separator: "\n").write(to: dir.appendingPathComponent("tree.txt"), atomically: true, encoding: .utf8)
         return "ok tree.txt \(out.count) views"
+    }
+}
+
+extension NSApplication {
+    /// Swapped in for `reportException:` by DevDriver: exceptions AppKit swallows (an action that threw stops halfway
+    /// with nothing on screen) go to the driver log with their stack. After the swap this name calls the original.
+    @objc func devReportException(_ e: NSException) {
+        DevDriver.shared?.logException(e)
+        devReportException(e)
     }
 }
 

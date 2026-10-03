@@ -201,7 +201,7 @@ final class ShapeTabController: NSViewController {
 // MARK: - Crop / straighten tools on the canvas
 
 /// Transparent view overlaid on the canvas. Draws the crop area, handles, and level line, and receives drags.
-final class CropOverlayView: NSView {
+final class CropOverlayView: NSView, PointerSource {
     enum Mode { case crop, straighten, keystone }
     var mode: Mode = .crop { didSet { needsDisplay = true } }
     weak var canvas: CanvasView?
@@ -224,6 +224,22 @@ final class CropOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { isHidden ? nil : super.hitTest(point) }
     override var isFlipped: Bool { false }
+
+    override func updateTrackingAreas() { super.updateTrackingAreas(); installPointerTracking() }
+    override func mouseMoved(with event: NSEvent) { if grab == nil { updatePointer(event) } }
+    override func cursorUpdate(with event: NSEvent) { updatePointer(event) }
+
+    /// Crop: resize arrows on the handles, move arrows inside, crosshair outside. Line tools: crosshair.
+    func pointer(at p: NSPoint) -> NSCursor? {
+        guard mode == .crop, canvas?.document != nil else { return .crosshair }
+        let r = cropViewRect
+        if let h = handles(r).first(where: { hypot($0.x - p.x, $0.y - p.y) < 10 }) {
+            // Corners get the 45° arrow whatever the crop's shape, edges the straight one
+            let dx = h.x - r.midX, dy = h.y - r.midY
+            return Pointers.resize(from: .zero, to: CGPoint(x: abs(dx) < 1 ? 0 : (dx > 0 ? 1 : -1), y: abs(dy) < 1 ? 0 : (dy > 0 ? 1 : -1)))
+        }
+        return r.contains(p) ? Pointers.move : .crosshair
+    }
 
     private var frameSize: CGSize { canvas?.document?.frameSize ?? .zero }
 

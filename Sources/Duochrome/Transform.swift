@@ -3,8 +3,10 @@ import AppKit
 /// Free transform frame (⌘T): changes an image layer's position, size, and rotation over the photo.
 /// Corners: scale keeping aspect (⇧ free aspect) · edge midpoints: one side · inside: move · outside: rotate (⇧ 15°) · Return confirms · esc cancels.
 /// All math is in source coordinates (sticks to the photo even with geometry corrections).
-final class TransformOverlayView: NSView {
+final class TransformOverlayView: NSView, PointerSource {
     weak var canvas: CanvasView?
+    /// Draws the key hint at the top (the layer editor shows it in its canvas bar instead)
+    var showsHint = true
     var image: LayerImage? { didSet { needsDisplay = true } }
     /// Image's original aspect (height/width)
     var aspect: Double = 1
@@ -23,6 +25,27 @@ final class TransformOverlayView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { isHidden ? nil : super.hitTest(point) }
 
     private func height(_ im: LayerImage) -> Double { im.height ?? im.width * aspect }
+
+    override func updateTrackingAreas() { super.updateTrackingAreas(); installPointerTracking() }
+    override func mouseMoved(with event: NSEvent) { if grab == nil { updatePointer(event) } }
+    override func cursorUpdate(with event: NSEvent) { updatePointer(event) }
+
+    /// Resize arrows on the handles (turned with the frame), the move arrows inside, the rotate arrow outside
+    func pointer(at p: NSPoint) -> NSCursor? {
+        guard let im = image, let toView else { return nil }
+        let (c, e) = points(im)
+        let center = toView(CGPoint(x: im.cx, y: im.cy))
+        let vc = c.map(toView), ve = e.map(toView)
+        // Frame axes on screen: corners get the arrow between them (45° on the frame), edges the arrow across
+        func unit(_ q: CGPoint) -> CGPoint { let l = max(hypot(q.x - center.x, q.y - center.y), 0.001); return CGPoint(x: (q.x - center.x) / l, y: (q.y - center.y) / l) }
+        let ux = unit(ve[1]), uy = unit(ve[2])
+        let signs: [(CGFloat, CGFloat)] = [(-1, -1), (1, -1), (1, 1), (-1, 1), (0, -1), (1, 0), (0, 1), (-1, 0)]
+        if let i = (vc + ve).firstIndex(where: { hypot($0.x - p.x, $0.y - p.y) < 9 }) {
+            let (sx, sy) = signs[i]
+            return Pointers.resize(from: .zero, to: CGPoint(x: sx * ux.x + sy * uy.x, y: sx * ux.y + sy * uy.y))
+        }
+        return RetouchOverlayView.inside(p, vc) ? Pointers.move : Pointers.rotate(from: center, at: p)
+    }
 
     /// Four corners in source coordinates (bottom-left, bottom-right, top-right, top-left) and four edge midpoints
     private func points(_ im: LayerImage) -> (corners: [CGPoint], edges: [CGPoint]) {
@@ -51,6 +74,7 @@ final class TransformOverlayView: NSView {
             NSColor.white.setFill(); r.fill()
             NSColor.black.withAlphaComponent(0.7).setStroke(); NSBezierPath(rect: r).stroke()
         }
+        guard showsHint else { return }
         let hint = "리턴: 확정 · esc: 취소 · 바깥을 끌면 회전"
         (hint as NSString).draw(at: NSPoint(x: 12, y: bounds.maxY - 24), withAttributes: [
             .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.white])
@@ -181,6 +205,7 @@ extension MainWindowController {
             var s = doc.settings
             if !keep { s = before }
             doc.settings = before          // so the history entry is "before transform → after"
+            if self.mode == .studio { self.retouchEditor.canvasBar.hide() }
             self.enterTool(previousTool == .transform ? .pan : previousTool)
             if keep {
                 self.replaceSettings(s, recordUndo: true, label: "자유 변형")
@@ -193,5 +218,10 @@ extension MainWindowController {
         o.onCancel = { finish(false) }
         enterTool(.transform)
         window?.makeFirstResponder(o)
+        o.showsHint = mode != .studio
+        if mode == .studio {
+            retouchEditor.canvasBar.show("모서리: 크기 (⇧ 비율 해제) · 안쪽: 이동 · 바깥: 회전 (⇧ 15°)",
+                                         [("취소", { [weak o] in o?.onCancel?() }), ("완료", { [weak o] in o?.onCommit?() })])
+        }
     }
 }

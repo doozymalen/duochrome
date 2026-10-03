@@ -41,7 +41,7 @@ final class SelectionToolView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { isHidden ? nil : super.hitTest(point) }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    override func resetCursorRects() { addCursorRect(editArea, cursor: .crosshair) }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

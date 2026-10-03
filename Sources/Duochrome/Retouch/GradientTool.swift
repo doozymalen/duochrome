@@ -5,7 +5,7 @@ import AppKit
 ///
 /// Linear: [x0, y0, x1, y1], full effect at the start, none at the end.
 /// Radial: [cx, cy, rx, ry], full effect inside (a circle; ⌥ draws an ellipse).
-final class GradientSurfaceView: NSView {
+final class GradientSurfaceView: NSView, PointerSource {
     enum Kind { case linear, radial }
     weak var canvas: CanvasView?
     var kind: Kind = .linear { didSet { needsDisplay = true } }
@@ -22,7 +22,18 @@ final class GradientSurfaceView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { isHidden ? nil : super.hitTest(point) }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    override func resetCursorRects() { addCursorRect(editArea, cursor: .crosshair) }
+    override func updateTrackingAreas() { super.updateTrackingAreas(); installPointerTracking() }
+    override func mouseMoved(with event: NSEvent) { if grab == nil { updatePointer(event) } }
+    override func cursorUpdate(with event: NSEvent) { updatePointer(event) }
+
+    /// The ends (and a radial's edge) take the drag-point ring, a radial's inner half the move arrows, elsewhere a new gradient
+    func pointer(at p: NSPoint) -> NSCursor? {
+        guard let v = shown(), v.count == 4 else { return .crosshair }
+        if handles(v).contains(where: { hypot($0.x - p.x, $0.y - p.y) < 10 }) { return Pointers.point }
+        if kind == .radial, let src = fromView?(p), insideRadial(v, src) { return Pointers.move }
+        return .crosshair
+    }
 
     private func shown() -> [Double]? { live ?? current?() }
 

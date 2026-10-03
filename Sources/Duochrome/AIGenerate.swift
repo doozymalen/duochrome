@@ -152,7 +152,7 @@ enum AIRegion {
         let w = max(8, (r.width * k / 8).rounded() * 8), h = max(8, (r.height * k / 8).rounded() * 8)
         k = w / r.width
         let moved = img.cropped(to: r).transformed(by: .init(translationX: -r.minX, y: -r.minY))
-        let scaled = k < 0.999 ? moved.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: k, kCIInputAspectRatioKey: (h / r.height) / k]) : moved
+        let scaled = k < 0.999 ? moved.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: h / r.height, kCIInputAspectRatioKey: k / (h / r.height)]) : moved
         return (scaled.cropped(to: CGRect(x: 0, y: 0, width: w, height: h)), k)
     }
 }
@@ -460,7 +460,7 @@ extension MainWindowController {
             func up(_ i: CIImage) -> CIImage {
                 let e = i.extent
                 return i.transformed(by: .init(translationX: -e.minX, y: -e.minY))
-                    .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: n.width / e.width, kCIInputAspectRatioKey: (n.height / e.height) / (n.width / e.width)])
+                    .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: n.height / e.height, kCIInputAspectRatioKey: (n.width / e.width) / (n.height / e.height)])
                     .clampedToExtent().cropped(to: r)
             }
             // The sent image is read back and subtracted too, so 8-bit and color-space round-trip errors cancel out
