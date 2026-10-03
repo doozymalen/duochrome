@@ -327,6 +327,26 @@ final class RetouchInspector: NSView {
         return b
     }
 
+    /// Hand/zoom tools: the whole photo with the visible part outlined
+    private let navigator = NavigatorView()
+
+    /// [맞춤] [100%] [−] [+]
+    private func zoomButtons(_ host: MainWindowController) -> NSView {
+        let items: [(String, Selector)] = [("맞춤", #selector(MainWindowController.zoomToFit(_:))),
+                                           ("100%", #selector(MainWindowController.zoomToActual(_:))),
+                                           ("−", #selector(MainWindowController.zoomOut(_:))),
+                                           ("+", #selector(MainWindowController.zoomIn(_:)))]
+        let row = NSStackView(views: items.map { t, sel in
+            let b = NSButton(title: t, target: host, action: sel)
+            b.bezelStyle = .appPush
+            b.controlSize = .small
+            return b
+        })
+        row.distribution = .fillEqually
+        row.spacing = 6
+        return row
+    }
+
     private func note(_ t: String) -> NSTextField {
         let n = NSTextField(wrappingLabelWithString: t)
         n.font = .systemFont(ofSize: 11)
@@ -350,13 +370,14 @@ final class RetouchInspector: NSView {
         var views: [NSView] = []
         switch tool.group {
         case .view:
-            views = [note("사진을 끌어 옮겨 봅니다. 두 손가락으로 확대·축소, ⌘0 화면에 맞추기, ⌘1 실제 크기.")]
+            navigator.attach(host.canvas)
+            views = [navigator, zoomButtons(host), note("사진을 끌어 옮깁니다. 위 축소판을 누르거나 끌어도 옮겨집니다.")]
         case .select:
             host.selectionOptions.show(tool: tool.id)
             views = [host.selectionOptions]
             if tool.id == "selQuick" { brushSize.value = host.layersTab.brushRadius; views.insert(brushSize, at: 0) }
             if tool.id == "selSubject" { views.insert(note("사진을 누르면 AI가 피사체를 골라 선택 영역으로 잡습니다."), at: 0) }
-            if tool.id == "selSky" { views.insert(note("사진을 누르면 하늘을 찾아 선택 영역으로 잡습니다. 가장자리는 아래 '머리카락 다듬기'로 나뭇가지·건물 윤곽에 맞춥니다."), at: 0) }
+            if tool.id == "selSky" { views.insert(note("사진을 누르면 하늘을 찾아 선택합니다."), at: 0) }
             views += selectionRefineViews(host)
         case .brush:
             brushSize.value = host.layersTab.brushRadius
@@ -388,7 +409,7 @@ final class RetouchInspector: NSView {
                 shape.bottomAnchor.constraint(equalTo: box.bottomAnchor),
                 box.heightAnchor.constraint(equalToConstant: h),
             ])
-            views = [note("사진 위 틀의 모서리·변을 끌어 자릅니다. 회전·수평·키스톤·비율은 아래 값으로 바꿉니다 (대량 보정 '형태'와 같은 값)."), box]
+            views = [note("틀을 끌어 자릅니다. 회전·키스톤은 아래 값으로."), box]
         case .arrange:
             views = [note("왼쪽에서 고른 사진 레이어를 끌어 옮깁니다.\n\n자유 변형(⌘T): 모서리를 끌면 크기(⇧ 비율 무시), 변 가운데는 한쪽만, 바깥을 끌면 회전(⇧ 15°씩).\n원근 변형: 네 모서리를 끌어 맞춥니다.\n둘 다 ↩ 확정, esc 취소.")]
         case .retouch:
@@ -423,7 +444,7 @@ final class RetouchInspector: NSView {
         let s = host.photo?.settings
         guard let id = host.layersTab.selectedID, let layer = s?.layers.first(where: { $0.id == id }) else {
             layerTitle.stringValue = "배경 (현상)"
-            put([note("배경은 대량 보정의 현상 결과입니다. 노출·색 같은 전체 보정은 대량 보정에서 바꾸면 여기에도 바로 반영됩니다.\n\n위 + 단추로 조정 레이어를 더하면 그 레이어 값으로 보정합니다. 선택 영역이 있으면 그 부분에만 걸립니다.")], in: layerBox)
+            put([note("대량 보정의 현상 결과입니다. 위 +로 조정 레이어를 더합니다.")], in: layerBox)
             return
         }
         layerTitle.stringValue = layer.name

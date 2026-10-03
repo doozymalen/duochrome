@@ -288,7 +288,32 @@ final class CanvasView: MTKView {
         needsDisplay = true
     }
 
+    /// Posted when the visible part of the photo changes (zoom or pan), for the navigator
+    static let viewChanged = Notification.Name("CanvasView.viewChanged")
+
+    /// Part of the photo visible between the panels (source pixels, bottom is 0), clipped to the photo
+    var visibleImageRect: CGRect {
+        guard let doc = document else { return .zero }
+        let u = uncoveredRect
+        let a = imagePoint(at: CGPoint(x: u.minX, y: u.minY)), b = imagePoint(at: CGPoint(x: u.maxX, y: u.maxY))
+        return CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+            .intersection(CGRect(origin: .zero, size: doc.pixelSize))
+    }
+
+    /// Moves the view so this photo point (source pixels) is centered between the panels
+    func centerOn(_ p: CGPoint) {
+        guard document != nil else { return }
+        let u = uncoveredRect
+        // The uncovered area's center is offset from the view center by the panel widths
+        center = CGPoint(x: p.x - (u.midX - bounds.midX) / zoom, y: p.y - (u.midY - bounds.midY) / zoom)
+        fitting = false
+        clampCenter()
+        reportZoom()
+        needsDisplay = true
+    }
+
     func reportZoom() {
+        NotificationCenter.default.post(name: Self.viewChanged, object: self)
         onZoomChange?((fitting, zoom * backing * 100))
         overlay.needsDisplay = true
         retouchOverlay.needsDisplay = true
@@ -336,6 +361,7 @@ final class CanvasView: MTKView {
         center.y += event.scrollingDeltaY * k / zoom
         fitting = false
         clampCenter()
+        NotificationCenter.default.post(name: Self.viewChanged, object: self)
         needsDisplay = true
     }
 

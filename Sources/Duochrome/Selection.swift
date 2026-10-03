@@ -544,7 +544,7 @@ final class SelectionOptionsView: NSStackView {
         toolBox.spacing = 8
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
-        hint.stringValue = "⇧ 누르고 하면 더하기, ⌥ 빼기, ⇧⌥ 교차. ⌘A 전체, ⌘D 해제, ⇧⌘I 반전.\n선택한 뒤 ⌫는 고른 레이어에서 그 부분을 지우고, ⌘J는 그 부분을 새 레이어로 복제합니다. 새 조정·칠 레이어는 선택 영역에만 걸립니다."
+        hint.stringValue = "⇧ 더하기 · ⌥ 빼기 · ⇧⌥ 교차\n새 레이어는 선택 영역에만 걸립니다."
         for v in [modePopup, toolBox, hint, buttons()] as [NSView] {
             addArrangedSubview(v)
             v.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
