@@ -63,16 +63,25 @@ class Tether:
     def connect(self, quiet=False):
         self.close()
         cl = gp.Camera.autodetect()
-        if cl.count() == 0:
+        found = [(cl.get_name(i), cl.get_value(i)) for i in range(cl.count())]
+        # 충전하려고 꽂은 iPhone·iPad는 카메라가 아니다 (잡으면 2초마다 사진 가져오기 데몬을 죽이며 실패를 되풀이했다)
+        cams = [(n, p) for n, p in found if not any(k in n for k in ("iPhone", "iPad", "iPod", "Apple"))]
+        if not cams:
             if not quiet:
                 emit("status", msg="카메라를 찾지 못했습니다. USB로 연결하고 카메라를 켜 주세요.", connected=False)
             return False
+        name, addr = cams[0]
         last = None
         for _ in range(5):
             self._free_usb()
             time.sleep(0.3)
             try:
                 cam = gp.Camera()
+                if len(found) > 1:
+                    # 여러 기기 중 고른 카메라의 포트를 지정한다
+                    ports = gp.PortInfoList()
+                    ports.load()
+                    cam.set_port_info(ports[ports.lookup_path(addr)])
                 cam.init()
                 self.camera = cam
                 break
@@ -80,9 +89,16 @@ class Tether:
                 last = e
                 time.sleep(0.7)
         if not self.camera:
-            emit("error", msg="카메라를 열지 못함: %s (다른 프로그램이 쓰는 중일 수 있음)" % last)
+            # 같은 실패는 한 번만 알리고, 자동 재시도 간격을 늘린다 (최대 30초)
+            msg = "카메라를 열지 못함: %s (다른 프로그램이 쓰는 중일 수 있음)" % last
+            if not quiet or msg != getattr(self, "last_error", None):
+                emit("error", msg=msg)
+            self.last_error = msg
+            self.retry_gap = min(getattr(self, "retry_gap", 2) * 2, 30)
             return False
-        summary = cl.get_name(0)
+        self.last_error = None
+        self.retry_gap = 2
+        summary = name
         emit("connected", model=summary)
         self.send_config()
         return True
@@ -255,10 +271,10 @@ class Tether:
             self.live = False
             emit("live", on=False)
 
-    def poll_events(self):
+    def poll_events(self, timeout=150):
         # Also receive shots taken with the camera's own shutter
         try:
-            ev, data = self.camera.wait_for_event(150)
+            ev, data = self.camera.wait_for_event(timeout)
         except gp.GPhoto2Error:
             emit("disconnected")
             try:
@@ -325,7 +341,7 @@ class Tether:
                     emit("error", msg="명령 실패 (%s): %s" % (c.get("cmd"), e))
                 continue
             if not self.camera:
-                if self.auto and time.time() - self.last_try > 2:
+                if self.auto and time.time() - self.last_try > getattr(self, "retry_gap", 2):
                     self.last_try = time.time()
                     self.connect(quiet=True)
                 else:
@@ -336,6 +352,9 @@ class Tether:
                 if now - self.last_frame >= 1 / 20:   # at most 20 fps
                     self.last_frame = now
                     self.frame()
+                # 라이브 뷰 중에도 카메라 셔터로 찍은 사진을 받는다 (프레임 사이에 짧게 확인)
+                if self.camera:
+                    self.poll_events(1)
             else:
                 self.poll_events()
 
@@ -394,7 +413,7 @@ class FakeTether(Tether):
         if self.jpeg:
             emit("frame", jpeg=base64.b64encode(self.jpeg).decode())
 
-    def poll_events(self):
+    def poll_events(self, timeout=150):
         time.sleep(0.1)
 
     def handle(self, c):

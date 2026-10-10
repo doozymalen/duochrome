@@ -397,8 +397,11 @@ extension MainWindowController {
                 if cond() { t.invalidate(); then(true) } else if Date().timeIntervalSince(t0) > timeout { t.invalidate(); then(false) }
             }
         }
+        // The test session folder goes into the user's settings while it runs: put the old value back at the end
+        let savedFolder = UserDefaults.standard.string(forKey: "tether.folder")
         func finish() {
             AppSettings.tetherNaming = savedRule
+            UserDefaults.standard.set(savedFolder, forKey: "tether.folder")
             gphoto?.stop()
             try? results.joined(separator: "\n").write(to: out.appendingPathComponent("결과.txt"), atomically: true, encoding: .utf8)
             print("테더링 시험 끝\n" + results.joined(separator: "\n"))

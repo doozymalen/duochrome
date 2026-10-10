@@ -557,8 +557,9 @@ extension MainWindowController {
             g.onUnavailable = { [weak self] why in
                 guard let self else { return }
                 self.gphoto = nil
-                self.tetherMode.setStatus("테더링 도구를 쓸 수 없어 기본 방식으로: \(why)")
                 self.startBasicTether(folder)
+                // After starting, so the reason is not replaced at once by "looking for a camera…"
+                self.tetherMode.setStatus("기본 방식(촬영·받기만)으로 찾는 중 — 테더링 도구를 쓸 수 없음: \(why)")
             }
             gphoto = g
             g.start()
@@ -607,6 +608,11 @@ extension MainWindowController {
     func captured(_ url: URL) {
         let previous = photo?.settings
         let previousName = photoItem?.name
+        // The same shot can be reported twice (downloaded over the cable and seen by the watched folder): take it once
+        hotFolder?.markKnown(url.lastPathComponent)
+        let path = url.standardizedFileURL.path
+        if handledCaptures.contains(path) { return }
+        handledCaptures.insert(path)
         _ = try? library.catalog.addFolder(url.deletingLastPathComponent())
         // In another mode a new capture is only registered: it must not replace the photo being edited there
         // (the session shows it when tethering is entered again)

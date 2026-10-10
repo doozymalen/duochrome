@@ -586,6 +586,8 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
     /// The crop tool shows the whole frame with the crop rect overlaid. Other tools show the cropped result.
     /// Settings from before the background was baked into a photo layer for a transform (see preparePhotoLayerForTransform)
+    /// Captures already taken in this session (see captured)
+    var handledCaptures = Set<String>()
     var historySaveURL: URL?
     var historySaveTimer: Timer?
     var transformBase: DevelopSettings?

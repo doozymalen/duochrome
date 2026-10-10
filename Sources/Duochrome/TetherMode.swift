@@ -133,6 +133,9 @@ final class HotFolder {
 
     func stop() { timer?.invalidate(); timer = nil }
 
+    /// A file that arrived another way (the camera connection downloaded it): not new to the watched folder
+    func markKnown(_ name: String) { known.insert(name); pending[name] = nil }
+
     func change(_ url: URL) { folder = url; if timer != nil { start() } }
 
     private func list() -> [URL] {
