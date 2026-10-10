@@ -208,7 +208,13 @@ extension MainWindowController {
         let after = doc.settings
         doc.settings = before
         endPoints()
-        if keep { replaceSettings(after, recordUndo: true, label: label) } else { apply(before, dragging: false) }
+        if keep {
+            transformBakedFile = nil
+            replaceSettings(after, recordUndo: true, label: label)
+        } else {
+            apply(before, dragging: false)
+            discardBakedTransformFile(keeping: before)
+        }
     }
 
     // MARK: - Free transform: skew · distort · perspective

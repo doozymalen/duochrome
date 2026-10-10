@@ -659,6 +659,8 @@ final class LayersTabController: NSViewController {
 
     @objc func removeLayer() {
         guard let i = selectedIndex else { return }
+        // Every way to delete (⌫, the context menu, the button) respects the lock
+        if current?()?.layers[i].locked == true { NSSound.beep(); return }
         selectedID = nil
         editAll { LayerTree.remove(&$0.layers, i) }
         onSelect?(nil)
@@ -692,13 +694,15 @@ final class LayersTabController: NSViewController {
     /// Bring to front / send to back (⇧⌘] / ⇧⌘[): step until it can't move further
     func layerToEnd(top: Bool) {
         guard let id = selectedID, selectedIndex != nil else { return }
+        // Straight to the very front or back, outside any group (stepping one place at a time stopped at group
+        // borders and left the layer inside the group)
         editAll { s in
-            for _ in 0..<s.layers.count {
-                guard let i = s.layers.firstIndex(where: { $0.id == id }) else { return }
-                let before = s.layers.map(\.id)
-                if top { LayerTree.moveUp(&s.layers, i) } else { LayerTree.moveDown(&s.layers, i) }
-                if s.layers.map(\.id) == before { return }
-            }
+            guard let i = s.layers.firstIndex(where: { $0.id == id }) else { return }
+            let r = LayerTree.block(s.layers, i)
+            var items = Array(s.layers[r])
+            items[items.count - 1].group = nil     // the block ends with the layer itself (a group comes after its children)
+            s.layers.removeSubrange(r)
+            if top { s.layers.append(contentsOf: items) } else { s.layers.insert(contentsOf: items, at: 0) }
         }
     }
 

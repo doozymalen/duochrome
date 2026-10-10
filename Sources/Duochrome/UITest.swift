@@ -1084,6 +1084,52 @@ extension MainWindowController {
                 ed.selectTool("hand")
                 replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
             }
+
+            // Layer operations: merges keep what they should, send-to-front leaves groups, locks hold, clearing a mask clears all of it
+            do {
+                var st = doc.settings
+                st.layers = []
+                var a1 = AdjustLayer(name: "조정 A"); a1.adjust.exposure = 0.5
+                var hid = AdjustLayer(name: "숨김"); hid.enabled = false
+                var grp = AdjustLayer(name: "그룹"); grp.kind = "group"
+                var inG = AdjustLayer(name: "그룹 안"); inG.group = grp.id
+                var locked = AdjustLayer(name: "잠금"); locked.locked = true
+                locked.mask.kind = .rect; locked.mask.box = [0, 0, 100, 100]; locked.mask.invert = true; locked.mask.lumaMin = 0.2
+                st.layers = [a1, hid, inG, grp, locked]
+                replaceSettings(st, recordUndo: false, label: "시험")
+
+                // locked layer: no way to delete it
+                layersTab.select(locked.id)
+                layersTab.removeLayer()
+                let lockHolds = doc.settings.layers.contains { $0.id == locked.id }
+
+                // send to back from above a group: ends at the very bottom, outside the group
+                layersTab.select(a1.id)
+                layersTab.layerToEnd(top: true)
+                let front = doc.settings.layers.last?.id == a1.id && doc.settings.layers.last?.group == nil
+                layersTab.layerToEnd(top: false)
+                let back = doc.settings.layers.first?.id == a1.id
+
+                // merge down onto an adjustment layer is refused (it would drop the adjustment)
+                var stamp = doc.settings
+                if let img = rasterize([], withPhoto: true), let pic = imageLayer(from: img, name: "그림") {
+                    stamp.layers.insert(pic, at: 1)      // right above 조정 A
+                    replaceSettings(stamp, recordUndo: false, label: "시험")
+                    layersTab.select(pic.id)
+                }
+                let nBefore = doc.settings.layers.count
+                mergeDown(nil)
+                let refused = doc.settings.layers.count == nBefore && doc.settings.layers.contains { $0.id == a1.id }
+
+                // merge visible keeps the hidden layer
+                mergeVisible(nil)
+                let after = doc.settings.layers
+                let keptHidden = after.contains { $0.id == hid.id } && after.first?.isImage == true && !after.contains { $0.id == a1.id }
+
+                check("레이어 연산 (잠금·맨 앞/뒤·아래와 합치기 거절·보이는 것만 병합)", lockHolds && front && back && refused && keptHidden,
+                      "잠금 \(lockHolds), 맨 앞 \(front), 맨 뒤 \(back), 합치기 거절 \(refused), 숨긴 레이어 남음 \(keptHidden)")
+                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
+            }
             setMode(.edit)
             let back = canvas.isDescendant(of: viewer.view) && tools.view.window != nil
             check("대량 보정으로 돌아오기", back && canvas.bounds.width > 200, String(format: "캔버스 %.0f×%.0f", canvas.bounds.width, canvas.bounds.height))

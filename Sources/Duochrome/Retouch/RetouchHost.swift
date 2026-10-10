@@ -195,6 +195,7 @@ extension MainWindowController {
         let base = s
         if let i = picked { s.layers[i] = l } else { s.layers.append(l) }
         transformBase = base
+        transformBakedFile = l.image?.file
         photo?.draft = false
         photo?.settings = s
         syncLayers(s, dragging: false)

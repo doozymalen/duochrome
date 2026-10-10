@@ -563,6 +563,15 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     /// The crop tool shows the whole frame with the crop rect overlaid. Other tools show the cropped result.
     /// Settings from before the background was baked into a photo layer for a transform (see preparePhotoLayerForTransform)
     var transformBase: DevelopSettings?
+    /// Picture file baked for that transform. A cancelled transform deletes it again (nothing refers to it yet).
+    var transformBakedFile: String?
+
+    /// Removes the picture baked for a transform that was cancelled, unless the settings kept refer to it
+    func discardBakedTransformFile(keeping s: DevelopSettings) {
+        guard let f = transformBakedFile else { return }
+        transformBakedFile = nil
+        if !s.layers.contains(where: { $0.image?.file == f }) { try? FileManager.default.removeItem(at: LayerImageStore.url(f)) }
+    }
 
     func enterTool(_ tool: CanvasView.Tool) {
         // Leaving an open transform or point edit for another tool confirms it (the session starters do this themselves)

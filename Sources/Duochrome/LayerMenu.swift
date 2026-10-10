@@ -59,8 +59,9 @@ extension MainWindowController {
         }
         m.addItem(.separator())
         m.addItem(ClosureMenuItem("마스크 반전", key: "i", state: layer.mask.invert) { edit { $0.mask.invert.toggle() } })
-        m.addItem(ClosureMenuItem("마스크 지우기 (전체에 적용)", enabled: layer.mask.kind != .full) { edit { l in
-            l.mask.kind = .full; l.mask.strokes = []; l.mask.polygon = []; l.mask.maskFile = ""
+        // Everything that limits the layer goes: shape, invert, luma/color range, vector, combined shapes, edge settings
+        m.addItem(ClosureMenuItem("마스크 지우기 (전체에 적용)", enabled: layer.mask != LayerMask()) { edit { l in
+            l.mask = LayerMask()
         } })
         m.addItem(ClosureMenuItem("마스크 보기", key: "m", modifiers: [], state: viewer.canvas.maskLayerID == id) { [weak self] in
             self?.toggleMaskView(nil)

@@ -4,7 +4,8 @@ import AppKit
 /// opacity and blend mode of the selected layer, and buttons to add, duplicate, reorder and delete.
 final class RetouchLayersPanel: NSView {
     private weak var host: MainWindowController?
-    private let list = NSStackView()
+    /// The same drop-aware list as the batch-edit layers tab: drag rows to reorder or into groups, drop Finder images
+    private let list = LayerDropList()
     private let scroll = NSScrollView()
     private let opacity = SliderRow(label: "불투명도", min: 0, max: 1, format: "%.0f%%", display: 100, defaultValue: 1)
     private let blend = NSPopUpButton()
@@ -16,6 +17,9 @@ final class RetouchLayersPanel: NSView {
         let title = NSTextField(labelWithString: "레이어")
         title.font = .systemFont(ofSize: 13, weight: .semibold)
 
+        // "Pass through" first; it only shows for groups (their default)
+        blend.addItem(withTitle: AdjustLayer.passThrough.1)
+        blend.lastItem?.representedObject = AdjustLayer.passThrough.0
         for (key, name, _) in AdjustLayer.blendModes {
             blend.addItem(withTitle: name)
             blend.lastItem?.representedObject = key
@@ -88,6 +92,10 @@ final class RetouchLayersPanel: NSView {
 
     func reload(host: MainWindowController) {
         self.host = host
+        if list.onDropLayer == nil {
+            list.onDropLayer = { [weak host] id, t, p in host?.dropLayer(id, onto: t, p) }
+            list.onDropFiles = { [weak host] urls in host?.dropImageLayers(urls) ?? false }
+        }
         list.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let layers = host.photo?.settings.layers ?? []
         let selected = host.layersTab.selectedID
@@ -110,7 +118,9 @@ final class RetouchLayersPanel: NSView {
         selectedBox.isHidden = layer == nil
         if let layer {
             opacity.value = Double(layer.opacity)
-            if let i = AdjustLayer.blendModes.firstIndex(where: { $0.0 == layer.blend }) { blend.selectItem(at: i) }
+            blend.item(at: 0)?.isHidden = !layer.isGroup
+            let i = blend.itemArray.firstIndex { ($0.representedObject as? String) == layer.blend }
+            blend.selectItem(at: i ?? (layer.isGroup ? 0 : 1))
         }
     }
 

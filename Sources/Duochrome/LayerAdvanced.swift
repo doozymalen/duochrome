@@ -230,7 +230,18 @@ extension MainWindowController {
     @objc func mergeVisible(_ sender: Any?) {
         guard var s = photo?.settings, !s.layers.isEmpty, let img = rasterize(s.layers, withPhoto: true),
               let l = imageLayer(from: img, name: "병합") else { NSSound.beep(); return }
-        s.layers = [l]
+        // Hidden layers are not part of what is seen: they stay (above the merged result, still hidden).
+        // A layer inside a hidden group counts as hidden too.
+        let byID = Dictionary(s.layers.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        func hidden(_ x: AdjustLayer, _ depth: Int = 0) -> Bool {
+            if !x.enabled { return true }
+            guard depth < 32, let g = x.group.flatMap({ byID[$0] }) else { return false }
+            return hidden(g, depth + 1)
+        }
+        var kept = s.layers.filter { hidden($0) }
+        let keptIDs = Set(kept.map(\.id))
+        for k in kept.indices { if let g = kept[k].group, !keptIDs.contains(g) { kept[k].group = nil } }
+        s.layers = [l] + kept
         replaceSettings(s, recordUndo: true, label: "보이는 레이어 병합")
         layersTab.select(l.id)
     }
@@ -243,6 +254,13 @@ extension MainWindowController {
         let top = s.layers[i], bottom = s.layers[below]
         let content: (AdjustLayer) -> Bool = { $0.isImage || $0.isFill || $0.kind == "text" || $0.kind == "shape" }
         guard !top.isGroup, !bottom.isGroup, content(bottom) || content(top) else { NSSound.beep(); return }
+        // The layer below must have pixels of its own. An adjustment or a background copy only exists on top of the photo:
+        // merging onto it used to drop its effect (and the copy's retouching) without a word.
+        guard content(bottom) else {
+            if mode == .studio { retouchEditor.flash("아래가 조정·배경 복사 레이어라 합칠 수 없습니다 (도장 찍기를 쓰세요)") }
+            NSSound.beep()
+            return
+        }
         var b = bottom; b.group = nil
         var t = top; t.group = nil; t.clipped = false
         guard let img = rasterize([b, t], withPhoto: false), var l = imageLayer(from: img, name: bottom.name) else { NSSound.beep(); return }

@@ -292,10 +292,15 @@ enum Layers {
                 guard let (s0, g0) = groupStart[layer.id] else { continue }   // empty group
                 let mode = layer.blend == passThroughKey ? "normal" : layer.blend
                 // Pass-through: blend the children's composite with the group start by mask and opacity.
+                // With a blend mode of its own the group's composite is blended over the group start, but only where
+                // the children changed something: elsewhere the composite IS the group start, and blending the photo
+                // with itself (multiply, screen…) used to change the whole picture.
+                if mode != "normal" { mask = multiply(mask, changed(out, from: s0)) }
                 out = mix(s0, blend(out, over: s0, mode: mode, fill: 1), mask: mask, opacity: layer.opacity)
                 if gs != scale {
                     var gm = maskImage(layer.mask, scale: gs, native: native, shape: shape, base: g0)
                     if layer.clipped, let b = belowG { gm = multiply(gm, b) }
+                    if mode != "normal" { gm = multiply(gm, changed(g, from: g0)) }
                     belowG = gm
                     g = mix(g0, blend(g, over: g0, mode: mode, fill: 1), mask: gm, opacity: layer.opacity)
                 } else {
@@ -359,6 +364,19 @@ enum Layers {
     }
 
     static let passThroughKey = AdjustLayer.passThrough.0
+
+    /// White where `image` differs from `base`, black where it is the same (a soft step, so tiny rounding differences stay black)
+    static func changed(_ image: CIImage, from base: CIImage) -> CIImage {
+        let diff = image.applyingFilter("CIDifferenceBlendMode", parameters: [kCIInputBackgroundImageKey: base])
+        let gain: CGFloat = 400
+        return diff.applyingFilter("CIMaximumComponent")
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: gain, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: gain, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: gain, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+                "inputBiasVector": CIVector(x: -0.5, y: -0.5, z: -0.5, w: 1)])
+            .applyingFilter("CIColorClamp")
+            .cropped(to: base.extent)
+    }
 
     /// Source-coordinate retouch spots → view (post-geometry) coordinates. Radius scale is measured from the distance of two points.
     static func mapSpot(_ s: RetouchSpot, _ f: ((CGPoint) -> CGPoint)?) -> RetouchSpot {

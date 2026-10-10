@@ -224,9 +224,11 @@ extension MainWindowController {
                 self.enterTool(previousTool == .transform || previousTool == .points ? .pan : previousTool)
             }
             if keep {
+                self.transformBakedFile = nil
                 self.replaceSettings(s, recordUndo: true, label: "자유 변형")
             } else {
                 self.apply(before, dragging: false)
+                self.discardBakedTransformFile(keeping: before)
             }
             self.layersTab.sync(s)
         }

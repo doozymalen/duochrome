@@ -1552,6 +1552,36 @@ enum SelfTest {
                   "회색 \(grayOK), 이중톤 \(duoOK), CMYK \(cmykOK) \(c.prefix(3).map { String(format: "%.2f", $0) }), 색 공간 \(spaceOK) \(String(format: "%.2f→%.2f", before[0], after[0])), 8비트 \(depthOK), 채널 \(chOK), 쓰기 Lab \(String(describing: labM)) CMYK \(String(describing: cmykM)) 회색 \(String(describing: grayM))")
         }
 
+        // Group with its own blend mode: pixels its children did not touch stay as they were
+        // (multiply used to blend the photo with itself and darken everything)
+        do {
+            let nat = CGSize(width: 200, height: 100)
+            let base = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5)).cropped(to: CGRect(origin: .zero, size: nat))
+            var group = AdjustLayer(name: "그룹"); group.kind = "group"; group.blend = "multiply"
+            var child = AdjustLayer(name: "밝게"); child.group = group.id
+            child.adjust.exposure = 1
+            child.mask.kind = .rect; child.mask.box = [0, 0, 100, 100]
+            let out = Layers.apply([child, group], to: base, guide: base, scale: 1, guideScale: 1, native: nat, shape: { m, _ in m })
+            func px(_ x: CGFloat) -> Float {
+                var v = [Float](repeating: 0, count: 4)
+                Render.context.render(out, toBitmap: &v, rowBytes: 16, bounds: CGRect(x: x, y: 50, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+                return v[0]
+            }
+            var b0 = [Float](repeating: 0, count: 4)
+            Render.context.render(base, toBitmap: &b0, rowBytes: 16, bounds: CGRect(x: 150, y: 50, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+            let untouched = px(150), touched = px(50)
+            check("그룹 혼합 모드가 닿지 않은 곳은 그대로", abs(untouched - b0[0]) < 0.01 && abs(touched - b0[0]) > 0.02,
+                  String(format: "바탕 %.3f · 닿지 않은 곳 %.3f · 닿은 곳 %.3f", b0[0], untouched, touched))
+        }
+
+        // Moving a corner-shaped picture moves its corners
+        do {
+            var im = LayerImage(file: "x", cx: 100, cy: 100, width: 50)
+            im.quad = [0, 0, 10, 0, 10, 10, 0, 10]
+            im.translate(dx: 5, dy: -3)
+            check("모서리로 변형한 그림 옮기기", im.cx == 105 && im.cy == 97 && im.quad == [5, -3, 15, -3, 15, 7, 5, 7], "\(im.quad ?? [])")
+        }
+
         // Capture info with an exposure time of 0 (and a normal one): reading it used to trap on Int(1 / 0)
         do {
             let dir = URL(fileURLWithPath: NSTemporaryDirectory())
