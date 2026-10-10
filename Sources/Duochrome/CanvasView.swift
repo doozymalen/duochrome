@@ -273,11 +273,13 @@ final class CanvasView: MTKView {
                           width: bounds.width - fitInsets.left - fitInsets.right,
                           height: bounds.height - top - fitInsets.bottom)
         let w = max(area.width - margin * 2, 1), h = max(area.height - margin * 2, 1)
+        let oldZoom = zoom, oldCenter = center
         zoom = min(w / doc.pixelSize.width, h / doc.pixelSize.height)
         // Center the photo in the fit area (shift by how far the area is off the view center)
         center = CGPoint(x: doc.pixelSize.width / 2 - (area.midX - bounds.midX) / zoom,
                          y: doc.pixelSize.height / 2 - (area.midY - bounds.midY) / zoom)
-        reportZoom()
+        // Called on every frame while fitting: only tell the overlays when the view actually changed
+        if zoom != oldZoom || center != oldCenter { reportZoom() }
     }
 
     /// Zooms so the image point under `anchor` (view coordinates) stays put.
@@ -373,7 +375,9 @@ final class CanvasView: MTKView {
         center.y += event.scrollingDeltaY * k / zoom
         fitting = false
         clampCenter()
-        NotificationCenter.default.post(name: Self.viewChanged, object: self)
+        // Everything drawn over the photo (crop frame, grid, guides, rulers, transform frame, brush pointers) follows
+        // the scroll, as it does for drags and zooms
+        reportZoom()
         needsDisplay = true
     }
 

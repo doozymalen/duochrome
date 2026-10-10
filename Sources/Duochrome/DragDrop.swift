@@ -36,6 +36,8 @@ enum DragFiles {
 /// (Selecting on mouse-down redrew the list and the row vanished, so dragging couldn't start)
 class DraggableLayerRow: NSView, NSDraggingSource {
     var onClick: (() -> Void)?
+    /// Double-click (rename)
+    var onDoubleClick: (() -> Void)?
     /// Layer id to drag. nil for the background row (not draggable, only a drop target)
     var dragID: String?
     /// For a group row, dropping in the middle puts it inside the group
@@ -61,7 +63,7 @@ class DraggableLayerRow: NSView, NSDraggingSource {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if !dragging { onClick?() }
+        if !dragging { if event.clickCount == 2, let onDoubleClick { onDoubleClick() } else { onClick?() } }
         downAt = nil
         dragging = false
     }

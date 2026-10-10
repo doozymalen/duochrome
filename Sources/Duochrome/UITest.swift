@@ -1085,6 +1085,47 @@ extension MainWindowController {
                 replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
             }
 
+            // Layer-edit shortcuts reach a tool that exists, and the transform frame gives each place its pointer
+            do {
+                let expect: [(String, String)] = [("h", "hand"), ("z", "zoom"), ("v", "move"), ("c", "crop"), ("m", "selRect"), ("l", "selFree"),
+                                                  ("w", "selQuick"), ("$w", "selWand"), ("o", "dodge"), ("b", "maskBrush"), ("g", "gradLinear"),
+                                                  ("j", "heal"), ("s", "clone")]
+                var wrong: [String] = []
+                let table = KeyMap.table(.studio)
+                for (key, tool) in expect {
+                    guard let action = table[KeyCombo(key)] else { wrong.append("\(key): 없음"); continue }
+                    action.run(self)
+                    if ed.currentTool != tool { wrong.append("\(key) → \(ed.currentTool)") }
+                }
+                // No tool key may point at a tool the editor does not have (it would do nothing)
+                for (combo, action) in table where action.id.hasPrefix("tool.") && combo.mods == 0 && combo.key.count == 1
+                    && !["[", "]"].contains(combo.key) {
+                    let before = ed.currentTool
+                    ed.selectTool(before == "hand" ? "move" : "hand")
+                    let probe = ed.currentTool
+                    action.run(self)
+                    if ed.currentTool == probe && action.id != (probe == "hand" ? "tool.pan" : "tool.arrange") { wrong.append("\(combo.key): 반응 없음") }
+                }
+                ed.selectTool("hand")
+                layersTab.select(nil)
+                freeTransform(nil)
+                let o = canvas.transformOverlay
+                var pointers = false
+                if let im = o.image, let toView = o.toView {
+                    let c = toView(CGPoint(x: im.cx, y: im.cy))
+                    let corner = toView(CGPoint(x: im.cx + im.width / 2, y: im.cy + (im.height ?? im.width * o.aspect) / 2))
+                    let inside = o.pointer(at: c), onCorner = o.pointer(at: corner)
+                    let outside = o.pointer(at: CGPoint(x: corner.x + 40, y: corner.y + (corner.y > c.y ? 40 : -40)))
+                    pointers = inside != nil && onCorner != nil && outside != nil
+                        && inside !== onCorner && onCorner !== outside && inside !== outside
+                }
+                o.onCancel?()
+                check("심화 보정: 단축키가 있는 도구로 감 · 변형 틀의 위치별 포인터", wrong.isEmpty && pointers,
+                      "단축키 \(wrong.isEmpty ? "모두 맞음" : wrong.joined(separator: ", ")), 포인터 세 가지 \(pointers)")
+                ed.selectTool("hand")
+                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
+            }
+
             // Brushes: the mask brush stays inside the selection, a preset brush picks up a changed strength,
             // and picking another layer re-targets the retouch spots
             do {
@@ -1335,7 +1376,7 @@ extension MainWindowController {
         redoAdjust(nil)
         check("다시 실행", doc.settings == last, "")
         historyTab.onJump?(0)
-        check("내역 첫 줄로 가기", doc.settings == doc.asShot || history.index == 0, "지금 \(history.index)번째 · \(history.labels.prefix(5).joined(separator: " / "))")
+        check("내역 첫 줄로 가기", history.index == 0 && doc.settings != last, "지금 \(history.index)번째 · \(history.labels.prefix(5).joined(separator: " / "))")
         historyTab.onJump?(count - 1)
 
         // 9. Selective paste: white balance only

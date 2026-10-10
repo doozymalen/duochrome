@@ -115,6 +115,8 @@ final class ColabEngine {
         let t0 = Date()
         while p.isRunning {
             if Date().timeIntervalSince(t0) > timeout { p.terminate(); throw Failure(message: "코랩 응답이 \(Int(timeout))초 안에 없음") }
+            // "Turn off" was pressed while a job runs: give up this call so the job lets go of the engine
+            if cancelRequested, !args.contains("stop") { p.terminate(); throw Failure(message: "취소됨") }
             Thread.sleep(forTimeInterval: 0.1)
         }
         out.fileHandleForReading.readabilityHandler = nil
@@ -338,6 +340,7 @@ final class ColabEngine {
         let t0 = Date()
         var misses = 0
         while Date().timeIntervalSince(t0) < limit {
+            if cancelRequested { throw Failure(message: "취소됨") }
             Thread.sleep(forTimeInterval: 2)
             guard let out = try? cli(["exec", "-s", session, "--timeout", "30"], stdin: "duochrome_status(\"\(name)\")\n", timeout: 60) else {
                 misses += 1
@@ -370,10 +373,17 @@ final class ColabEngine {
         }
     }
 
+    /// Set by stop() while it waits for a running job to let go
+    private var cancelRequested = false
+
     /// Stops and releases the VM
     func stop(_ reason: String = "") {
         if ProcessInfo.processInfo.environment["DUOCHROME_COLABLOG"] != nil { print("코랩 끄기 까닭: \(reason)") }
+        // A running job holds the lock for as long as it takes (half an hour for a big one): ask it to give up first,
+        // otherwise "turn off" did nothing until the job had finished
+        cancelRequested = true
         opLock.lock()
+        cancelRequested = false
         defer { opLock.unlock() }
         guard ready || sessionAlive() else { state = .off; return }
         _ = try? cli(["stop", "-s", session], timeout: 60)

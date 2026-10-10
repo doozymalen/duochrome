@@ -102,6 +102,7 @@ final class RetouchLayersPanel: NSView {
         for (i, layer) in layers.enumerated().reversed() {
             let row = LayerListRow(layer: layer, selected: layer.id == selected, depth: LayerTree.depth(layers, i))
             row.onClick = { [weak host] in host?.layersTab.select(layer.id) }
+            row.onDoubleClick = { [weak host] in host?.renameLayer(layer.id) }     // as in the reference editor
             row.onToggle = { [weak host] on in
                 guard let host, var s = host.photo?.settings, let k = s.layers.firstIndex(where: { $0.id == layer.id }) else { return }
                 s.layers[k].enabled = on

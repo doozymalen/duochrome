@@ -196,6 +196,13 @@ final class DevDriver {
             guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
                                    wheel1: Int32(num("dy") ?? 0), wheel2: Int32(num("dx") ?? 0), wheel3: 0) else { return finish("fail") }
             cg.location = w.convertPoint(toScreen: p)
+            // Modifier keys (⌥ or ⌘ scroll zooms)
+            var cgFlags = CGEventFlags()
+            if fl.contains(.option) { cgFlags.insert(.maskAlternate) }
+            if fl.contains(.command) { cgFlags.insert(.maskCommand) }
+            if fl.contains(.shift) { cgFlags.insert(.maskShift) }
+            if fl.contains(.control) { cgFlags.insert(.maskControl) }
+            cg.flags = cgFlags
             // Scroll events aren't hit-tested by the queue the way clicks are, so deliver to the view under the point directly.
             let target = v.hitTest(v.convert(p, from: nil)) ?? v
             if let e = NSEvent(cgEvent: cg) { target.scrollWheel(with: e) }
@@ -275,7 +282,7 @@ final class DevDriver {
                     self.contactSheet(name: name, count: frames)
                     let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted])
                     try? data?.write(to: self.dir.appendingPathComponent(name + ".json"))
-                    let busy = rows.compactMap { $0["busyMs"] as? Double }.sorted()
+                    let busy = rows.compactMap { $0["busyMs"] as? Double }.filter { $0 >= 0 }.sorted()
                     let p95 = busy.isEmpty ? 0 : busy[Int(Double(busy.count - 1) * 0.95)]
                     finish(String(format: "ok %d steps, busy median %.1f ms, p95 %.1f ms, max %.1f ms, over16ms %d, frames %d", busy.count,
                                   busy.isEmpty ? 0 : busy[busy.count / 2], p95, busy.last ?? 0, busy.filter { $0 > 16.7 }.count, frames))
@@ -290,8 +297,19 @@ final class DevDriver {
                 return e
             }
             post(mouse(.leftMouseDragged, pts[i].1, flags: flags))
+            // A view that runs its own tracking loop (sliders, some controls) swallows the drag before the monitor sees
+            // it: after half a second the step is recorded as unmeasured and the trace moves on (it used to hang forever)
+            let posted = CACurrentMediaTime()
             var obs: CFRunLoopObserver?
             obs = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { o, _ in
+                if t0 == nil, CACurrentMediaTime() - posted > 0.5 {
+                    rows.append(["i": i, "x": pts[i].0[0], "y": pts[i].0[1], "busyMs": -1.0])
+                    CFRunLoopRemoveObserver(CFRunLoopGetMain(), o, .commonModes)
+                    if let m = monitor { NSEvent.removeMonitor(m) }
+                    i += 1
+                    DevDriver.later(stepMs / 1000) { step() }
+                    return
+                }
                 guard let start = t0 else { return }   // idle before the event arrived
                 let busyMs = (CACurrentMediaTime() - start) * 1000
                 var row: [String: Any] = ["i": i, "x": pts[i].0[0], "y": pts[i].0[1], "busyMs": (busyMs * 10).rounded() / 10]

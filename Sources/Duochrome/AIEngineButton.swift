@@ -59,7 +59,18 @@ extension MainWindowController {
     /// Top bar button · AI menu: start / stop
     @objc func toggleAIEngine(_ sender: Any?) {
         switch AIEngineButton.look {
-        case .off: startAIEngine()
+        case .off:
+            // Not installed on this Mac: say so and offer the install (the button used to do nothing)
+            if AIRemote.current == .local, !AIEngine.shared.isInstalled {
+                let a = NSAlert()
+                a.messageText = "AI 엔진이 설치되어 있지 않습니다"
+                a.informativeText = "이 Mac에서 AI 기능을 쓰려면 엔진을 내려받아 설치해야 합니다 (수 GB, 몇 분~수십 분)."
+                a.addButton(withTitle: "설치")
+                a.addButton(withTitle: "취소").keyEquivalent = "\u{1b}"
+                if a.runModal() == .alertFirstButtonReturn { reinstallAIEngine(nil) }
+                return
+            }
+            startAIEngine()
         case .starting: break   // Ignore while starting (can be pressed again when done)
         case .on, .fallback:
             DispatchQueue.global(qos: .utility).async {

@@ -172,6 +172,7 @@ final class SelectionPanelController: NSViewController {
             b.layer?.cornerRadius = 9
             b.layer?.backgroundColor = (i == 0 ? NSColor.white.withAlphaComponent(0.15) : color).cgColor
             b.toolTip = "색 태그: \(name)"
+            b.setAccessibilityLabel("색 태그: \(name)")
             b.widthAnchor.constraint(equalToConstant: 18).isActive = true
             b.heightAnchor.constraint(equalToConstant: 18).isActive = true
             colorButtons.append(b)
