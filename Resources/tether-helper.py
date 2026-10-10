@@ -207,7 +207,7 @@ class Tether:
             emit("error", msg="%s 바꾸기 실패: %s" % (name, e))
         self.send_config()
 
-    def download(self, path):
+    def _download(self, path):
         os.makedirs(self.folder, exist_ok=True)
         dst = os.path.join(self.folder, path.name)
         n = 1
@@ -218,6 +218,13 @@ class Tether:
         f = self.camera.file_get(path.folder, path.name, gp.GP_FILE_TYPE_NORMAL)
         f.save(dst)
         emit("file", path=dst)
+
+    def download(self, path):
+        # 폴더 없음·디스크 가득·NAS 끊김으로 저장이 실패해도 도우미는 살아 있어야 한다 (사진은 카메라에 그대로 남는다)
+        try:
+            self._download(path)
+        except OSError as e:
+            emit("error", msg="사진 저장 실패 (%s): %s — 사진은 카메라에 남아 있습니다" % (self.folder, e))
 
     def capture(self):
         was_live = self.live
@@ -309,10 +316,14 @@ class Tether:
         while running:
             try:
                 c = cmds.get(timeout=0.01 if self.live else 0.05)
-                running = self.handle(c)
-                continue
             except queue.Empty:
-                pass
+                c = None
+            if c is not None:
+                try:
+                    running = self.handle(c)
+                except Exception as e:   # 명령 하나가 실패해도 도우미는 계속 돈다
+                    emit("error", msg="명령 실패 (%s): %s" % (c.get("cmd"), e))
+                continue
             if not self.camera:
                 if self.auto and time.time() - self.last_try > 2:
                     self.last_try = time.time()

@@ -170,7 +170,8 @@ struct ShotInfo {
             ?? exif[kCGImagePropertyExifISOSpeed] as? Int
             ?? exif[kCGImagePropertyExifRecommendedExposureIndex] as? Int
         if let v = isoValue { iso = "ISO \(v)" }
-        if let t = exif[kCGImagePropertyExifExposureTime] as? Double {
+        // 0 or a non-finite time (seen in files from scanners and some phones) would make 1 / t infinite, and Int(inf) traps
+        if let t = exif[kCGImagePropertyExifExposureTime] as? Double, t.isFinite, t > 0 {
             shutter = t >= 1 ? String(format: "%.1f초", t) : "1/\(Int((1 / t).rounded()))초"
         }
         if let f = exif[kCGImagePropertyExifFNumber] as? Double { aperture = String(format: "f/%.1f", f) }

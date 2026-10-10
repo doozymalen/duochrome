@@ -19,6 +19,7 @@ final class AIEngine {
     let port = 8190
     private var server: Process?
     private let lock = NSLock()
+    private static let installLock = NSLock()
     private var starting = false
     private var base: URL { URL(string: "http://127.0.0.1:\(port)")! }
     private let session: URLSession = {
@@ -193,7 +194,10 @@ final class AIEngine {
     /// Installs if needed and starts (call from a background thread). Returns immediately if already running
     func ensureRunning() throws {
         if isAlive() { return }
-        if !isInstalled { try install() }
+        // Two AI jobs starting together must not run the installer twice at once
+        Self.installLock.lock()
+        do { if !isInstalled { try install() } } catch { Self.installLock.unlock(); throw error }
+        Self.installLock.unlock()
         lock.lock()
         if starting { lock.unlock(); return try waitAlive(120) }
         starting = true

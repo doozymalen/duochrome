@@ -1552,6 +1552,25 @@ enum SelfTest {
                   "회색 \(grayOK), 이중톤 \(duoOK), CMYK \(cmykOK) \(c.prefix(3).map { String(format: "%.2f", $0) }), 색 공간 \(spaceOK) \(String(format: "%.2f→%.2f", before[0], after[0])), 8비트 \(depthOK), 채널 \(chOK), 쓰기 Lab \(String(describing: labM)) CMYK \(String(describing: cmykM)) 회색 \(String(describing: grayM))")
         }
 
+        // Capture info with an exposure time of 0 (and a normal one): reading it used to trap on Int(1 / 0)
+        do {
+            let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            func shot(_ t: Double) -> ShotInfo? {
+                let url = dir.appendingPathComponent("duochrome-exif-\(t).jpg")
+                let cg = Render.context.createCGImage(CIImage(color: .gray).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8)),
+                                                      from: CGRect(x: 0, y: 0, width: 8, height: 8))
+                guard let cg, let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil) else { return nil }
+                let props: [CFString: Any] = [kCGImagePropertyExifDictionary: [kCGImagePropertyExifExposureTime: t]]
+                CGImageDestinationAddImage(dest, cg, props as CFDictionary)
+                guard CGImageDestinationFinalize(dest) else { return nil }
+                defer { try? FileManager.default.removeItem(at: url) }
+                return ShotInfo(url: url)
+            }
+            let zero = shot(0), fast = shot(0.004)
+            check("노출 시간 0인 사진 정보", zero != nil && zero?.shutter == "" && fast?.shutter == "1/250초",
+                  "0초 → '\(zero?.shutter ?? "nil")', 1/250초 → '\(fast?.shutter ?? "nil")'")
+        }
+
         print(failures == 0 ? "모두 통과" : "\(failures)개 실패")
         exit(failures == 0 ? 0 : 1)
     }

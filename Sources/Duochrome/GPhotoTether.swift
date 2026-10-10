@@ -81,6 +81,7 @@ final class GPhotoCamera {
     }
 
     func start() {
+        stopped = false
         onStatus?("테더링 도구 준비 중…")
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -103,11 +104,23 @@ final class GPhotoCamera {
                 }
                 p.terminationHandler = { [weak self] _ in
                     DispatchQueue.main.async {
+                        // stop() clears `process` first, so getting here means the helper died on its own
                         guard let self, self.process === p else { return }
                         self.process = nil
+                        self.input = nil
                         self.connected = false
                         self.onConnected?(false)
-                        self.onStatus?("테더링 도우미가 멈췄습니다.")
+                        // Start it again (a few times at most, so a helper that cannot run does not loop forever)
+                        self.crashes += 1
+                        if self.crashes <= 3 {
+                            self.onStatus?("테더링 도우미가 멈춰 다시 켭니다…")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                                guard let self, self.process == nil, !self.stopped else { return }
+                                self.start()
+                            }
+                        } else {
+                            self.onStatus?("테더링 도우미가 계속 멈춥니다. 모드를 나갔다 다시 들어와 보세요.")
+                        }
                     }
                 }
                 try p.run()
@@ -123,7 +136,12 @@ final class GPhotoCamera {
         }
     }
 
+    /// Unexpected exits of the helper since it was last started on purpose
+    private var crashes = 0
+    private var stopped = false
+
     func stop() {
+        stopped = true
         send(["cmd": "quit"])
         let p = process
         process = nil
@@ -141,8 +159,11 @@ final class GPhotoCamera {
     func zoom(_ value: String) { send(["cmd": "zoom", "value": value]) }
 
     private func send(_ obj: [String: Any]) {
-        guard let input, let d = try? JSONSerialization.data(withJSONObject: obj) else { return }
-        input.write(d + Data("\n".utf8))
+        guard let d = try? JSONSerialization.data(withJSONObject: obj) else { return }
+        // The helper may have died (its pipe is then closed; the termination handler starts it again).
+        // The throwing write is used because the old one raises an exception on a broken pipe
+        guard let input, process?.isRunning == true else { return }
+        do { try input.write(contentsOf: d + Data("\n".utf8)) } catch { self.input = nil }
     }
 
     // MARK: Events
@@ -173,7 +194,7 @@ final class GPhotoCamera {
     private func handle(_ ev: String, _ obj: [String: Any]) {
         switch ev {
         case "connected":
-            connected = true
+            connected = true; crashes = 0
             model = obj["model"] as? String ?? "카메라"
             onConnected?(true)
             onStatus?("연결됨: \(model)")

@@ -16,6 +16,8 @@ struct DuochromeApp {
             a.runModal()
             exit(1)
         }
+        // Writing to a helper process that has exited (tethering, AI engine) must fail with an error, not end the app
+        signal(SIGPIPE, SIG_IGN)
         if ProcessInfo.processInfo.environment["DUOCHROME_SELFTEST"] != nil { SelfTest.run() }
         if let pkg = ProcessInfo.processInfo.environment["DUOCHROME_CATALOG_TEST"] { SelfTest.catalogImport(pkg) }
         // Green accent color: set the system accent value (3 = green) in the app's defaults domain.

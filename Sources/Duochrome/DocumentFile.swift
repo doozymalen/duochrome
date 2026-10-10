@@ -15,10 +15,28 @@ enum DuochromeDocument {
         var settings: [String: Any]
     }
 
-    static func save(_ doc: RawDocument, to url: URL) throws {
+    /// Writes the package next to its destination first and swaps it in at the end,
+    /// so a save that fails halfway leaves the previous document untouched
+    static func save(_ doc: RawDocument, to destination: URL) throws {
         let fm = FileManager.default
-        if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
+        let url = destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(destination.lastPathComponent).saving-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: url, withIntermediateDirectories: true)
+        do {
+            try write(doc, into: url)
+            if fm.fileExists(atPath: destination.path) {
+                _ = try fm.replaceItemAt(destination, withItemAt: url)
+            } else {
+                try fm.moveItem(at: url, to: destination)
+            }
+        } catch {
+            try? fm.removeItem(at: url)
+            throw error
+        }
+    }
+
+    private static func write(_ doc: RawDocument, into url: URL) throws {
+        let fm = FileManager.default
         let settingsData = try JSONEncoder().encode(doc.settings)
         let settings = try JSONSerialization.jsonObject(with: settingsData)
         let size = (try? fm.attributesOfItem(atPath: doc.url.path)[.size] as? NSNumber)?.int64Value

@@ -15,7 +15,9 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         var url = AppSettings.catalogPath.map { URL(fileURLWithPath: $0) } ?? Catalog.defaultURL
         if let custom = env["DUOCHROME_CATALOG"] {
             url = URL(fileURLWithPath: custom)
-        } else if env["DUOCHROME_SNAPSHOT"] != nil {
+        } else if env["DUOCHROME_SNAPSHOT"] != nil || env["DUOCHROME_UITEST"] != nil || env["DUOCHROME_FIELDTEST"] != nil {
+            // The UI and field tests rewrite the open photo's adjustments, ratings and albums: without a catalog of
+            // their own they would do that to the user's photos, so they get a throwaway one
             url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("duochrome-test.duochromecatalog")
             try? FileManager.default.removeItem(at: url)
         }

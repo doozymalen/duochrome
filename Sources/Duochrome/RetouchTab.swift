@@ -379,6 +379,8 @@ final class RetouchOverlayView: NSView, PointerSource {
             return
         }
         let q = fromView(CGPoint(x: p.x + grabOffset.x, y: p.y + grabOffset.y))
+        // An undo during the drag can remove the grabbed spot
+        guard spots.indices.contains(grab.index) else { self.grab = nil; return }
         switch grab {
         case .target(let i):
             // Move target and source together (keeping the offset).

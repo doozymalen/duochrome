@@ -228,7 +228,10 @@ enum ColorLUT {
     }
 
     private static var lumaCache: (ToneCurve, [Float])?
+    private static let lumaLock = NSLock()
+    /// Called from several render threads at once (canvas, thumbnails, export), hence the lock
     private static func lumaTable(_ curve: ToneCurve) -> [Float] {
+        lumaLock.lock(); defer { lumaLock.unlock() }
         if let (c, t) = lumaCache, c == curve { return t }
         let t = curve.sample(256)
         lumaCache = (curve, t)
