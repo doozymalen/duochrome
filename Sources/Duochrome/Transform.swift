@@ -176,13 +176,19 @@ extension MainWindowController {
     /// Free transform (⌘T): shows the frame on the selected image layer.
     @objc func freeTransform(_ sender: Any?) {
         // Layer edit: ⌘T and the menu work on the background too (it becomes a photo layer first, as from the tool bar)
+        commitOpenEdit()      // ⌘T again with the frame open: confirm that one first
         if mode == .studio, !preparePhotoLayerForTransform() { return }
         guard let doc = photo, let id = layersTab.selectedID,
               let layer = doc.settings.layers.first(where: { $0.id == id }), let im = layer.image,
-              let src = Layers.sourceImage(im.file) else { NSSound.beep(); return }
-        guard !layer.locked else { NSSound.beep(); return }
+              let src = Layers.sourceImage(im.file) else { transformBase = nil; NSSound.beep(); return }
+        guard !layer.locked else { transformBase = nil; NSSound.beep(); return }
+        // A layer shaped by its four corners (perspective, distort) is drawn from those corners:
+        // the plain frame would move numbers the picture no longer follows, so it opens with corner handles
+        if im.quad != nil { quadTransform(0); return }
         let o = canvas.transformOverlay
-        let before = doc.settings
+        // What cancel goes back to: before the background was turned into a photo layer for this, if it was
+        let before = transformBase ?? doc.settings
+        transformBase = nil
         let previousTool = canvas.tool
         o.aspect = Double(src.extent.height / max(src.extent.width, 1))
         o.image = im
@@ -204,11 +210,19 @@ extension MainWindowController {
         }
         let finish: (Bool) -> Void = { [weak self] keep in
             guard let self, let doc = self.photo else { return }
+            // Closed: nothing left for commitOpenEdit to confirm
+            self.canvas.transformOverlay.onCommit = nil
+            self.canvas.transformOverlay.onCancel = nil
             var s = doc.settings
             if !keep { s = before }
             doc.settings = before          // so the history entry is "before transform → after"
-            if self.mode == .studio { self.retouchEditor.canvasBar.hide() }
-            self.enterTool(previousTool == .transform ? .pan : previousTool)
+            if self.mode == .studio {
+                // Back to the tool picked in the tool bar (so the canvas input matches it)
+                self.retouchEditor.canvasBar.hide()
+                self.retouchEditor.restoreTool()
+            } else {
+                self.enterTool(previousTool == .transform || previousTool == .points ? .pan : previousTool)
+            }
             if keep {
                 self.replaceSettings(s, recordUndo: true, label: "자유 변형")
             } else {

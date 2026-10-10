@@ -156,6 +156,16 @@ struct LayerImage: Equatable, Codable {
     var pins: [Double]? = nil
     /// Height (source pixels). Absent means image aspect (set when free transform changes the aspect)
     var height: Double?
+
+    /// Moves the picture, including the corner, grid and pin shapes it may be drawn from
+    /// (they replace the center when set, so moving only the center left the picture where it was)
+    mutating func translate(dx: Double, dy: Double) {
+        cx += dx; cy += dy
+        func shifted(_ v: [Double]?) -> [Double]? { v.map { a in a.enumerated().map { $0.offset % 2 == 0 ? $0.element + dx : $0.element + dy } } }
+        quad = shifted(quad)
+        mesh = shifted(mesh)
+        pins = shifted(pins)      // (original x, y, moved x, y): all four are positions
+    }
 }
 
 struct AdjustLayer: Equatable, Codable, Identifiable {

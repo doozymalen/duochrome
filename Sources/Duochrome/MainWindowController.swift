@@ -320,6 +320,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         var tMark = CACurrentMediaTime(), marks: [String] = []
         func mark(_ n: String) { if openLog { let t = CACurrentMediaTime(); marks.append(String(format: "%@ %.0f", n, (t - tMark) * 1000)); tMark = t } }
         defer { if openLog { NSLog("열기 단계(ms): %@", marks.joined(separator: ", ")) } }
+        commitOpenEdit()
         leaveCurrentPhoto()
         mark("떠나기")
         if item.offline {
@@ -560,7 +561,12 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     }
 
     /// The crop tool shows the whole frame with the crop rect overlaid. Other tools show the cropped result.
+    /// Settings from before the background was baked into a photo layer for a transform (see preparePhotoLayerForTransform)
+    var transformBase: DevelopSettings?
+
     func enterTool(_ tool: CanvasView.Tool) {
+        // Leaving an open transform or point edit for another tool confirms it (the session starters do this themselves)
+        if tool != .transform, tool != .points, tool != canvas.tool { commitOpenEdit() }
         canvas.tool = tool
         // For tools not in the bar (color editor eyedropper etc.), no button lights up.
         for (i, b) in cursorButtons.enumerated() { b.isOn = CanvasView.Tool.allCases[i] == tool }
@@ -885,8 +891,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             self.imageMoveOrigin = dragging ? origin : nil
             let target = self.snapNative(CGPoint(x: origin.x + (b.x - a.x), y: origin.y + (b.y - a.y)))
             let dx = target.x - start.x, dy = target.y - start.y
-            s.layers[i].image?.cx += dx
-            s.layers[i].image?.cy += dy
+            s.layers[i].image?.translate(dx: dx, dy: dy)
             s.layers[i].text?.x += dx
             s.layers[i].text?.y += dy
             self.apply(s, dragging: dragging)
@@ -961,7 +966,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     @objc func groupLayer(_ sender: Any?) { layersTab.groupSelected() }
     @objc func ungroupLayer(_ sender: Any?) { layersTab.ungroupSelected() }
 
-    private func syncLayers(_ s: DevelopSettings, dragging: Bool) {
+    func syncLayers(_ s: DevelopSettings, dragging: Bool) {
         canvas.maskOverlay.adjustLayer = s.layers.first { $0.id == layersTab.selectedID }
         canvas.maskOverlay.brushRadius = layersTab.brushRadius
         if !dragging { layersTab.sync(s); inspector.refreshLayers() }

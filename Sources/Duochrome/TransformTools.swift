@@ -21,7 +21,9 @@ final class PointsOverlayView: NSView, PointerSource {
     var onCommit: (() -> Void)?
     var onCancel: (() -> Void)?
     /// Brush radius (view pixels, brush-mode cursor)
-    var brushRadius: CGFloat = 0 { didSet { window?.invalidateCursorRects(for: self) } }
+    var brushRadius: CGFloat = 0 { didSet { window?.invalidateCursorRects(for: self); needsDisplay = true } }
+    /// Brush radius in source pixels while a brush session is open (the canvas rescales `brushRadius` from it when the zoom changes)
+    var sourceBrushRadius: CGFloat?
     /// Brush strokes (liquify) get the brush circle as the pointer, point handles the crosshair
     override func resetCursorRects() {
         addCursorRect(editArea, cursor: style == .strokes ? BrushCursor.make(viewRadius: brushRadius) : .crosshair)
@@ -140,7 +142,9 @@ extension MainWindowController {
 
     /// Point layer in source coordinates
     func beginPoints(style: PointsOverlayView.Style, points: [CGPoint], hint: String, native: Bool = true) -> PointsOverlayView {
+        commitOpenEdit()
         let o = canvas.pointsOverlay
+        o.sourceBrushRadius = nil
         o.style = style
         o.points = points
         o.anchors = []
@@ -170,6 +174,17 @@ extension MainWindowController {
         if mode == .studio { retouchEditor.canvasBar.hide() }
         // Layer editor: back to the picked tool (so the canvas input matches the tool bar)
         if mode == .studio { retouchEditor.restoreTool() } else { enterTool(.pan) }
+    }
+
+    /// Confirms a transform frame or point edit that is still open. Called before the tool, mode or photo changes:
+    /// those edits write to the photo as they go and are only recorded and saved when confirmed, so leaving one open
+    /// lost it on the next photo and merged it into the next undo step.
+    func commitOpenEdit() {
+        if canvas.tool == .transform, let done = canvas.transformOverlay.onCommit {
+            done()
+        } else if canvas.tool == .points, canvas.pointsOverlay.style != .strokes, let done = canvas.pointsOverlay.onCommit {
+            done()      // liquify (strokes) records each stroke as it is made: nothing open to confirm
+        }
     }
 
     private func selectedImageLayer() -> (Int, AdjustLayer, Double)? {
@@ -205,9 +220,11 @@ extension MainWindowController {
 
     func quadTransform(_ mode: Int) {
         // Layer edit: the shortcut and menu work on the background too (it becomes a photo layer first, as from the tool bar)
+        commitOpenEdit()
         if self.mode == .studio, !preparePhotoLayerForTransform() { return }
-        guard let doc = photo, let (i, layer, aspect) = selectedImageLayer(), let im = layer.image else { NSSound.beep(); return }
-        let before = doc.settings
+        guard let doc = photo, let (i, layer, aspect) = selectedImageLayer(), let im = layer.image else { transformBase = nil; NSSound.beep(); return }
+        let before = transformBase ?? doc.settings
+        transformBase = nil
         var quad = Warp.corners(im, aspect: aspect)
         let names = ["왜곡", "원근", "기울이기"]
         let o = beginPoints(style: .quad, points: quad, hint: "\(names[mode]): 모서리를 끄세요 · 리턴 확정 · esc 취소")
@@ -592,6 +609,7 @@ extension MainWindowController {
         guard photo != nil else { NSSound.beep(); return }
         let names = ["밀기", "부풀리기", "오목", "돌리기", "반시계 돌리기", "되돌리기"]
         let o = beginPoints(style: .strokes, points: [], hint: "유동화 (\(names[tool])): 끌어 칠하기 · 붓 크기 [ ] · 리턴·esc 끝")
+        o.sourceBrushRadius = CGFloat(layersTab.brushRadius)   // the pointer circle follows the zoom from here on
         o.brushRadius = CGFloat(layersTab.brushRadius) * canvas.zoom
         o.onStroke = { [weak self] pts, flags in
             guard let self, var s = self.photo?.settings else { return }
@@ -610,8 +628,21 @@ extension MainWindowController {
             self.replaceSettings(s2, recordUndo: true, label: "유동화 \(names[t])")
             o.strokes = []
         }
-        o.onCommit = { [weak self] in self?.endPoints() }
-        o.onCancel = { [weak self] in self?.endPoints() }
+        // Return / esc end liquify. In the layer editor that means leaving the tool
+        // (going back to the picked tool would start liquify again at once, so nothing seemed to happen)
+        let end: () -> Void = { [weak self] in
+            guard let self else { return }
+            if self.mode == .studio {
+                self.canvas.pointsOverlay.onCommit = nil
+                self.canvas.pointsOverlay.onCancel = nil
+                self.retouchEditor.canvasBar.hide()
+                self.retouchEditor.selectTool("hand")
+            } else {
+                self.endPoints()
+            }
+        }
+        o.onCommit = end
+        o.onCancel = end
     }
 
     @objc func liquifyPush(_ sender: Any?) { liquify(tool: 0) }

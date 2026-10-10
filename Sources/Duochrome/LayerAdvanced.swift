@@ -144,8 +144,7 @@ extension MainWindowController {
     func moveLinked(_ s: inout DevelopSettings, from i: Int, dx: Double, dy: Double) {
         let link = s.layers[i].link
         for k in s.layers.indices where k == i || (link != nil && s.layers[k].link == link) {
-            s.layers[k].image?.cx += dx
-            s.layers[k].image?.cy += dy
+            s.layers[k].image?.translate(dx: dx, dy: dy)
         }
     }
 

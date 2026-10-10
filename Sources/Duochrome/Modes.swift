@@ -103,6 +103,7 @@ extension MainWindowController {
 
     func setMode(_ m: AppMode) {
         guard let window else { return }
+        if m != mode { commitOpenEdit() }
         let frame = window.frame
         // Left/right panel widths of the mode being left (the new mode inherits them so panels don't jump)
         let widths = sideWidths(mode)

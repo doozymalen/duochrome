@@ -31,8 +31,11 @@ final class CanvasView: MTKView {
     /// Cursor tool. Hand drags to pan, zoom clicks 2× (Option zooms out).
     var tool: Tool = .pan {
         didSet {
-            // Every canvas layer clips its edit pointer to the uncovered area
-            window?.resetCursorRects()
+            // Every canvas layer clips its edit pointer to the uncovered area: each one's rects are rebuilt
+            // (the window-wide reset is a legacy call that does not reach them)
+            window?.invalidateCursorRects(for: self)
+            for v in subviews { window?.invalidateCursorRects(for: v) }
+            for v in superview?.subviews ?? [] where v !== self { window?.invalidateCursorRects(for: v) }
             overlay.isHidden = !(tool == .crop || tool == .straighten || tool == .keystone)
             overlay.mode = tool == .straighten ? .straighten : (tool == .keystone ? .keystone : .crop)
             retouchOverlay.isHidden = tool != .retouch
@@ -325,6 +328,7 @@ final class CanvasView: MTKView {
         // Brush pointers are drawn at the brush's on-screen size
         window?.invalidateCursorRects(for: retouchOverlay)
         window?.invalidateCursorRects(for: brushSurface)
+        if pointsOverlay.style == .strokes, let r = pointsOverlay.sourceBrushRadius { pointsOverlay.brushRadius = r * zoom }
         maskOverlay.needsDisplay = true
         gridOverlay.needsDisplay = true
         transformOverlay.needsDisplay = true

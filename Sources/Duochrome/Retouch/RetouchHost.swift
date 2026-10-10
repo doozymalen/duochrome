@@ -165,7 +165,10 @@ extension MainWindowController {
     /// Brush size changed in the inspector
     func retouchBrushChanged() {
         viewer.canvas.brushSurface.radius = CGFloat(layersTab.brushRadius)
-        if viewer.canvas.pointsOverlay.style == .strokes { viewer.canvas.pointsOverlay.brushRadius = CGFloat(layersTab.brushRadius) * viewer.canvas.zoom }
+        if viewer.canvas.pointsOverlay.style == .strokes {
+            viewer.canvas.pointsOverlay.sourceBrushRadius = CGFloat(layersTab.brushRadius)
+            viewer.canvas.pointsOverlay.brushRadius = CGFloat(layersTab.brushRadius) * viewer.canvas.zoom
+        }
         viewer.canvas.selectionTool.brushRadius = CGFloat(layersTab.brushRadius)
     }
 
@@ -187,8 +190,15 @@ extension MainWindowController {
         let source = picked.map { [s.layers[$0]] } ?? s.layers
         guard let img = rasterize(source, withPhoto: true),
               let l = imageLayer(from: img, name: picked.map { s.layers[$0].name } ?? "변형") else { NSSound.beep(); return false }
+        // Not recorded on its own: the transform that follows records one step from here (base → transformed),
+        // and cancelling it goes back to the base, so no baked layer is left covering the adjustments below
+        let base = s
         if let i = picked { s.layers[i] = l } else { s.layers.append(l) }
-        replaceSettings(s, recordUndo: true, label: picked == nil ? "변형할 사진 레이어" : "사진 레이어로 바꾸기")
+        transformBase = base
+        photo?.draft = false
+        photo?.settings = s
+        syncLayers(s, dragging: false)
+        canvas.needsDisplay = true
         layersTab.select(l.id)
         retouchEditor.reload()
         return true

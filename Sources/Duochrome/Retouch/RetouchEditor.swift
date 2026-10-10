@@ -136,6 +136,7 @@ final class RetouchEditor: NSViewController {
     func selectTool(_ id: String) {
         guard let host, let tool = RetouchTool.named(id) else { return }
         _ = view
+        host.commitOpenEdit()
         // Free transform and perspective are commands on the selected photo layer:
         // the picked tool stays and comes back when their frame closes
         if id == "transform" || id == "perspective" {

@@ -1032,6 +1032,58 @@ extension MainWindowController {
             check("심화 보정: 복구·복제 도장·이동·자유 변형", healOK && cloneOK && moveOK && transformOK,
                   "복구 \(healOK), 복제 \(cloneOK), 이동 \(moveOK), 자유 변형 \(transformOK)")
             replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
+
+            // Transform sessions: a frame left open is confirmed when the tool changes (one history step),
+            // cancelling on the background leaves no baked layer, and a corner-shaped layer still moves
+            do {
+                layersTab.select(nil)
+                let n0 = doc.settings.layers.count
+                ed.selectTool("hand")
+                freeTransform(nil)
+                let baked = doc.settings.layers.count == n0 + 1 && canvas.tool == .transform
+                canvas.transformOverlay.onCancel?()
+                let cancelClean = doc.settings.layers.count == n0 && canvas.tool == .pan
+
+                layersTab.select(nil)
+                // The state to return to has to be a history entry itself (the test resets above are not recorded)
+                var marked = doc.settings; marked.exposure += 0.01
+                replaceSettings(marked, recordUndo: true, label: "시험 기준")
+                let h0 = history.labels.count
+                freeTransform(nil)
+                if var im = canvas.transformOverlay.image {
+                    im.cx += 300
+                    canvas.transformOverlay.image = im
+                    canvas.transformOverlay.onChange?(im, false)
+                }
+                ed.selectTool("dodge")      // leaves the frame open → must confirm it
+                let committed = canvas.tool == .brush && canvas.transformOverlay.onCommit == nil
+                    && doc.settings.layers.count == n0 + 1 && history.labels.count == h0 + 1 && history.labels.last == "자유 변형"
+                undoAdjust(nil)
+                let oneStep = doc.settings == marked
+
+                var quadOK = false
+                if var st = photo?.settings {
+                    freeTransform(nil); canvas.transformOverlay.onCommit?()
+                    st = doc.settings
+                    if let i = st.layers.indices.last, var im = st.layers[i].image {
+                        let w = Double(doc.nativeSize.width), h = Double(doc.nativeSize.height)
+                        im.quad = [0, 0, w, 0, w * 0.9, h * 0.9, 0, h]
+                        st.layers[i].image = im
+                        replaceSettings(st, recordUndo: false, label: "시험")
+                        layersTab.select(st.layers[i].id)
+                        ed.selectTool("move")
+                        let c0 = canvas.viewPoint(forImage: doc.toDisplay(CGPoint(x: w / 2, y: h / 2)))
+                        drag(canvas.moveSurface, from: c0, to: CGPoint(x: c0.x + 60, y: c0.y))
+                        let q = doc.settings.layers.last?.image?.quad ?? []
+                        quadOK = q.count == 8 && q[0] > 10 && abs((q[2] - q[0]) - w) < 1
+                    }
+                }
+                check("심화 보정: 변형 세션 (취소·도구 전환 확정·한 번에 되돌리기·모서리 변형 뒤 이동)",
+                      baked && cancelClean && committed && oneStep && quadOK,
+                      "배경 변환 \(baked), 취소 뒤 깨끗 \(cancelClean), 전환 시 확정 \(committed), 한 단계 \(oneStep), 모서리 변형 이동 \(quadOK)")
+                ed.selectTool("hand")
+                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
+            }
             setMode(.edit)
             let back = canvas.isDescendant(of: viewer.view) && tools.view.window != nil
             check("대량 보정으로 돌아오기", back && canvas.bounds.width > 200, String(format: "캔버스 %.0f×%.0f", canvas.bounds.width, canvas.bounds.height))
