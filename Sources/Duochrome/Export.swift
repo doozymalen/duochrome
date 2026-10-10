@@ -396,6 +396,8 @@ final class ExportSheet: NSWindowController {
         namePattern.stringValue = r.namePattern ?? ""
         meta.state = r.keepMetadata ? .on : .off
         mark.stringValue = r.watermark
+        markSize.selectItem(at: [1.5, 2.5, 4, 6].firstIndex(of: r.watermarkSize) ?? 1)
+        markCorner.selectItem(at: r.watermarkCorner)
         qualityChanged()
     }
 
@@ -430,6 +432,7 @@ final class ExportSheet: NSWindowController {
         // Current settings + recipes chosen to write along, in turn (several formats at once)
         var queue = [recipe] + ExportRecipe.library.filter { also.contains($0.name ?? "") && $0 != recipe }
         var all: [URL] = []
+        failures = []
         func next() {
             guard !queue.isEmpty else { finish(all); return }
             let r = queue.removeFirst()
@@ -439,8 +442,18 @@ final class ExportSheet: NSWindowController {
         next()
     }
 
+    /// What could not be written in this run (shown at the end; it used to be overwritten by the "N exported" line at once)
+    private var failures: [String] = []
+
     private func finish(_ urls: [URL]) {
-        status.stringValue = "\(urls.count)장 내보냄"
+        status.stringValue = failures.isEmpty ? "\(urls.count)장 내보냄" : "\(urls.count)장 내보냄 · \(failures.count)건 실패"
+        if !failures.isEmpty, let w = window {
+            let a = NSAlert()
+            a.alertStyle = .warning
+            a.messageText = "\(failures.count)건을 내보내지 못했습니다"
+            a.informativeText = failures.prefix(12).joined(separator: "\n")
+            a.beginSheetModal(for: w)
+        }
         go.title = "Finder에서 보기"
         go.action = #selector(reveal)
         done = urls
@@ -469,7 +482,11 @@ final class ExportSheet: NSWindowController {
                         doc = try RawDocument(url: item.url)
                         if let s = lib?.loadSettings(for: item.url, over: doc.asShot) { doc.settings = s; doc.applyImportedWB() }
                     }
-                    var name = item.variant > 0 ? item.name.replacingOccurrences(of: " (변형 ", with: "_v").replacingOccurrences(of: ")", with: "") : item.name
+                    // A variant keeps its mark before the extension (IMG_1_v2.CR3): after it, the mark was cut off
+                    // with the extension and the variant overwrote the original's export
+                    var name = item.variant > 0
+                        ? item.url.deletingPathExtension().lastPathComponent + "_v\(item.variant)." + item.url.pathExtension
+                        : item.name
                     if let p = r.namePattern, !p.isEmpty {
                         var date: Date?
                         DispatchQueue.main.sync {
@@ -487,7 +504,7 @@ final class ExportSheet: NSWindowController {
             }
             DispatchQueue.main.async {
                 self?.go.isEnabled = true
-                if !errors.isEmpty { self?.status.stringValue = errors.prefix(3).joined(separator: " · ") }
+                self?.failures += errors
                 completion(urls)
             }
         }

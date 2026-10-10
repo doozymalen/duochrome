@@ -103,7 +103,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
             search.constraints.filter { $0.firstAttribute == .width }.forEach { search.removeConstraint($0) }
             search.controlSize = .small
             searchField = search
-            let gridButton = ModeBarButton("square.grid.2x2", "격자 보기 (G) — 다시 누르면 대량 보정으로", target: self, action: #selector(gridToggle))
+            let gridButton = ModeBarButton("square.grid.2x2", "격자 보기 (⌥⌘2) — 다시 누르면 대량 보정으로", target: self, action: #selector(gridToggle))
             let row = NSStackView(views: [search, gridButton])
             row.spacing = 6
             row.translatesAutoresizingMaskIntoConstraints = false
@@ -260,7 +260,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
         let item = library.items[indexPath.item]
         let p = NSPasteboardItem()
         p.setString(item.url.absoluteString, forType: .fileURL)
-        p.setString(item.url.path, forType: .duochromePhotos)
+        p.setString(Catalog.storedPath(item.url), forType: .duochromePhotos)   // with the variant mark (#v2)
         return p
     }
 
@@ -270,7 +270,7 @@ final class BrowserViewController: NSViewController, NSCollectionViewDataSource,
                         dropOperation op: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
         guard onDropAdjustments != nil, let path = info.draggingPasteboard.string(forType: .duochromePhotos) else { return [] }
         let i = p.pointee.item
-        guard library.items.indices.contains(i), library.items[i].url.path != path else { return [] }
+        guard library.items.indices.contains(i), Catalog.storedPath(library.items[i].url) != path else { return [] }
         op.pointee = .on
         return .copy
     }

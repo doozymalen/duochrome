@@ -75,7 +75,11 @@ let developCards: [CardSpec] = [
         SliderSpec(label: "중간 (감마)", key: \.levelGamma, min: 0.2, max: 3, format: "%.2f"),
         SliderSpec(label: "출력 검정", key: \.levelOutBlack, min: 0, max: 0.9, format: "%.0f", display: 255),
         SliderSpec(label: "출력 흰색", key: \.levelOutWhite, min: 0.1, max: 1, format: "%.0f", display: 255),
-    ], auto: true),
+    ], bypass: { s, from in
+        // The per-channel (red, green, blue) levels belong to this card too
+        s.levelInBlack = from.levelInBlack; s.levelInWhite = from.levelInWhite; s.levelGamma = from.levelGamma
+        s.levelOutBlack = from.levelOutBlack; s.levelOutWhite = from.levelOutWhite; s.levelsRGB = from.levelsRGB
+    }, auto: true),
     CardSpec(id: "curve", title: "커브",
              bypass: { s, _ in s.curves = CurveSet() }),
     CardSpec(id: "balance", title: "컬러 밸런스", bypass: { s, _ in
@@ -165,6 +169,8 @@ final class InspectorViewController: NSViewController {
     fileprivate var channelRows: [SliderRow] = []
     fileprivate let channelPopup = NSPopUpButton()
     fileprivate var basePopup: NSPopUpButton?
+    /// Color balance wheels in order: master, shadows, midtones, highlights
+    fileprivate var balanceCells: [NSView] = []
     fileprivate var editorIndex = 0
     fileprivate let editorPopup = NSPopUpButton()
     fileprivate var editorRows: [SliderRow] = []
@@ -342,12 +348,12 @@ final class InspectorViewController: NSViewController {
     func show(_ doc: RawDocument) {
         self.doc = doc
         settings = doc.settings
-        bypassed = []
+        bypassed = Set(settings.cardStash?.keys.map { $0 } ?? [])
         // Double-click and snapping reference the as-shot values (some are nonzero, like temperature and sharpening).
         for (spec, row) in rows { row.defaultValue = Double(doc.asShot[keyPath: spec.key]) }
         for (spec, card) in cards {
             card.isHidden = spec.rawOnly && !doc.isRaw
-            card.isOn = spec.enableKey.map { settings[keyPath: $0] } ?? true
+            card.isOn = spec.enableKey.map { settings[keyPath: $0] } ?? !bypassed.contains(spec.id)
         }
         let hasLook = doc.isRaw && Look.available(for: doc.info.camera)
         lookRows.forEach { $0.isHidden = !hasLook }
@@ -367,6 +373,23 @@ final class InspectorViewController: NSViewController {
         for (p, popup) in popups { popup.selectItem(at: Int(settings[keyPath: p.key])) }
         syncChannelLevels()
         for (key, wheel) in wheels { wheel.shift = settings[keyPath: key] }
+        // Curve preset shown = the one matching this photo's values (it used to keep the previous photo's pick)
+        if let p = basePopup {
+            let i = Self.basePresets.firstIndex { abs($0.1 - settings.filmCurve) < 0.001 && abs($0.2 - settings.filmContrast) < 0.001 }
+            p.selectItem(at: i ?? -1)
+        }
+        refreshBalanceCells()
+    }
+
+    /// Color balance shows either the master wheel or the three ranges. A wheel with a value stays visible in either
+    /// view (hidden wheels kept applying their value with no sign of it)
+    private func refreshBalanceCells() {
+        guard balanceCells.count == 4 else { return }
+        let mode = UserDefaults.standard.integer(forKey: "balanceMode")
+        let c = settings.color
+        let set = [c.master, c.shadow, c.mid, c.high].map { $0 != ColorShift() }
+        balanceCells[0].isHidden = mode == 0 && !set[0]
+        for k in 1 ... 3 { balanceCells[k].isHidden = mode == 1 && !set[k] }
     }
 
     /// Disabled cards substitute neutral values.
@@ -397,13 +420,37 @@ final class InspectorViewController: NSViewController {
             guard let self else { return }
             if let key = spec.enableKey {
                 self.settings[keyPath: key] = on
-            } else if on { self.bypassed.remove(spec.id) } else { self.bypassed.insert(spec.id) }
+            } else if on {
+                // Back on: the card's values return from where they were put away
+                self.bypassed.remove(spec.id)
+                if let data = self.settings.cardStash?[spec.id], let saved = try? JSONDecoder().decode(DevelopSettings.self, from: data) {
+                    if let bypass = spec.bypass { bypass(&self.settings, saved) } else { for r in spec.rows { self.settings[keyPath: r.key] = saved[keyPath: r.key] } }
+                }
+                self.settings.cardStash?[spec.id] = nil
+                if self.settings.cardStash?.isEmpty == true { self.settings.cardStash = nil }
+                self.sync()
+            } else {
+                // Off: put the values away inside the settings (they used to live only in this panel, so changing photos,
+                // pasting or undoing saved the neutral values for good and the switch came back on)
+                var keep = self.settings
+                keep.layers = []; keep.spots = []; keep.cardStash = nil
+                if let data = try? JSONEncoder().encode(keep) {
+                    var stash = self.settings.cardStash ?? [:]
+                    stash[spec.id] = data
+                    self.settings.cardStash = stash
+                }
+                self.bypassed.insert(spec.id)
+                self.settings = self.effective()
+            }
             self.onChange?(self.effective(), false)
         }
         card.onReset = { [weak self] in
             guard let self, let doc = self.doc else { return }
             for r in spec.rows { self.settings[keyPath: r.key] = doc.asShot[keyPath: r.key] }
             if spec.id == "lens" { self.settings.lensCorrection = doc.asShot.lensCorrection }
+            if spec.id == "levels" { self.settings.levelsRGB = doc.asShot.levelsRGB }
+            // The curve preset of this card also sets the film contrast
+            if spec.id == "base" { self.settings.filmContrast = doc.asShot.filmContrast }
             if spec.id == "curve" { self.settings.curves = CurveSet() }
             if spec.id == "editor" {
                 self.settings.color.editor = ColorRange.basic; self.editorIndex = 0
@@ -542,10 +589,9 @@ extension InspectorViewController {
         let mode = NSPopUpButton()
         mode.controlSize = .small
         mode.addItems(withTitles: ["3방향 색상", "마스터"])
-        let modeTarget = PopupTarget { i in
+        let modeTarget = PopupTarget { [weak self] i in
             UserDefaults.standard.set(i, forKey: "balanceMode")
-            cells[0].isHidden = i == 0
-            for c in cells[1...] { c.isHidden = i == 1 }
+            self?.refreshBalanceCells()
         }
         popupTargets.append(modeTarget)
         mode.target = modeTarget
@@ -559,8 +605,8 @@ extension InspectorViewController {
             card.body.addArrangedSubview(cells[i])
             cells[i].widthAnchor.constraint(equalTo: card.body.widthAnchor).isActive = true
         }
-        cells[0].isHidden = saved == 0
-        for c in cells[1...] { c.isHidden = saved == 1 }
+        balanceCells = cells
+        refreshBalanceCells()
     }
 
     /// Dev only: scrolls the inspector so a card is visible.
@@ -1131,8 +1177,14 @@ final class SliderRow: NSView, NSTextFieldDelegate {
             slider.doubleValue = x
             onChange?(x, false)
         }
-        updateLabel()
-        window?.makeFirstResponder(nil)
+        // Inside this notification the field editor is still attached: the label refused to update (so an out-of-range
+        // entry kept showing what was typed) and giving up focus here was undone by AppKit after Return. Both happen
+        // on the next pass instead. If focus already moved on (Tab), it is left alone.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.valueField.currentEditor() != nil { self.window?.makeFirstResponder(nil) }
+            self.valueField.stringValue = String(format: self.format, self.slider.doubleValue * self.display)
+        }
     }
 }
 

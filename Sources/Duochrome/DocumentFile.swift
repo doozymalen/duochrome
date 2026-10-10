@@ -50,7 +50,11 @@ enum DuochromeDocument {
         try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
             .write(to: url.appendingPathComponent("document.json"))
         // Image layer pictures are included too (images/filename).
-        let files = Set(doc.settings.layers.compactMap { $0.image?.file })
+        // Everything the settings keep in the catalog's layer-file folder travels with the document: layer pictures,
+        // AI and baked masks, LUTs, fill patterns, the background cut-out and the LCC reference (linked files stay links)
+        var names = doc.settings.layers.flatMap { l in [l.image?.file, l.mask.maskFile, l.adjust.lut, l.fillPatternFile] + (l.mask.combos ?? []).map { Optional($0.mask.maskFile) } }
+        names += [doc.settings.cutout, doc.settings.lcc]
+        let files = Set(names.compactMap { $0 }.filter { !$0.isEmpty && !$0.hasPrefix("link:") && !$0.hasPrefix("/") })
         if !files.isEmpty {
             let dir = url.appendingPathComponent("images", isDirectory: true)
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)

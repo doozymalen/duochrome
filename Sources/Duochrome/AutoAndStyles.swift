@@ -7,12 +7,15 @@ extension MainWindowController {
     /// Auto adjust: white balance (gray world) → exposure (mid brightness) → levels (black/white points).
     @objc func autoAdjust(_ sender: Any?) {
         guard photo != nil else { NSSound.beep(); return }
-        pickWhiteBalance(at: nil) { [weak self] in
+        guard let before = photo?.settings else { return }
+        // White balance is applied without a history step of its own: the whole auto adjust is one step
+        pickWhiteBalance(at: nil, record: false) { [weak self] in
             guard let self, let doc = self.photo, var s = self.photo?.settings else { return }
-            let tone = Self.autoTone(doc.image(scale: Develop.guideScale))
+            let tone = Self.autoTone(self.imageWithoutLevels(doc))
             s.exposure = min(max(s.exposure + tone.ev, -4), 4)
-            if tone.white < 0.95 { s.levelInWhite = max(tone.white, 0.6) }
-            if tone.black > 0.03 { s.levelInBlack = min(tone.black, 0.15) }
+            s.levelInWhite = tone.white < 0.95 ? max(tone.white, 0.6) : 1
+            s.levelInBlack = tone.black > 0.03 ? min(tone.black, 0.15) : 0
+            doc.settings = before
             self.replaceSettings(s, recordUndo: true, label: "자동 조정")
             self.inspector.show(doc)
             NSLog("auto adjust: ev %+.2f black %.3f white %.3f", tone.ev, tone.black, tone.white)
@@ -23,7 +26,7 @@ extension MainWindowController {
     func autoCard(_ id: String) {
         guard let doc = photo else { NSSound.beep(); return }
         var s = doc.settings
-        let tone = Self.autoTone(doc.image(scale: Develop.guideScale))
+        let tone = Self.autoTone(imageWithoutLevels(doc))
         switch id {
         case "exposure":
             s.exposure = min(max(s.exposure + tone.ev, -4), 4)
@@ -36,6 +39,18 @@ extension MainWindowController {
         }
         replaceSettings(s, recordUndo: true, label: id == "levels" ? "자동 레벨" : "자동 노출")
         inspector.show(doc)
+    }
+
+    /// The photo as it looks with the input levels at neutral. Auto levels measures this: measuring the already
+    /// levelled picture made a second "Auto" undo the first (the points flipped back and forth).
+    func imageWithoutLevels(_ doc: RawDocument) -> CIImage {
+        let saved = doc.settings
+        var n = saved
+        n.levelInBlack = 0; n.levelInWhite = 1
+        guard n != saved else { return doc.image(scale: Develop.guideScale) }
+        doc.settings = n
+        defer { doc.settings = saved }
+        return doc.image(scale: Develop.guideScale)
     }
 
     /// From the display (gamma) luminance histogram: exposure moving the median to 0.46, then the 0.1% / 99.9% luminance after the move.
@@ -189,6 +204,9 @@ extension MainWindowController {
         for f in [browser.searchField, libraryMode.searchField] where f !== sender { f?.stringValue = sender.stringValue }
         browser.reload()
         libraryMode.grid.reload()
+        // The count in the title follows the filtered list
+        window?.subtitle = "\(library.items.count)장"
+        if let t = window?.title { libraryMode.setTitle("\(t) · \(library.items.count)장") }
     }
 }
 

@@ -5,6 +5,10 @@ import UniformTypeIdentifiers
 
 /// Develop values of the RAW layer.
 struct DevelopSettings: Equatable, Codable {
+    /// Values of adjustment cards that are switched off (card id → the settings from before it was switched off, without
+    /// layers and spots). While a card is off its values are neutral here; switching it back on restores them from this.
+    /// Kept in the settings so the switch survives changing photos, undo and restarts.
+    var cardStash: [String: Data]? = nil
     // white balance
     var temperature: Float = 5500
     var tint: Float = 0

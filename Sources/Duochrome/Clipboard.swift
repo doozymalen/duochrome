@@ -25,7 +25,8 @@ enum AdjustGroup: String, CaseIterable {
         switch self {
         case .whiteBalance: ["temperature", "tint"]
         case .exposure: ["exposure", "contrast", "brightness", "saturation", "filmCurve", "filmContrast", "look", "intensity"]
-        case .hdr: ["highlight", "shadow", "white", "black", "highlightRecoveryOn"]
+        // "highlights" is the value the slider writes now; "highlight" is the older key (kept for older files)
+        case .hdr: ["highlight", "highlights", "shadow", "white", "black", "highlightRecoveryOn"]
         case .clarity: ["clarity", "structure", "dehaze", "clarityMethod", "dehazeHue", "dehazeTint"]
         case .levelsCurves: ["levelInBlack", "levelInWhite", "levelGamma", "levelOutBlack", "levelOutWhite", "levelsRGB", "curves"]
         case .color: ["color", "colorEditor"]

@@ -70,7 +70,16 @@ enum PhotoImporter {
                     base = MainWindowController.renamed(o.namePattern, item: item, index: i + 1, date: date, camera: ShotInfo(url: src).camera)
                 }
                 dst = dir.appendingPathComponent(base).appendingPathExtension(src.pathExtension)
-                if fm.fileExists(atPath: dst.path) { r.skipped += 1; continue }
+                // Same name already there: skip only if it is the same file (same size). A different photo with the same
+                // name (another subfolder or card) gets _2, _3… — it used to be skipped silently, and in move mode left behind.
+                func size(_ u: URL) -> Int64? { (try? fm.attributesOfItem(atPath: u.path)[.size] as? NSNumber)?.int64Value }
+                var n = 2, same = false
+                while fm.fileExists(atPath: dst.path) {
+                    if let a = size(src), a == size(dst) { same = true; break }
+                    dst = dir.appendingPathComponent("\(base)_\(n)").appendingPathExtension(src.pathExtension)
+                    n += 1
+                }
+                if same { r.skipped += 1; continue }
                 do {
                     if o.mode == .move { try fm.moveItem(at: src, to: dst) } else { try fm.copyItem(at: src, to: dst) }
                     // sidecars too

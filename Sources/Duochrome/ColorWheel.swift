@@ -129,7 +129,11 @@ final class ColorWheelView: NSView {
         case .amountArc:
             // Dragging down moves toward the complement
             let t = arcValue(v, left: true)
-            if t < 0, s.amount >= 0 { s.hue = (s.hue + 180).truncatingRemainder(dividingBy: 360) }
+            // Flip to the complement once when the drag crosses zero (it used to flip on every move below zero)
+            if (t < 0) != arcBelowZero {
+                arcBelowZero = t < 0
+                s.hue = (s.hue + 180).truncatingRemainder(dividingBy: 360)
+            }
             s.amount = abs(t)
         case .lightArc:
             s.lightness = arcValue(v, left: false)
@@ -138,9 +142,13 @@ final class ColorWheelView: NSView {
         onChange?(s, dragging)
     }
 
+    /// Whether the amount arc drag is currently below zero (on the complement side)
+    private var arcBelowZero = false
+
     override func mouseDown(with event: NSEvent) {
         let v = convert(event.locationInWindow, from: nil)
         part = hitPart(v)
+        arcBelowZero = false
         if event.clickCount == 2 {
             switch part {
             case .disc: shift.hue = 0; shift.amount = 0

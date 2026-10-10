@@ -267,7 +267,33 @@ extension Catalog {
 
     /// Fills camera, lens, ISO, aperture, focal length, shutter, and capture time for unread photos (skips offline)
     /// Capture info for one photo (read from the file) — read on a background thread
-    struct ExifRow { var id: Int64; var cam, lens: String?; var iso, ap, focal, sh, date: Double? }
+    struct ExifRow { var id: Int64; var cam, lens: String?; var iso, ap, focal, sh, date: Double?; var read = false; var missing = false }
+
+    /// exif_done: 0 not tried, 1 read, 2 could not be read this session (drive away, file still copying).
+    /// 2 goes back to 0 once per launch, so such photos are retried without spinning on them now.
+    private static var retriedFailed = false
+    func retryFailedExif() {
+        guard !Self.retriedFailed else { return }
+        Self.retriedFailed = true
+        _ = try? db.run("UPDATE images SET exif_done = 0 WHERE exif_done = 2", [])
+        // Photos marked offline whose file is back (drive mounted again, folder restored) come back online.
+        // Checked off the main thread: the paths may be on a network drive.
+        var gone: [(Int64, String)] = []
+        try? db.query("SELECT id, path FROM images WHERE offline = 1 AND path NOT LIKE '%#v%' LIMIT 20000", []) { gone.append(($0.int(0), $0.text(1) ?? "")) }
+        guard !gone.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let back = gone.filter { FileManager.default.fileExists(atPath: $0.1) }.map(\.0)
+            guard !back.isEmpty else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                try? self.db.transaction {
+                    for id in back { try self.db.run("UPDATE images SET offline = 0, exif_done = 0 WHERE id = ?", [id]) }
+                }
+                NotificationCenter.default.post(name: Catalog.offlineChanged, object: self)
+            }
+        }
+    }
+    static let offlineChanged = Notification.Name("duochrome.catalog.offlineChanged")
 
     private static let exifDate: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy:MM:dd HH:mm:ss"; return f }()
 
@@ -296,6 +322,9 @@ extension Catalog {
             r.focal = exif[kCGImagePropertyExifFocalLength] as? Double
             r.sh = exif[kCGImagePropertyExifExposureTime] as? Double
             if let d = exif[kCGImagePropertyExifDateTimeOriginal] as? String { r.date = exifDate.date(from: d)?.timeIntervalSince1970 }
+            r.read = true
+        } else {
+            r.missing = !FileManager.default.fileExists(atPath: path)
         }
         return r
     }
@@ -303,6 +332,11 @@ extension Catalog {
     /// Writes read values to the DB (main thread)
     func storeExif(_ rows: [ExifRow]) {
         for r in rows {
+            guard r.read else {
+                // Not there at all: the photo is offline (it used to stay "online" forever unless it came from an imported catalog)
+                _ = try? db.run("UPDATE images SET exif_done = 2, offline = ? WHERE id = ?", [r.missing ? 1 : 0, r.id])
+                continue
+            }
             _ = try? db.run("""
                 UPDATE images SET camera = COALESCE(?, camera), lens = COALESCE(?, lens), iso = ?, aperture = ?, focal = ?, shutter = ?,
                     capture_date = COALESCE(?, capture_date), exif_done = 1 WHERE id = ?
@@ -318,8 +352,10 @@ extension Catalog {
         for (id, path) in todo {
             let url = URL(fileURLWithPath: path, isDirectory: false)
             var cam: String?, lens: String?, iso: Double?, ap: Double?, focal: Double?, sh: Double?, date: Double?
+            var read = false
             if let src = CGImageSourceCreateWithURL(url as CFURL, nil),
                let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
+                read = true
                 let tiff = p[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
                 let exif = p[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
                 let aux = p[kCGImagePropertyExifAuxDictionary] as? [CFString: Any] ?? [:]
@@ -335,6 +371,7 @@ extension Catalog {
                     date = f.date(from: d)?.timeIntervalSince1970
                 }
             }
+            guard read else { _ = try? db.run("UPDATE images SET exif_done = 2 WHERE id = ?", [id]); continue }
             _ = try? db.run("""
                 UPDATE images SET camera = COALESCE(?, camera), lens = COALESCE(?, lens), iso = ?, aperture = ?, focal = ?, shutter = ?,
                     capture_date = COALESCE(?, capture_date), exif_done = 1 WHERE id = ?

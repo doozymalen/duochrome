@@ -40,6 +40,11 @@ struct KeyCombo: Hashable, Codable {
         if k == "+" { k = "=" }
         // ⇧] · ⇧[ arrive as } · { — match on the braces
         if k == "}" { k = "]" } else if k == "{" { k = "[" }
+        // The other shifted symbols arrive as the symbol too (⇧- is "_", ⇧; is ":" …): back to the key they are defined by,
+        // or shortcuts like ⇧-, ⌃⇧⌘-, ⇧⌘\ and ⇧⌘; could never match
+        if m & 2 != 0, let base = ["_": "-", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/", "~": "`"][k] { k = base }
+        // "*" is defined as the character itself (it needs ⇧ to type): the shift is part of the key, not a modifier
+        if k == "*" { m &= ~UInt(2) }
         key = k
         mods = m
     }
@@ -109,8 +114,13 @@ enum KeyMap {
             act("tool.wb", "화이트 밸런스 스포이트", "도구", bulk: ["w"], studio: []) { $0.keyTool(.whiteBalance, studio: "whiteBalance") },
             act("tool.heal", "복구", "도구", bulk: ["q", "o"], studio: ["j"]) { $0.keyRetouch("repair") },
             act("tool.clone", "복제 도장", "도구", bulk: ["s"], studio: ["s"]) { $0.keyRetouch("clone") },
-            act("tool.mask", "마스크 칠하기 (브러시)", "도구", bulk: ["b"], studio: ["b"]) { $0.keyTool(.mask, studio: "maskPaint") },
-            act("tool.maskErase", "마스크 지우개", "도구", bulk: ["e"], studio: []) { w in w.layersTab.erase = true; w.keyTool(.mask, studio: "maskPaint") },
+            act("tool.mask", "마스크 칠하기 (브러시)", "도구", bulk: ["b"], studio: ["b"]) { w in
+                // Painting, not erasing (E leaves the eraser on; B used to keep erasing after it)
+                w.layersTab.erase = false
+                w.keyTool(.mask, studio: "maskPaint")
+                w.layersTab.sync(w.photo?.settings)
+            },
+            act("tool.maskErase", "마스크 지우개", "도구", bulk: ["e"], studio: []) { w in w.layersTab.erase = true; w.keyTool(.mask, studio: "maskPaint"); w.layersTab.sync(w.photo?.settings) },
             act("tool.linear", "선형 그라디언트", "도구", bulk: ["l"], studio: []) { $0.keyGradient(.linear) },
             act("tool.radial", "원형 그라디언트", "도구", bulk: ["t"], studio: []) { $0.keyGradient(.radial) },
             act("tool.picker", "색상 피커", "도구", bulk: ["d"], studio: []) { $0.keyTool(.colorPick, studio: "picker") },
@@ -128,10 +138,6 @@ enum KeyMap {
             sel("sel.selectMask", "선택 및 마스크", "선택", #selector(W.showSelectAndMask(_:)), bulk: [], studio: []),
             act("tool.dodge", "닷지 (밝게)", "도구", bulk: [], studio: ["o"]) { $0.retouchSelect("lighten") },
             act("tool.gradient", "그라디언트", "도구", bulk: [], studio: ["g"]) { $0.retouchSelect("gradient") },
-            act("tool.eraser", "지우개", "도구", bulk: [], studio: []) { $0.retouchSelect("erase") },
-            act("tool.type", "문자", "도구", bulk: [], studio: []) { $0.retouchSelect("text") },
-            act("tool.pen", "펜", "도구", bulk: [], studio: []) { $0.retouchSelect("pen") },
-            act("tool.shape", "도형", "도구", bulk: [], studio: []) { $0.retouchSelect("shape") },
             act("tool.brushSmaller", "브러시 작게", "도구", bulk: ["["], studio: ["["]) { $0.brushSmaller(nil) },
             act("tool.brushLarger", "브러시 크게", "도구", bulk: ["]"], studio: ["]"]) { $0.brushLarger(nil) },
             // View
@@ -163,9 +169,9 @@ enum KeyMap {
             act("adj.satDown", "채도 내리기", "조정", bulk: ["^~@-"], studio: []) { $0.keyNudge(\.saturation, -5) },
             act("adj.kelvinUp", "색온도 올리기", "조정", bulk: ["$="], studio: []) { $0.keyNudge(\.temperature, 100) },
             act("adj.kelvinDown", "색온도 내리기", "조정", bulk: ["$-"], studio: []) { $0.keyNudge(\.temperature, -100) },
-            act("adj.levels", "레벨", "조정", bulk: [], studio: ["@l"]) { $0.keyRevealCard("levels") },
+            act("adj.levels", "레벨", "조정", bulk: [], studio: []) { $0.keyRevealCard("levels") },
             act("adj.curves", "커브", "조정", bulk: [], studio: ["@m"]) { $0.keyRevealCard("curve") },
-            act("adj.balance", "컬러 밸런스", "조정", bulk: [], studio: ["@b"]) { $0.keyRevealCard("balance") },
+            act("adj.balance", "컬러 밸런스", "조정", bulk: [], studio: []) { $0.keyRevealCard("balance") },
             act("adj.hueSat", "색조/채도 (컬러 에디터)", "조정", bulk: [], studio: ["@u"]) { $0.keyRevealCard("editor") },
             act("adj.invert", "반전 레이어", "조정", bulk: [], studio: ["@i"]) { $0.keyAdjustLayer("반전") { $0.invert = 1 } },
             act("adj.desaturate", "채도 빼기 레이어", "조정", bulk: [], studio: ["$@u"]) { $0.keyAdjustLayer("채도 빼기") { $0.saturation = -100 } },
@@ -275,6 +281,15 @@ extension MainWindowController {
                    NSApp.mainMenu?.performKeyEquivalent(with: latin) == true { return nil }
                 return e
             }
+            // Grid view: there is no canvas, so tool, adjustment and layer keys must not act on the photo that happens
+            // to be open behind it. Copy / apply adjustments work on the grid selection instead.
+            if self.mode == .library {
+                switch action.id {
+                case "adj.copy": self.copyFromFirstSelected(); return nil
+                case "adj.paste": self.applyClipboardToSelection(); return nil
+                default: if ["tool.", "adj.", "layer.", "sel."].contains(where: { action.id.hasPrefix($0) }) { return e }
+                }
+            }
             // Layer shortcuts only when the layer list is visible; if the photo list has focus, it gets them
             if action.id.hasPrefix("layer."), !self.layerKeysActive { return e }
             action.run(self)
@@ -321,6 +336,7 @@ extension MainWindowController {
     /// L·T: if the selected layer is that kind, switch to its mask tool; otherwise add a layer of that kind
     func keyGradient(_ kind: LayerMask.Kind) {
         guard let doc = photo else { return }
+        if mode == .studio { retouchSelect(kind == .radial ? "gradRadial" : "gradLinear"); return }
         if let id = layersTab.selectedID, doc.settings.layers.first(where: { $0.id == id })?.mask.kind == kind {} else {
             layersTab.addLayer(kind, native: doc.nativeSize)
         }
@@ -336,7 +352,10 @@ extension MainWindowController {
     }
 
     func keyRevealCard(_ id: String) {
-        if mode == .studio { retouchSelect("adjust") } else { tools.select(tools.index(of: "조정")) }
+        // Layer edit has its own inspector (curves and per-color sliders live in the color adjustments tool);
+        // the batch-edit cards are not on screen there
+        if mode == .studio { retouchSelect("adjust"); return }
+        tools.select(tools.index(of: "조정"))
         inspector.reveal(id)
     }
 

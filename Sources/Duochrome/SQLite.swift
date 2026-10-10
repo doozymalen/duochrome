@@ -94,8 +94,19 @@ final class SQLiteDB {
         guard sqlite3_backup_finish(b) == SQLITE_OK else { throw Failure(message: String(cString: sqlite3_errmsg(dest))) }
     }
 
+    /// Transactions may nest: an inner one joins the outer (SQLite refuses a second BEGIN, which made every
+    /// helper that opens its own transaction fail when called inside another)
+    private var transactionDepth = 0
     func transaction(_ body: () throws -> Void) throws {
+        if transactionDepth > 0 {
+            transactionDepth += 1
+            defer { transactionDepth -= 1 }
+            try body()
+            return
+        }
         try exec("BEGIN")
+        transactionDepth = 1
+        defer { transactionDepth = 0 }
         do { try body(); try exec("COMMIT") } catch { try? exec("ROLLBACK"); throw error }
     }
 }

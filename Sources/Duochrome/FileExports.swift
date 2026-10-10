@@ -74,8 +74,19 @@ enum DNGWriter {
                 C / det, -(a * h - b * g) / det, (a * e - b * d) / det]
     }
 
+    /// Prepared like any other export: full resolution (batch edit shows a preview-size decode), the cropped frame
+    /// rather than the crop tool's full frame, no draft quality, measurements settled
     static func write(_ doc: RawDocument, to url: URL, scale: CGFloat = 1) throws {
-        try write(image: doc.image(scale: scale), to: url, camera: doc.info.camera)
+        try BackgroundGate.during {
+            try doc.withFullResolution {
+                let wasFull = doc.showFullFrame, wasDraft = doc.draft
+                doc.showFullFrame = false
+                doc.draft = false
+                defer { doc.showFullFrame = wasFull; doc.draft = wasDraft }
+                doc.settleForExport()
+                try write(image: doc.image(scale: scale), to: url, camera: doc.info.camera)
+            }
+        }
     }
 
     /// Working-space image → DNG. baselineExposure (EV) is how much the reader brightens (HDR merge)

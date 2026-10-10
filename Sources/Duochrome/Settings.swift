@@ -222,7 +222,6 @@ enum SettingsPane {
             AppSettings.previewSize = [1680, 2560, 3840][$0]
         }, note: "크면 확대해도 원본을 덜 풀지만 용량이 늘어납니다.")
         p.row("품질", p.popup(["16비트 TIFF — 빠름 (한 장 약 40MB)", "10비트 HEIF — 작음 (한 장 약 0.4MB, 느림)"], selected: AppSettings.previewQuality) { AppSettings.previewQuality = $0 })
-        p.row("만드는 때", p.popup(["가져올 때 모두", "볼 때만"], selected: AppSettings.previewWhen) { AppSettings.previewWhen = $0 })
         p.row("동시에 만들기", p.popup(["1장", "2장", "3장", "4장"], selected: AppSettings.previewWorkers - 1) { AppSettings.previewWorkers = $0 + 1 },
               note: "메모리 16GB 맥에서는 2장이 알맞습니다.")
         p.row("용량 한도", p.popup(["2 GB", "5 GB", "10 GB", "20 GB", "50 GB"], selected: [2, 5, 10, 20, 50].firstIndex(of: AppSettings.previewLimitGB) ?? 1) {
@@ -234,18 +233,21 @@ enum SettingsPane {
 
     static func export() -> NSViewController {
         let p = Pane()
-        var r = ExportRecipe.saved
-        p.row("기본 폴더", p.folder(r.folder) { r.folder = $0; r.save() })
-        p.row("기본 형식", p.popup(ExportRecipe.Format.allCases.map(\.title), selected: ExportRecipe.Format.allCases.firstIndex(of: r.format) ?? 0) {
-            r.format = ExportRecipe.Format.allCases[$0]; r.save()
+        let r = ExportRecipe.saved
+        // Each change re-reads the saved recipe and sets one field: this pane is built once, and writing back the copy
+        // from then overwrote whatever the export window had saved since
+        func change(_ f: (inout ExportRecipe) -> Void) { var now = ExportRecipe.saved; f(&now); now.save() }
+        p.row("기본 폴더", p.folder(r.folder) { v in change { $0.folder = v } })
+        p.row("기본 형식", p.popup(ExportRecipe.Format.allCases.map(\.title), selected: ExportRecipe.Format.allCases.firstIndex(of: r.format) ?? 0) { i in
+            change { $0.format = ExportRecipe.Format.allCases[i] }
         })
-        p.row("색 공간", p.popup(ExportRecipe.Space.allCases.map(\.title), selected: ExportRecipe.Space.allCases.firstIndex(of: r.space) ?? 0) {
-            r.space = ExportRecipe.Space.allCases[$0]; r.save()
+        p.row("색 공간", p.popup(ExportRecipe.Space.allCases.map(\.title), selected: ExportRecipe.Space.allCases.firstIndex(of: r.space) ?? 0) { i in
+            change { $0.space = ExportRecipe.Space.allCases[i] }
         })
         let mark = NSTextField(string: r.watermark)
         mark.placeholderString = "예: © doozymalen.com"
         mark.widthAnchor.constraint(equalToConstant: 220).isActive = true
-        let a = SettingsAction { r.watermark = mark.stringValue; r.save() }
+        let a = SettingsAction { change { $0.watermark = mark.stringValue } }
         p.actions.append(a)
         mark.target = a; mark.action = #selector(SettingsAction.fire)
         p.row("기본 워터마크", mark, note: "내보내기 창에서 사진마다 바꿀 수 있습니다.")

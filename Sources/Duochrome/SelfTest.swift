@@ -1552,6 +1552,28 @@ enum SelfTest {
                   "회색 \(grayOK), 이중톤 \(duoOK), CMYK \(cmykOK) \(c.prefix(3).map { String(format: "%.2f", $0) }), 색 공간 \(spaceOK) \(String(format: "%.2f→%.2f", before[0], after[0])), 8비트 \(depthOK), 채널 \(chOK), 쓰기 Lab \(String(describing: labM)) CMYK \(String(describing: cmykM)) 회색 \(String(describing: grayM))")
         }
 
+        // A transaction inside a transaction joins the outer one (it used to fail on the second BEGIN, which made
+        // "fix capture time" fail every time), and the highlights slider value is part of what copy/paste carries
+        do {
+            let path = NSTemporaryDirectory() + "duochrome-nested-\(UUID().uuidString).sqlite"
+            defer { try? FileManager.default.removeItem(atPath: path) }
+            var rows = 0, threw = false
+            do {
+                let db = try SQLiteDB(path: path)
+                try db.exec("CREATE TABLE t (v INTEGER)")
+                try db.transaction {
+                    _ = try db.run("INSERT INTO t VALUES (1)")
+                    try db.transaction { _ = try db.run("INSERT INTO t VALUES (2)") }
+                }
+                try db.query("SELECT COUNT(*) FROM t") { rows = Int($0.int(0)) }
+            } catch { threw = true }
+            var hs = DevelopSettings()
+            hs.highlightTone = -40
+            let dict = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(hs)) as? [String: Any]) ?? [:]
+            let carried = AdjustGroup.hdr.keys.contains { k in (dict[k] as? Double).map { $0 != 0 } ?? false }
+            check("겹친 트랜잭션 · 하이라이트 복사", !threw && rows == 2 && carried, "행 \(rows), 오류 \(threw), 하이라이트 값 포함 \(carried)")
+        }
+
         // Group with its own blend mode: pixels its children did not touch stay as they were
         // (multiply used to blend the photo with itself and darken everything)
         do {

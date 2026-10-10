@@ -73,6 +73,8 @@ final class ColorEditorView: NSStackView {
 
     private func edit(_ dragging: Bool, _ f: (inout ColorRange) -> Void) {
         guard settings.color.editor.indices.contains(index) else { return }
+        // Advanced tab with no advanced range yet: the controls must not rewrite a basic range (the default red)
+        if tabs.selectedSegment == 1, index < basicCount { NSSound.beep(); return }
         f(&settings.color.editor[index])
         onChange?(settings, dragging)
         refreshDecor()

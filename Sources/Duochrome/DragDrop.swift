@@ -238,7 +238,7 @@ extension MainWindowController {
     /// Adds photos dragged from the photo list to an album.
     func dropPhotos(_ paths: [String], toAlbum id: Int64) {
         let set = Set(paths)
-        let ids = library.items.filter { set.contains($0.url.path) }.map(\.id).filter { $0 != 0 }
+        let ids = library.items.filter { set.contains(Catalog.storedPath($0.url)) }.map(\.id).filter { $0 != 0 }
         guard !ids.isEmpty else { NSSound.beep(); return }
         try? library.catalog.addToAlbum(id, ids)
         reloadSources()
@@ -246,7 +246,7 @@ extension MainWindowController {
 
     /// Dropping a photo onto another: pastes the dragged photo's adjustments onto it (same groups as Apply Adjustments).
     func dropAdjustments(from path: String, onto target: PhotoItem) {
-        guard let source = library.items.first(where: { $0.url.path == path }), source !== target else { return }
+        guard let source = library.items.first(where: { Catalog.storedPath($0.url) == path }), source !== target else { return }
         var dict: [String: Any]
         if source === photoItem, let doc = photo {
             dict = settingsDict(doc.settings)

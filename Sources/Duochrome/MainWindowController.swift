@@ -660,7 +660,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     }
 
     /// A nil point means auto white balance.
-    func pickWhiteBalance(at point: CGPoint?, done: (() -> Void)? = nil) {
+    func pickWhiteBalance(at point: CGPoint?, record: Bool = true, done: (() -> Void)? = nil) {
         guard let doc = photo else { return }
         NSCursor.operationNotAllowed.push()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -672,8 +672,12 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
                 guard let wb else { NSSound.beep(); return }
                 s.temperature = wb.temperature
                 s.tint = wb.tint
-                self.apply(s, dragging: false)
-                self.inspector.show(doc)
+                if record {
+                    self.apply(s, dragging: false)
+                    self.inspector.show(doc)
+                } else {
+                    doc.settings = s      // the caller records the whole change as one step
+                }
                 done?()
             }
         }
@@ -1436,16 +1440,21 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         if item.action == #selector(showShortcuts(_:)) { return true }
         if item.action == #selector(showSupportedCameras(_:)) { return true }
         if item.action == #selector(toggleJobsPanel(_:)) { item.state = jobsPanel?.isShown == true ? .on : .off; return true }
-        let always: [Selector] = [#selector(switchToLibrary(_:)), #selector(switchToEdit(_:)), #selector(switchToTether(_:)),
+        let always: [Selector] = [#selector(switchToLibrary(_:)), #selector(switchToEdit(_:)), #selector(switchToTether(_:)), #selector(switchToStudio(_:)),
                                   #selector(importExternalCatalog(_:)), #selector(showSettings(_:)), #selector(stopColab(_:)), #selector(reinstallAIEngine(_:)), #selector(toggleAIEngine(_:))]
         if always.contains(item.action!) {
             if item.action == #selector(switchToLibrary(_:)) { item.state = mode == .library ? .on : .off }
             if item.action == #selector(switchToEdit(_:)) { item.state = mode == .edit ? .on : .off }
             if item.action == #selector(switchToTether(_:)) { item.state = mode == .tether ? .on : .off }
+            if item.action == #selector(switchToStudio(_:)) { item.state = mode == .studio ? .on : .off }
             return true
         }
         if item.action == #selector(rateFromMenu(_:)) || item.action == #selector(colorFromMenu(_:))
             || item.action == #selector(exportPhotos(_:)) { return !targetItems.isEmpty }
+        // Layer edit has its own tools: the batch-edit cursor tools would change the canvas input behind its tool bar
+        if mode == .studio, [#selector(toolPan(_:)), #selector(toolZoom(_:)), #selector(toolCrop(_:)), #selector(toolStraighten(_:)),
+                             #selector(toolKeystone(_:)), #selector(toolWhiteBalance(_:)), #selector(toolRetouch(_:)),
+                             #selector(toolMask(_:))].contains(item.action!) { return false }
         if item.action == #selector(undoAdjust(_:)) { return history.canUndo }
         if item.action == #selector(redoAdjust(_:)) { return history.canRedo }
         if item.action == #selector(pasteAdjustments(_:)) { return photo != nil && clipboard != nil }

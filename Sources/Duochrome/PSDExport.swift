@@ -116,7 +116,17 @@ enum PSDExport {
                 maskData = maskChannel(m, rect: rect, depth: depth, psb: psb)
             }
             if layer.isGroup {
-                if let idx = open.lastIndex(of: layer.id) { open.remove(at: idx) }
+                if let idx = open.lastIndex(of: layer.id) {
+                    open.remove(at: idx)
+                } else {
+                    // A group without children never had its end divider written by a child: without it the header
+                    // swallows the layers below it when the file is read
+                    var d = PSD.Layer()
+                    d.name = "</Layer group>"
+                    d.flags = 0x18
+                    d.blocks = [("lsct", u32Data(3))]
+                    outs.append(Out(layer: d, data: emptyChannels()))
+                }
                 rec.blend = layer.blend == Layers.passThroughKey ? "pass" : PSD.psdBlend(layer.blend)
                 var lsct = PSD.Writer()
                 lsct.u32(1); lsct.key("8BIM"); lsct.key(rec.blend)

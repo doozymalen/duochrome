@@ -170,7 +170,7 @@ extension MainWindowController {
             ("hand.raised", "이동 (H)"),
             ("plus.magnifyingglass", "확대 (Z) — 옵션을 누르고 누르면 축소"),
             ("crop", "크롭 (C)"),
-            (straighten, "수평 맞추기 (L) — 기울어진 선을 따라 끌기"),
+            (straighten, "수평 맞추기 (R) — 기울어진 선을 따라 끌기"),
             (keystone, "키스톤 (K) — 세로여야 할 선 두 개를 따라 끌기"),
             ("eyedropper", "화이트 밸런스 (W) — 무채색이어야 할 곳 누르기"),
             ("bandage", "리터칭 (Q) — 복구 브러시·복제 도장·패치"),
@@ -178,11 +178,11 @@ extension MainWindowController {
         ]
         cursorButtons = tools.map { ModeBarButton($0.0, $0.1, target: self, action: #selector(setCursorTool(_:))) }
         cursorButtons.first?.isOn = true
-        let clip = ModeBarButton("exclamationmark.triangle", "노출 경고 (⌥⌘O)", target: self, action: #selector(toggleClipping(_:)))
+        let clip = ModeBarButton("exclamationmark.triangle", "노출 경고 (⌘E)", target: self, action: #selector(toggleClipping(_:)))
         clippingButton = clip
         return ModeBar(cursorButtons + [
             ModeBar.gap(),
-            ModeBarButton("wand.and.stars", "자동 조정 (⇧⌘A)", target: self, action: #selector(autoAdjust(_:))),
+            ModeBarButton("wand.and.stars", "자동 조정 (⌘L)", target: self, action: #selector(autoAdjust(_:))),
             clip,
             ModeBarButton("doc.on.doc", "조정 복사 (⇧⌘C)", target: self, action: #selector(copyAdjustments(_:))),
             ModeBarButton("doc.on.clipboard", "조정 적용 (⇧⌘V)", target: self, action: #selector(pasteAdjustments(_:))),

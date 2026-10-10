@@ -151,11 +151,16 @@ extension MainWindowController {
     // MARK: - Capture time fix
 
     func shiftCaptureTime(_ items: [PhotoItem], by seconds: Double) {
-        try? library.catalog.db.transaction {
-            for it in items {
-                try library.catalog.db.run("UPDATE images SET capture_date = COALESCE(capture_date, imported_at) + ? WHERE id = ?", [seconds, it.id])
-                try library.catalog.setMetadata([it.id], "timeShift", String(seconds))
+        do {
+            try library.catalog.db.transaction {
+                for it in items {
+                    try library.catalog.db.run("UPDATE images SET capture_date = COALESCE(capture_date, imported_at) + ? WHERE id = ?", [seconds, it.id])
+                    try library.catalog.setMetadata([it.id], "timeShift", String(seconds))
+                }
             }
+        } catch {
+            // It used to fail silently every time (a transaction inside a transaction)
+            let a = NSAlert(); a.messageText = "촬영 시각을 고치지 못했습니다"; a.informativeText = error.localizedDescription; a.runModal()
         }
     }
 
@@ -237,7 +242,18 @@ extension MainWindowController {
     }
 
     static func sidecarURL(_ item: PhotoItem) -> URL {
-        let base = URL(fileURLWithPath: item.url.path).deletingPathExtension()
+        let file = URL(fileURLWithPath: item.url.path)
+        let base = file.deletingPathExtension()
+        // name.xmp belongs to the RAW. A JPEG/TIFF/HEIC next to a RAW of the same name writes name.jpg.xmp instead,
+        // or the pair overwrote each other's ratings and keywords
+        if item.variant == 0, !Library.rawExtensions.contains(file.pathExtension.lowercased()) {
+            let dir = file.deletingLastPathComponent()
+            let hasRawTwin = Library.rawExtensions.contains { ext in
+                FileManager.default.fileExists(atPath: dir.appendingPathComponent(base.lastPathComponent).appendingPathExtension(ext).path)
+                    || FileManager.default.fileExists(atPath: dir.appendingPathComponent(base.lastPathComponent).appendingPathExtension(ext.uppercased()).path)
+            }
+            if hasRawTwin { return file.appendingPathExtension("xmp") }
+        }
         return item.variant > 0 ? URL(fileURLWithPath: base.path + "_v\(item.variant)").appendingPathExtension("xmp") : base.appendingPathExtension("xmp")
     }
 
@@ -316,8 +332,20 @@ extension MainWindowController {
         }
         var n = 0
         for it in items where it.variant == 0 {
-            guard let found = byName[it.url.lastPathComponent.lowercased()]?.first else { continue }
-            if (try? library.catalog.movePath(from: URL(fileURLWithPath: it.url.path), to: found)) != nil { n += 1 }
+            guard let found = byName[it.url.lastPathComponent.lowercased()], !found.isEmpty else { continue }
+            var pick = found.count == 1 ? found[0] : nil
+            if pick == nil {
+                // Several files share the name (IMG_0001 from different shoots): take the one taken at the catalog's
+                // capture time; if that does not settle it, leave the photo alone rather than link the wrong picture
+                var taken: Double?
+                try? library.catalog.db.query("SELECT capture_date FROM images WHERE id = ?", [it.id]) { taken = $0.optDouble(0) }
+                if let taken {
+                    let same = found.filter { u in Catalog.readExif(0, u.path).date.map { abs($0 - taken) < 2 } ?? false }
+                    if same.count == 1 { pick = same[0] }
+                }
+            }
+            guard let target = pick else { continue }
+            if (try? library.catalog.movePath(from: URL(fileURLWithPath: it.url.path), to: target)) != nil { n += 1 }
         }
         return n
     }

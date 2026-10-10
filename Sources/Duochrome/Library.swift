@@ -78,6 +78,9 @@ final class Library {
         "dng",
         "jpg", "jpeg", "tif", "tiff", "png", "heic", "psd", "psb"]
 
+    /// The RAW formats among them
+    static let rawExtensions: Set<String> = supported.subtracting(["jpg", "jpeg", "tif", "tiff", "png", "heic", "psd", "psb"])
+
     /// Old adjustments folder (JSON files). Now stored in the catalog DB; this folder is read only when migrating.
     static var legacyStore: URL {
         let env = ProcessInfo.processInfo.environment

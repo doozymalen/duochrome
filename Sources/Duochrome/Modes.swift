@@ -70,6 +70,7 @@ extension MainWindowController {
         let cat = library.catalog
         if ProcessInfo.processInfo.environment["DUOCHROME_UITEST"] == nil {
             // File reads in the background, only DB writes on the main thread (file reads used to run on main too, so the UI stuttered for the first 1–2 minutes of a new catalog)
+            cat.retryFailedExif()
             func next() {
                 let todo = cat.exifTodo(limit: 40)
                 guard !todo.isEmpty else { return }
@@ -116,6 +117,8 @@ extension MainWindowController {
             updateHistogram()
         }
         if leaving == .studio && m != .studio { leaveStudio() }
+        // Leaving tethering: live view stops (it kept decoding frames behind the other modes)
+        if leaving == .tether && m != .tether { gphoto?.live(false); tetherMode.setLive(false) }
         UserDefaults.standard.set(m.rawValue, forKey: "mode")
         // One toolbar shared by all modes (not swapped). Mode-specific items are in per-mode bars over the canvas.
         if let bar = bulkToolbar, window.toolbar !== bar { window.toolbar = bar }
@@ -163,6 +166,9 @@ extension MainWindowController {
             tetherMode.strip.reload()
             startTether()
         case .studio:
+            // Coming from the grid: open the photo picked there first (as batch edit does)
+            if let p = pendingItem, p !== photoItem { show(p) }
+            pendingItem = nil
             enterStudio()
         }
         applySideWidths(widths, to: m)
@@ -185,7 +191,7 @@ extension MainWindowController {
 
     func modeToolbarItem() -> NSToolbarItem {
         let seg = ModeSwitch(items: AppMode.segments.map {
-            ($0.symbol, $0.title, "\($0.title) 모드 (\($0.key.uppercased()))" + ($0 == .edit ? " — 격자 보기는 G" : ""))
+            ($0.symbol, $0.title, "\($0.title) 모드 (⌥⌘\([AppMode.edit: 1, .library: 2, .studio: 3, .tether: 4][$0] ?? 1))" + ($0 == .edit ? " — 격자 보기는 ⌥⌘2" : ""))
         })
         seg.selectedSegment = mode.segment
         seg.onPick = { [weak self] i in self?.setMode(AppMode.segments[max(0, min(i, AppMode.segments.count - 1))]) }
@@ -500,9 +506,11 @@ extension MainWindowController {
         get {
             if let p = ProcessInfo.processInfo.environment["DUOCHROME_TETHER_FOLDER"] { return URL(fileURLWithPath: p) }
             if let p = UserDefaults.standard.string(forKey: "tether.folder") { return URL(fileURLWithPath: p) }
+            // A dated folder inside the session folder chosen in Settings (that setting used to be saved and never read)
             let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-            return FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Pictures/Duochrome/Tether/\(f.string(from: Date()))", isDirectory: true)
+            let base = AppSettings.tetherFolder.map { URL(fileURLWithPath: $0, isDirectory: true) }
+                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/Duochrome/Tether", isDirectory: true)
+            return base.appendingPathComponent(f.string(from: Date()), isDirectory: true)
         }
         set { UserDefaults.standard.set(newValue.path, forKey: "tether.folder") }
     }
@@ -600,6 +608,12 @@ extension MainWindowController {
         let previous = photo?.settings
         let previousName = photoItem?.name
         _ = try? library.catalog.addFolder(url.deletingLastPathComponent())
+        // In another mode a new capture is only registered: it must not replace the photo being edited there
+        // (the session shows it when tethering is entered again)
+        guard mode == .tether else {
+            if tetherMode.nextMode == 2, let clip = batchClipboard { library.saveRawSettings(clip, for: url) }
+            return
+        }
         library.show(library.source)
         sourceChanged(title: url.deletingLastPathComponent().lastPathComponent)
         tetherMode.setFolder(url.deletingLastPathComponent(), count: library.items.count)

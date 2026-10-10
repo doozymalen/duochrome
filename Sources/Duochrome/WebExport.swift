@@ -130,7 +130,7 @@ final class WebExportWindow: NSWindowController {
         guard let w = window else { return }
         p.beginSheetModal(for: w) { [weak self] r in
             guard r == .OK, let url = p.url, let self else { return }
-            try? self.encoded.write(to: url)
+            do { try self.encoded.write(to: url) } catch { NSAlert(error: error).beginSheetModal(for: w) }
         }
     }
 

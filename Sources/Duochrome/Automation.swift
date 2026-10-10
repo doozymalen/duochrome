@@ -289,7 +289,7 @@ extension MainWindowController {
             applyStyle(named: n, strength: Double(q["strength"] ?? "") ?? 1)
         case "export":
             guard let doc = photo, let item = photoItem else { return false }
-            var r = ExportRecipe.library.first { $0.name == q["recipe"] } ?? ExportRecipe()
+            var r = ExportRecipe.library.first { $0.name == q["recipe"] } ?? ExportRecipe.saved   // the default set in Settings
             if let f = q["folder"] { r.folder = (f as NSString).expandingTildeInPath }
             _ = try? Exporter.export(doc, recipe: r, name: item.name)
         case "mode":
@@ -370,7 +370,7 @@ final class ApplyStyleCommand: NSScriptCommand {
 final class ExportPhotoCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
         guard let w = scriptWindow, let doc = w.photo, let item = w.photoItem else { scriptErrorNumber = -1; return nil }
-        var r = ExportRecipe.library.first { $0.name == (evaluatedArguments?["recipe"] as? String) } ?? ExportRecipe()
+        var r = ExportRecipe.library.first { $0.name == (evaluatedArguments?["recipe"] as? String) } ?? ExportRecipe.saved
         if let f = directParameter as? String { r.folder = (f as NSString).expandingTildeInPath }
         return (try? Exporter.export(doc, recipe: r, name: item.name))?.path
     }

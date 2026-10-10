@@ -120,8 +120,8 @@ enum PresetFiles {
                 let rgb = NSColor(hue: CGFloat(fa), saturation: CGFloat(fb), brightness: CGFloat(fc), alpha: 1)
                 return SIMD3(Float(rgb.redComponent), Float(rgb.greenComponent), Float(rgb.blueComponent))
             case 2: // CMYK (0 is full ink)
-                let k = 1 - fd
-                return SIMD3(fa * k, fb * k, fc * k)
+                // Each channel is stored as "1 − ink", black included: no black ink (fd = 1) leaves the color as it is
+                return SIMD3(fa * fd, fb * fd, fc * fd)
             case 7: // Lab: L 0~10000, a·b −12800~12700
                 return PSDAdjust.fromLab(SIMD3(Float(a) / 100, Float(Int16(bitPattern: b)) / 100, Float(Int16(bitPattern: c)) / 100))
             case 8: let g = 1 - Float(a) / 10000; return SIMD3(g, g, g)
