@@ -644,11 +644,13 @@ final class RawDocument {
             }
             // Full-size viewing (layer edit at 100% and closer): the RAW decoder decodes every newly visible region anew,
             // 2–4 s per frame on 45 MP while panning. Decode the whole frame once in the background and reuse it.
-            if !guide, !draft, !freezeDecodes, !thumbBaseMode, Thread.isMainThread, decodeScale >= 0.999, !decodedImage.extent.isEmpty {
+            if !guide, !freezeDecodes, !thumbBaseMode, Thread.isMainThread, decodeScale >= 0.999, !decodedImage.extent.isEmpty {
                 let key = fullKey + "|\(scale)|\(previewOnly)"
                 if let v = viewDecode, v.key == key {
+                    // Also while dragging (brush strokes, sliders at 100%): the frozen decode is there, so use it
+                    // instead of decoding the RAW again on every frame of the drag
                     decodedImage = v.image
-                } else {
+                } else if !draft {
                     startViewFreeze(decodedImage, key: key)
                 }
             }

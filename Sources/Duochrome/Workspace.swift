@@ -189,6 +189,40 @@ final class FocusLoupe: NSPanel {
         contentView = v
     }
 
+    private var pendingPoint: CGPoint?
+    private var rendering = false
+
+    /// Follows the pointer: the tile is rendered off the main thread and moves that arrive meanwhile collapse into
+    /// one next render (rendering a full-resolution tile on every mouse move held the pointer back)
+    func follow(_ doc: RawDocument, at p: CGPoint) {
+        pendingPoint = p
+        guard !rendering else { return }
+        renderPending(doc)
+    }
+
+    private func renderPending(_ doc: RawDocument) {
+        guard let p = pendingPoint else { return }
+        pendingPoint = nil
+        let img = doc.withFullResolution { doc.image(scale: 1) }
+        let half = Self.side
+        let r = CGRect(x: (p.x - half / 2).rounded(), y: (p.y - half / 2).rounded(), width: half, height: half).intersection(img.extent)
+        guard r.width > 4, r.height > 4 else { return }
+        let scale = backingScaleFactor
+        rendering = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, weak doc] in
+            let cg = Render.context.createCGImage(img, from: r, format: .RGBA8, colorSpace: Render.displaySpace)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rendering = false
+                if let cg {
+                    self.imageView.image = NSImage(cgImage: cg, size: NSSize(width: r.width / scale, height: r.height / scale))
+                    self.label.stringValue = String(format: "x %.0f  y %.0f", p.x, p.y)
+                }
+                if let doc, self.pendingPoint != nil, self.isVisible { self.renderPending(doc) }
+            }
+        }
+    }
+
     /// Shows the area around a photo-coordinate point at 100% (a tile of the photo at 100% zoom). True on success
     @discardableResult
     func show(_ doc: RawDocument, at p: CGPoint) -> Bool {
@@ -337,7 +371,7 @@ extension MainWindowController {
         l.orderFront(nil)
         canvas.onHover = { [weak self] p in
             guard let self, let l = self.focusLoupe, l.isVisible, let doc = self.photo else { return }
-            l.show(doc, at: p)
+            l.follow(doc, at: p)
         }
     }
 

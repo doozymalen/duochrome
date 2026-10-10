@@ -481,13 +481,19 @@ extension MainWindowController {
             var o = PSDExport.Options()
             o.depth = depth.indexOfSelectedItem == 1 ? 16 : 8
             if url.pathExtension.lowercased() == "psb" { o.psb = true }
+            // The open document is shared with the view, so it is written on the main thread. The status line and
+            // the jobs panel get one pass to appear first (they used to show only after the write had finished).
             self.window?.subtitle = "PSD 쓰는 중…"
-            do {
-                try PSDExport.write(doc, to: url, options: o) { NSLog("PSD: %@", $0) }
-                self.window?.subtitle = doc.url.lastPathComponent
-            } catch {
-                self.window?.subtitle = doc.url.lastPathComponent
-                NSAlert(error: error).beginSheetModal(for: window)
+            JobCenter.shared.begin("psd", title: "PSD 쓰기", detail: url.lastPathComponent)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                defer { JobCenter.shared.end("psd") }
+                do {
+                    try PSDExport.write(doc, to: url, options: o) { NSLog("PSD: %@", $0) }
+                    self.window?.subtitle = doc.url.lastPathComponent
+                } catch {
+                    self.window?.subtitle = doc.url.lastPathComponent
+                    NSAlert(error: error).beginSheetModal(for: window)
+                }
             }
         }
     }

@@ -99,9 +99,22 @@ enum PhotoImporter {
             }
             r.imported.append(dst)
         }
-        // Catalog registration (one import batch)
+        // Catalog registration (one import batch). The database is only used on the main thread: when the copying
+        // ran in the background, this part hops back.
+        if !Thread.isMainThread {
+            let dates = Dictionary(r.imported.map { ($0, captureDate($0)) }, uniquingKeysWith: { a, _ in a })   // file reads stay off main
+            DispatchQueue.main.sync { register(r.imported, catalog: catalog, dates: dates) }
+            return r
+        }
+        register(r.imported, catalog: catalog, dates: nil)
+        return r
+    }
+
+    private static func register(_ imported: [URL], catalog: Catalog, dates: [URL: Date?]?) {
+        var r = Result(); r.imported = imported
+        let captureDate: (URL) -> Date? = { u in if let dates { return dates[u] ?? nil }; return Self.captureDate(u) }
         let folders = Set(r.imported.map { $0.deletingLastPathComponent() })
-        guard let batch = try? catalog.nextBatch() else { return r }
+        guard let batch = try? catalog.nextBatch() else { return }
         let now = Date().timeIntervalSince1970
         for f in folders { _ = try? catalog.folderID(f.standardizedFileURL.path) }
         try? catalog.db.transaction {
@@ -114,7 +127,6 @@ enum PhotoImporter {
                 try catalog.db.run("UPDATE images SET import_batch = ?, offline = 0 WHERE path = ?", [batch, u.standardizedFileURL.path])
             }
         }
-        return r
     }
 }
 
@@ -174,8 +186,24 @@ extension MainWindowController {
         }
     }
 
+    /// Copying or moving a card's worth of photos takes minutes: it runs in the background with a progress line
+    /// (it used to run on the main thread and freeze the app until done)
     func runImport(_ o: PhotoImporter.Options) {
-        let res = PhotoImporter.run(o, catalog: library.catalog) { [weak self] s in self?.window?.subtitle = "불러오는 중 " + s }
+        let catalog = library.catalog
+        window?.subtitle = "불러오는 중…"
+        JobCenter.shared.begin("import", title: "사진 불러오기")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let res = PhotoImporter.run(o, catalog: catalog) { s in
+                DispatchQueue.main.async { self?.window?.subtitle = "불러오는 중 " + s; JobCenter.shared.detail("import", s) }
+            }
+            DispatchQueue.main.async {
+                JobCenter.shared.end("import")
+                self?.finishImport(o, res)
+            }
+        }
+    }
+
+    private func finishImport(_ o: PhotoImporter.Options, _ res: PhotoImporter.Result) {
         // Styles, keywords, XMP on import
         library.show(.recentImport)
         let items = library.items

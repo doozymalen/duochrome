@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        windowController?.flushHistorySave()
         windowController?.backupOnQuit()
         AIEngine.shared.stop()
         ColabEngine.shared.stopOnQuit()

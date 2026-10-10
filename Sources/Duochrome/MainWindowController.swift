@@ -272,11 +272,17 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         }
         setupModes()
         installDragAndDrop()
-        if let last = UserDefaults.standard.string(forKey: "lastFolder"),
-           FileManager.default.fileExists(atPath: last) {
-            openFolder(URL(fileURLWithPath: last))
-        } else {
-            selectSource(.all, title: "모든 사진")
+        // Everything first, then the last folder once it is known to be there: the check runs off the main thread
+        // (a network drive that is slow or gone would hold up the launch)
+        selectSource(.all, title: "모든 사진")
+        if let last = UserDefaults.standard.string(forKey: "lastFolder") {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard FileManager.default.fileExists(atPath: last) else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.photo == nil else { return }    // a photo was opened meanwhile: leave it
+                    self.openFolder(URL(fileURLWithPath: last, isDirectory: true))
+                }
+            }
         }
     }
 
@@ -409,6 +415,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
     /// Before moving to another photo, update the thumbnail to the adjusted result (only planning here, rendering in the background — no stall when stepping)
     func leaveCurrentPhoto() {
+        flushHistorySave()
         guard let doc = photo, let item = photoItem, item.edited else { return }
         let image = doc.image(scale: 1.0 / 8)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -457,8 +464,25 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         let wasEdited = item.edited
         library.saveSettings(doc.settings, asShot: doc.asShot, for: doc.url)
         if wasEdited != item.edited { refreshItem(item) }
-        if item.edited, let h = history.encoded() { library.catalog.setHistory(Library.key(for: doc.url), h) }
+        if item.edited { scheduleHistorySave(for: doc.url) }
         PreviewCache.shared.ensure(url: doc.url, settings: doc.settings)
+    }
+
+    /// The history (up to 60 full settings) is encoded and written a moment after the last change instead of on every
+    /// change: with many layers and strokes that was a large JSON on the main thread per edit.
+    /// Flushed when the photo is left and when the app quits.
+    func scheduleHistorySave(for url: URL) {
+        historySaveURL = url
+        historySaveTimer?.invalidate()
+        historySaveTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in self?.flushHistorySave() }
+    }
+
+    func flushHistorySave() {
+        historySaveTimer?.invalidate()
+        historySaveTimer = nil
+        guard let url = historySaveURL else { return }
+        historySaveURL = nil
+        if let h = history.encoded() { library.catalog.setHistory(Library.key(for: url), h) }
     }
 
     /// When values change from outside the panel, like undo or paste.
@@ -562,6 +586,8 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
     /// The crop tool shows the whole frame with the crop rect overlaid. Other tools show the cropped result.
     /// Settings from before the background was baked into a photo layer for a transform (see preparePhotoLayerForTransform)
+    var historySaveURL: URL?
+    var historySaveTimer: Timer?
     var transformBase: DevelopSettings?
     /// Picture file baked for that transform. A cancelled transform deletes it again (nothing refers to it yet).
     var transformBakedFile: String?

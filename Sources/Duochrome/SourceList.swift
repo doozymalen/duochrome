@@ -68,7 +68,7 @@ final class SourceListController: NSViewController, NSOutlineViewDataSource, NSO
         for f in (try? catalog.folders()) ?? [] {
             let c = n(.folder(f.id)) ?? 0
             guard c > 0 else { continue }
-            let url = URL(fileURLWithPath: f.path)
+            let url = URL(fileURLWithPath: f.path, isDirectory: true)   // no disk check (the path may be on a network drive)
             folders.children.append(Node("\(url.deletingLastPathComponent().lastPathComponent)/\(url.lastPathComponent)",
                                          "folder", .folder(f.id), count: c))
         }

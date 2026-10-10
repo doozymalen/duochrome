@@ -26,6 +26,7 @@ final class RetouchEditor: NSViewController {
 
     /// Name of the tool under the pointer, shown right under the tool bar
     let hoverTip = ToolHoverTip()
+    private var lastReload: ReloadState?
     private(set) var currentTool = UserDefaults.standard.string(forKey: "retouchTool") ?? "hand"
     /// Brush stroke being painted (RetouchHost.retouchStroke): settings before it, the layer it paints, whether it was shown live
     var strokeBase: DevelopSettings?
@@ -118,6 +119,7 @@ final class RetouchEditor: NSViewController {
 
     /// Moves the shared canvas in (it goes back to batch edit on leaving)
     func attachCanvas(_ canvas: NSView) {
+        lastReload = nil     // entering the mode: refresh the panels whatever they showed before
         _ = view
         canvas.removeFromSuperview()
         canvas.translatesAutoresizingMaskIntoConstraints = false
@@ -161,8 +163,14 @@ final class RetouchEditor: NSViewController {
     func restoreTool() { selectTool(RetouchTool.named(currentTool) != nil ? currentTool : "hand") }
 
     /// Layers or their values changed (or the layer selection did): refresh the panels
+    /// Several things ask for a refresh during one change (a brush stroke asked four or five times, each rebuilding the
+    /// whole layer list and its thumbnails): a refresh is skipped when nothing it shows has changed since the last one.
     func reload() {
         guard isViewLoaded, let host else { return }
+        let now = ReloadState(layers: host.photo?.settings.layers ?? [], selected: host.layersTab.selectedID, tool: currentTool,
+                              photo: host.photo.map { ObjectIdentifier($0) }, hasSelection: host.studioSelection != nil)
+        if now == lastReload { return }
+        lastReload = now
         layersPanel.reload(host: host)
         // The color adjustments tool's options depend on whether an adjustment layer is picked
         // Tool options that depend on the layers: color adjustments (is an adjustment layer picked), the retouch tools
@@ -173,6 +181,15 @@ final class RetouchEditor: NSViewController {
             inspector.reloadLayer(host: host)
         }
     }
+}
+
+/// What the layer editor's panels were last refreshed for
+struct ReloadState: Equatable {
+    var layers: [AdjustLayer]
+    var selected: String?
+    var tool: String
+    var photo: ObjectIdentifier?
+    var hasSelection: Bool
 }
 
 /// One tool of the layer editor

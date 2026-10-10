@@ -956,6 +956,7 @@ enum Layers {
     }
 
     private static var brushCache: [String: CIImage] = [:]
+    private static var brushOrder: [String] = []
     private static let brushLock = NSLock()
 
     /// Brush stroke mask. A soft mask doesn't need full resolution, so it's drawn at up to 1/2 and upscaled.
@@ -1003,8 +1004,11 @@ enum Layers {
             let sigma = avgR * rs * (1 - hardness) * 0.45
             if sigma > 0.5 { raw = raw.blurred(sigma) }
             img = raw
-            if brushCache.count > 16 { brushCache.removeAll() }
+            // Oldest out, one at a time: emptying the whole cache made every brush layer rasterize again on the
+            // next stroke once a document had more than 16 painted masks
+            if brushCache.count >= 48, let old = brushOrder.first { brushCache[old] = nil; brushOrder.removeFirst() }
             brushCache[key] = img
+            brushOrder.append(key)
         }
         let k = scale / rs
         return k == 1 ? img : img.transformed(by: .init(scaleX: k, y: k))
