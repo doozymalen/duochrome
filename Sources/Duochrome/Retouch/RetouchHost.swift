@@ -241,8 +241,17 @@ extension MainWindowController {
             label = preset.name
             // Continue on the selected layer if it is this brush's layer, otherwise on the top one of its kind, otherwise a new one
             let own = { (l: AdjustLayer) in l.preset == tool && l.kind == "adjust" && l.mask.kind == .brush && !l.locked }
+            // A layer of this brush that is not picked is only continued when a stroke would look the same on it:
+            // visible, and made with the strength and range set now (otherwise the new settings seemed to do nothing,
+            // or the stroke went into a hidden layer)
+            var probe = AdjustLayer(name: "")
+            RetouchTool.applyPreset(tool, to: &probe)
+            let same = { (l: AdjustLayer) in
+                own(l) && l.enabled && l.adjust == probe.adjust
+                    && l.mask.lumaMin == probe.mask.lumaMin && l.mask.lumaMax == probe.mask.lumaMax
+            }
             var i = ed.strokeLayerID.flatMap { id in s.layers.firstIndex { $0.id == id } }
-                ?? t.selectedID.flatMap { id in s.layers.firstIndex { $0.id == id && own($0) } } ?? s.layers.lastIndex(where: own)
+                ?? t.selectedID.flatMap { id in s.layers.firstIndex { $0.id == id && own($0) && $0.enabled } } ?? s.layers.lastIndex(where: same)
             if i == nil {
                 var l = AdjustLayer(name: preset.name)
                 l.preset = tool
@@ -273,7 +282,9 @@ extension MainWindowController {
                 return
             }
             var m = s.layers[i].mask
-            if m.kind == .brush && (m.combos ?? []).isEmpty {
+            if m.kind == .brush && (m.combos ?? []).allSatisfy({ $0.op == .intersect }) {
+                // Painted mask (possibly limited to a selection by intersect steps): strokes go into the painted base,
+                // so the limits still apply to them. Adding them as a later "add" step let them spill outside the selection.
                 m.strokes.append(stroke)
             } else if Self.isPlain(m) {
                 // Whole layer: painting limits the layer to where it is painted; ⌥ instead hides the painted part

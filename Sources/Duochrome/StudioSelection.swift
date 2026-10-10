@@ -294,7 +294,9 @@ extension MainWindowController {
     func maskBuffer(_ m: LayerMask, k: CGFloat, w: Int, h: Int) -> [UInt8]? {
         guard let doc = photo, w > 0, h > 0 else { return nil }
         let rect = CGRect(x: 0, y: 0, width: w, height: h)
-        let base = CIImage(color: .black).cropped(to: rect)
+        // Edge refinement and luma/color ranges read the photo: with a black stand-in they turned into a plain blur
+        let needsPhoto = (m.refine ?? 0) > 0 || m.colorRange != nil || m.hasLumaRange
+        let base = needsPhoto ? doc.nativePreview(scale: k).cropped(to: rect) : CIImage(color: .black).cropped(to: rect)
         let img = Layers.maskImage(m, scale: k, native: doc.nativeSize, shape: { i, _ in i }, base: base).cropped(to: rect)
         var px = [UInt8](repeating: 0, count: w * h)
         Render.context.render(img, toBitmap: &px, rowBytes: w, bounds: rect, format: .L8, colorSpace: nil)

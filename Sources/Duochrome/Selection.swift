@@ -388,6 +388,9 @@ extension MainWindowController {
         if (ch[i].mask.combos ?? []).isEmpty, let op {
             let f: NSEvent.ModifierFlags = op == .add ? .shift : (op == .subtract ? .option : [.shift, .option])
             commitSelection(m, flags: f, label: "선택 불러오기")
+        } else if mode == .studio {
+            // Layer edit: a loaded channel becomes the selection (it used to overwrite the picked layer's mask)
+            studioSelection = ch[i].mask
         } else {
             guard let t = selectionTarget(), var s = photo?.settings else { return }
             s.layers[t].mask = ch[i].mask
@@ -452,7 +455,7 @@ extension DevelopSettings {
 }
 
 /// Select and Mask workspace: view mode + refine edge values
-final class SelectAndMaskPanel: NSWindowController {
+final class SelectAndMaskPanel: NSWindowController, NSWindowDelegate {
     private weak var host: MainWindowController?
     private let view = NSPopUpButton()
     private var rows: [(WritableKeyPath<LayerMask, Double?>, SliderRow)] = []
@@ -464,6 +467,7 @@ final class SelectAndMaskPanel: NSWindowController {
         w.title = "선택 및 마스크"
         w.isFloatingPanel = true
         super.init(window: w)
+        w.delegate = self
         let stack = FlippedStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -497,6 +501,12 @@ final class SelectAndMaskPanel: NSWindowController {
     }
     required init?(coder: NSCoder) { fatalError() }
     private var featherRow: SliderRow?
+
+    /// The panel turned the mask view on (sync); closing it turns it off again, or the red overlay stayed on the photo
+    func windowWillClose(_ notification: Notification) {
+        host?.canvas.maskLayerID = nil
+        host?.canvas.maskStyle = 0
+    }
 
     func sync() {
         guard let h = host, let id = h.layersTab.selectedID, let l = h.photo?.settings.layers.first(where: { $0.id == id }) else { return }

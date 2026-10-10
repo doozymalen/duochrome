@@ -1085,6 +1085,68 @@ extension MainWindowController {
                 replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
             }
 
+            // Brushes: the mask brush stays inside the selection, a preset brush picks up a changed strength,
+            // and picking another layer re-targets the retouch spots
+            do {
+                let w = Double(doc.nativeSize.width), h = Double(doc.nativeSize.height)
+                var sel = LayerMask(); sel.kind = .rect; sel.box = [0, 0, w / 2, h]      // left half
+                studioSelection = sel
+                layersTab.select(nil)
+                ed.selectTool("maskBrush")
+                let b = canvas.brushSurface
+                let y = canvas.viewPoint(forImage: doc.toDisplay(CGPoint(x: w / 2, y: h / 2))).y
+                let x0 = canvas.viewPoint(forImage: doc.toDisplay(CGPoint(x: w * 0.25, y: h / 2))).x
+                let x1 = canvas.viewPoint(forImage: doc.toDisplay(CGPoint(x: w * 0.75, y: h / 2))).x
+                drag(b, from: CGPoint(x: x0, y: y), to: CGPoint(x: x1, y: y))
+                var inside = false, outside = true
+                if let m = doc.settings.layers.last?.mask, let px = maskBuffer(m, k: 0.05, w: Int(w * 0.05), h: Int(h * 0.05)) {
+                    let mw = Int(w * 0.05), row = Int(h * 0.05) / 2
+                    // Painted somewhere in the left half, nothing at all right of the selection edge
+                    var left = 0, right = 0
+                    for r in 0 ..< px.count / mw {
+                        for c in 0 ..< mw {
+                            let v = Int(px[r * mw + c])
+                            if c < mw / 2 - 1 { left = max(left, v) } else if c > mw / 2 + 1 { right = max(right, v) }
+                        }
+                    }
+                    _ = row
+                    inside = left > 100
+                    outside = right > 20
+                }
+                studioSelection = nil
+
+                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
+                let keep = RetouchTool.strength("dodge")
+                RetouchTool.setStrength(0.5, "dodge")
+                ed.selectTool("dodge")
+                drag(b, from: CGPoint(x: x0, y: y), to: CGPoint(x: x0 + 30, y: y))
+                layersTab.select(nil)
+                RetouchTool.setStrength(1, "dodge")
+                drag(b, from: CGPoint(x: x1, y: y), to: CGPoint(x: x1 + 30, y: y))
+                let dodges = doc.settings.layers.filter { $0.preset == "dodge" }
+                let strengthUsed = dodges.count == 2 && (dodges.last?.adjust.exposure ?? 0) > (dodges.first?.adjust.exposure ?? 9)
+                RetouchTool.setStrength(keep, "dodge")
+
+                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
+                var st = doc.settings
+                st.spots = [RetouchSpot(targetX: 100, targetY: 100, sourceX: 300, sourceY: 300, radius: 40),
+                            RetouchSpot(targetX: 500, targetY: 500, sourceX: 700, sourceY: 700, radius: 40)]
+                var copy = AdjustLayer(name: "배경 복사"); copy.kind = "copy"
+                copy.spots = [RetouchSpot(targetX: 900, targetY: 900, sourceX: 1100, sourceY: 1100, radius: 40)]
+                st.layers.append(copy)
+                replaceSettings(st, recordUndo: false, label: "시험")
+                layersTab.select(nil)
+                ed.selectTool("heal")
+                canvas.retouchOverlay.selected = 1
+                layersTab.select(copy.id)
+                let spotsFollow = canvas.retouchOverlay.spots.count == 1 && canvas.retouchOverlay.selected == nil
+
+                check("붓·복구 (선택 영역 안에만 마스크 붓 · 바꾼 세기 반영 · 레이어 따라 점 표시)", inside && !outside && strengthUsed && spotsFollow,
+                      "선택 안 \(inside), 선택 밖 \(outside), 세기 반영 \(strengthUsed) [닷지 레이어 \(dodges.count)], 점 표시 \(spotsFollow)")
+                ed.selectTool("hand")
+                replaceSettings(s0, recordUndo: false, label: "시험 되돌림")
+            }
+
             // Layer operations: merges keep what they should, send-to-front leaves groups, locks hold, clearing a mask clears all of it
             do {
                 var st = doc.settings

@@ -817,6 +817,14 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         layersTab.onSelect = { [weak self] id in
             guard let self else { return }
             if self.mode == .studio { DispatchQueue.main.async { self.retouchEditor.reload() } }
+            // Retouch spots belong to the picked layer (a background copy) or the background: show that target's spots
+            // and drop the picked spot, or ⌫ and drags would hit the same index on the other target
+            if let s = self.photo?.settings {
+                self.canvas.retouchOverlay.selected = nil
+                self.syncRetouch(s)
+            }
+            // The gradient tool draws the picked layer's handles
+            self.canvas.gradientSurface.needsDisplay = true
             self.canvas.maskOverlay.adjustLayer = self.photo?.settings.layers.first { $0.id == id }
             if self.canvas.maskLayerID != nil { self.canvas.maskLayerID = id }
             if id != nil, self.mode != .studio, self.tools.tabTitle(self.tools.selected) == "레이어" { self.enterTool(.mask) }
@@ -976,6 +984,7 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     @objc func ungroupLayer(_ sender: Any?) { layersTab.ungroupSelected() }
 
     func syncLayers(_ s: DevelopSettings, dragging: Bool) {
+        canvas.gradientSurface.needsDisplay = true     // handles follow undo, redo and outside changes
         canvas.maskOverlay.adjustLayer = s.layers.first { $0.id == layersTab.selectedID }
         canvas.maskOverlay.brushRadius = layersTab.brushRadius
         if !dragging { layersTab.sync(s); inspector.refreshLayers() }

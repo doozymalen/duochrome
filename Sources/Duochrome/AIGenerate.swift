@@ -301,13 +301,15 @@ extension MainWindowController {
 
     /// Fills inside the selected layer's mask (selection) according to the text prompt
     func aiGenerativeFill(prompt: String) {
-        guard let doc = photo, let id = layersTab.selectedID, let l = doc.settings.layers.first(where: { $0.id == id }), l.mask.kind != .full || l.mask.vector != nil,
-              let composite = nativeComposite() else {
+        // Where to fill: the layer editor's selection if there is one, otherwise the picked layer's mask
+        let layerMask = layersTab.selectedID.flatMap { id in photo?.settings.layers.first { $0.id == id } }?.mask
+        let fillMask = (mode == .studio ? studioSelection : nil) ?? layerMask.flatMap { $0.kind != .full || $0.vector != nil ? $0 : nil }
+        guard let doc = photo, let maskDef = fillMask, let composite = nativeComposite() else {
             let a = NSAlert(); a.messageText = "채울 곳을 먼저 선택하세요"; a.informativeText = "선택 도구로 영역을 만든 뒤(선택 레이어를 고른 상태) 다시 누르세요."; a.runModal(); return
         }
         let n = doc.nativeSize
         let full = CGRect(origin: .zero, size: n)
-        let mask = Layers.maskImage(l.mask, scale: 1, native: n, shape: { i, _ in i }, base: CIImage(color: .gray).cropped(to: full)).cropped(to: full)
+        let mask = Layers.maskImage(maskDef, scale: 1, native: n, shape: { i, _ in i }, base: CIImage(color: .gray).cropped(to: full)).cropped(to: full)
         guard let box = AIRegion.bounds(of: mask) else { NSSound.beep(); return }
         // Grow the box by half so it continues from the surroundings. At the size the model draws best (1024 long side)
         let pad = max(96, max(box.width, box.height) * 0.5)

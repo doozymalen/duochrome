@@ -165,7 +165,13 @@ final class RetouchEditor: NSViewController {
         guard isViewLoaded, let host else { return }
         layersPanel.reload(host: host)
         // The color adjustments tool's options depend on whether an adjustment layer is picked
-        if currentTool == "adjust", let t = RetouchTool.named("adjust") { inspector.show(tool: t, host: host) } else { inspector.reloadLayer(host: host) }
+        // Tool options that depend on the layers: color adjustments (is an adjustment layer picked), the retouch tools
+        // (which layer the spots go to) and the hand/zoom tools (the navigator's small photo)
+        if let t = RetouchTool.named(currentTool), t.id == "adjust" || t.group == .retouch || t.group == .view {
+            inspector.show(tool: t, host: host)
+        } else {
+            inspector.reloadLayer(host: host)
+        }
     }
 }
 
